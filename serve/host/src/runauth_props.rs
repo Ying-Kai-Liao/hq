@@ -445,7 +445,10 @@ pub fn prop_memory_args_allow_list() -> Result<(), String> {
                     continue;
                 }
                 if a == "-n" {
-                    ok &= it.next().and_then(Value::as_str).is_some_and(|v| !v.is_empty() && v.len() <= 6 && v.bytes().all(|b| b.is_ascii_digit()));
+                    ok &= it
+                        .next()
+                        .and_then(Value::as_str)
+                        .is_some_and(|v| !v.is_empty() && v.len() <= 6 && v.bytes().all(|b| b.is_ascii_digit()));
                 } else if a.as_str().is_some_and(|s| s.starts_with('-')) {
                     ok = false;
                 } else {
@@ -463,7 +466,10 @@ pub fn prop_memory_args_allow_list() -> Result<(), String> {
                 i += if out[i] == "-n" { 2 } else { 1 };
             }
             for flag in &out[1..i] {
-                prop_assert!(flag == "-n" || flag == "--json" || flag.bytes().all(|b| b.is_ascii_digit()), "{flag} passed");
+                prop_assert!(
+                    flag == "-n" || flag == "--json" || flag.bytes().all(|b| b.is_ascii_digit()),
+                    "{flag} passed"
+                );
             }
             let (mut rest, mut want) = (out[i..].to_vec(), words);
             rest.sort();
@@ -476,17 +482,26 @@ pub fn prop_memory_args_allow_list() -> Result<(), String> {
 
 /// P4d: `project_args` allows nothing, or `--info` of the token's own project; every other argument list is refused.
 pub fn prop_project_args_allow_list() -> Result<(), String> {
-    let verbs = &["--list", "--children", "--where", "--register", "--root", "--info", "--all", "--home", "--in", "."][..];
+    let verbs =
+        &["--list", "--children", "--where", "--register", "--root", "--info", "--all", "--home", "--in", "."][..];
     check(
         (
             prop_oneof![Just(None), Just(Some("alpha")), Just(Some("beta"))],
-            prop::collection::vec(prop_oneof![select(verbs).prop_map(String::from), word(), Just("alpha".to_owned()), Just("beta".to_owned())], 0..4),
+            prop::collection::vec(
+                prop_oneof![
+                    select(verbs).prop_map(String::from),
+                    word(),
+                    Just("alpha".to_owned()),
+                    Just("beta".to_owned())
+                ],
+                0..4,
+            ),
         ),
         |(project, args)| {
             let given: Vec<Value> = args.iter().map(|a| json!(a)).collect();
             let got = project_args(&given, project);
-            let allowed = args.is_empty()
-                || (args.len() == 2 && args[0] == "--info" && Some(args[1].as_str()) == project);
+            let allowed =
+                args.is_empty() || (args.len() == 2 && args[0] == "--info" && Some(args[1].as_str()) == project);
             prop_assert_eq!(got.is_ok(), allowed, "{:?} for {:?}", args, project);
             if let Ok(out) = got {
                 prop_assert_eq!(out, args);
@@ -539,9 +554,21 @@ pub fn prop_only_recall_is_authorized() -> Result<(), String> {
                     ][..]
                 )
                 .prop_map(|m| json!(m)),
-                ".{0,12}".prop_filter("not an allowed method", |m| !ALLOWED.contains(&m.as_str())).prop_map(|m| json!(m)),
-                select(&["memorysearch", "MemorySearch", "memory_search", "projectid", "ProjectId", "project-id", "memorySearch "][..])
+                ".{0,12}"
+                    .prop_filter("not an allowed method", |m| !ALLOWED.contains(&m.as_str()))
                     .prop_map(|m| json!(m)),
+                select(
+                    &[
+                        "memorysearch",
+                        "MemorySearch",
+                        "memory_search",
+                        "projectid",
+                        "ProjectId",
+                        "project-id",
+                        "memorySearch "
+                    ][..]
+                )
+                .prop_map(|m| json!(m)),
                 Just(json!(1)),
                 Just(json!(null)),
                 Just(json!(["recall"])),

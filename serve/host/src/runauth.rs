@@ -950,9 +950,10 @@ mod tests {
 
     #[test]
     fn memory_search_args_are_a_fixed_search() {
-        assert_eq!(memory_args(&[json!("zebra"), json!("-n"), json!("500"), json!("--json")]).unwrap(), [
-            "search", "-n", "50", "--json", "zebra"
-        ]);
+        assert_eq!(
+            memory_args(&[json!("zebra"), json!("-n"), json!("500"), json!("--json")]).unwrap(),
+            ["search", "-n", "50", "--json", "zebra"]
+        );
         assert_eq!(memory_args(&[json!("ls"), json!("index")]).unwrap(), ["search", "ls", "index"]);
         for bad in [
             json!(["zebra", "--all"]),
@@ -1018,7 +1019,10 @@ mod tests {
             serde_json::to_vec(&v).unwrap()
         };
         let job = authorize(&t, &line("memorySearch", &json!(["zebra"])), peer(5)).unwrap();
-        assert_eq!((job.run, job.args, job.identity), (Run::MemorySearch, vec!["search".into(), "zebra".into()], id("sam")));
+        assert_eq!(
+            (job.run, job.args, job.identity),
+            (Run::MemorySearch, vec!["search".into(), "zebra".into()], id("sam"))
+        );
         let job = authorize(&t, &line("projectId", &json!(["--info", "alpha"])), peer(5)).unwrap();
         assert_eq!((job.run, job.identity.project.as_deref()), (Run::ProjectId, Some("alpha")));
         assert!(authorize(&t, &line("projectId", &json!(["--info", "beta"])), peer(5)).is_err());
@@ -1050,18 +1054,26 @@ mod tests {
             Response::Ok { stdout, code, .. } => (stdout, code),
             other => panic!("{other:?}"),
         };
-        let (stdout, code) = out(handle_request(&t, &req(&g.token, "memorySearch", &json!(["zebra", "-n", "3"])), peer(5)).await);
+        let (stdout, code) =
+            out(handle_request(&t, &req(&g.token, "memorySearch", &json!(["zebra", "-n", "3"])), peer(5)).await);
         assert_eq!(code, 0);
         // The tool is the kernel's own `bin/kith-memory` (the path is canonical, /private/var for /var on a Mac).
         assert!(stdout.contains("/bin/kith-memory|echo|sam|1:1:echo:sam|alpha|serve|search -n 3 zebra\n"), "{stdout}");
-        let (stdout, _) = out(handle_request(&t, &req(&g.token, "projectId", &json!(["--info", "alpha"])), peer(5)).await);
+        let (stdout, _) =
+            out(handle_request(&t, &req(&g.token, "projectId", &json!(["--info", "alpha"])), peer(5)).await);
         assert!(stdout.ends_with("|--info alpha\n") && stdout.contains("/project-id|echo|sam|"), "{stdout}");
         // Bare: answered from the token, no process, and not from wherever the host happens to be.
-        assert_eq!(out(handle_request(&t, &req(&g.token, "projectId", &json!([])), peer(5)).await), ("alpha\n".into(), 0));
+        assert_eq!(
+            out(handle_request(&t, &req(&g.token, "projectId", &json!([])), peer(5)).await),
+            ("alpha\n".into(), 0)
+        );
         let none = RunIdentity { project: None, run_id: "r2".into(), ..id("sam") };
         let g2 = RunGrant::issue(&t, none).unwrap();
         g2.bind_pid(6);
-        assert_eq!(out(handle_request(&t, &req(&g2.token, "projectId", &json!([])), peer(6)).await), (String::new(), 1));
+        assert_eq!(
+            out(handle_request(&t, &req(&g2.token, "projectId", &json!([])), peer(6)).await),
+            (String::new(), 1)
+        );
         // Refusals never run anything.
         let r = handle_request(&t, &req(&g.token, "memorySearch", &json!(["zebra", "--all"])), peer(5)).await;
         assert!(matches!(r, Response::Refused(_)));
