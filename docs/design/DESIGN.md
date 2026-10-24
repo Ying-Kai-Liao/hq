@@ -192,6 +192,7 @@ the box (home and Board) calls the agent **directly**: the agent the box would r
   row, Computers (each Mac and its health; pair, filter and order Macs; Show screen per Mac), Extensions (marketplace +
   Credentials, the sheet keeps its own computer switcher; `kith://plugins`), Usage (`kith://usage`), Settings
   (includes "Widgets & Live Activities", the old State tab galleries, unchanged inside). Desktop adds Support.
+- Account (phone): profile, then **Your devices** (one quiet row per Mac, "Hidden" when it's off Crew; Add a Mac); Settings opens on the account row. A **problem card** (panel, Details + Reconnect or Pair again) shows at the top of Settings only for a shown Mac that is offline, unreachable or turned this iPhone away; never with a version mismatch.
 - Crew | Board: segmented glass switch.
 - New chat (square.and.pencil, as in Messages): native menu: New bot (template or crew), Invite a person, New group chat.
 ### Thread (agent chat)

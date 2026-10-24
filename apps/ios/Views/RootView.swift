@@ -82,12 +82,13 @@ struct RootView: View {
             }
         }
         .kithSheet(isPresented: Bindable(app).showComputers) {
-            // Holds the pushes inside the sheet; no bar shows.
-            NavigationStack { SettingsView(mode: .computers) }
+            // Account holds Your devices: the profile menu's Computers, Crew's machine chips, Board waits and
+            // kith://computers all land here. Holds the pushes inside the sheet; no bar shows.
+            NavigationStack { AccountSwitcherView() }
         }
         .kithSheet(isPresented: Bindable(app).showSettings) {
             // Holds the pushes inside the sheet (Widgets & Live Activities); no bar shows.
-            NavigationStack { SettingsView(mode: .settings) }
+            NavigationStack { SettingsView() }
         }
         .kithSheet(isPresented: Bindable(app).showUsage) { UsageSheet() }
         .kithSheet(item: Binding(get: { app.guestPrompt.map(GuestPromptTarget.init) }, set: { app.guestPrompt = $0?.ref })) { target in

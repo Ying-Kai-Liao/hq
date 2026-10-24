@@ -45,6 +45,9 @@
 		921ED46A1643AB90BB3D4CF7 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99C11684BFBEB49006600A9 /* Session.swift */; };
 		9638BAA981354C4CE72884A0 /* HostLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CC3E47D480A5F15CA95C504 /* HostLink.swift */; };
 		974A5D8D89758A61E7D8D1B6 /* Input.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BA06CEE98A7CDED62678522 /* Input.swift */; };
+		2E4AD532B29AD0697482AE49 /* MacProblemCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B62ACA7CC342EEB0829556 /* MacProblemCard.swift */; };
+		B34C2F4BBE5AC8FAA1DF4D04 /* AccountShareSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924434E796E089EF8EEF144F /* AccountShareSlot.swift */; };
+		752EEF0AFAE5EB7F1CED80BD /* YourDevices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0992226556C3AB0BCF03FF /* YourDevices.swift */; };
 		9BBB2FAEDBD35A83EAB02981 /* AccountSwitcherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB282B31FBC94EE70D07638 /* AccountSwitcherView.swift */; };
 		A1B7C7774E7FAF6D45D1BEF8 /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FA78A055791BBBA79DF8C8B /* Permissions.swift */; };
 		AA601649E43A5AF73DCF5B5E /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 2D9748E611692583AFC5A152 /* WebRTC */; };
@@ -116,6 +119,9 @@
 		3F4C4D3B64C608AEF2F85F91 /* Kit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Kit; path = ios/Kit; sourceTree = SOURCE_ROOT; };
 		445DB0A03CFBB5CC7A830139 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		4815867922559696EDCA47FD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B3B62ACA7CC342EEB0829556 /* MacProblemCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacProblemCard.swift; sourceTree = "<group>"; };
+		924434E796E089EF8EEF144F /* AccountShareSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountShareSlot.swift; sourceTree = "<group>"; };
+		3C0992226556C3AB0BCF03FF /* YourDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YourDevices.swift; sourceTree = "<group>"; };
 		4EB282B31FBC94EE70D07638 /* AccountSwitcherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSwitcherView.swift; sourceTree = "<group>"; };
 		4FA78A055791BBBA79DF8C8B /* Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Permissions.swift; sourceTree = "<group>"; };
 		52A96030D47F1B9678095909 /* iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iOS.entitlements; sourceTree = "<group>"; };
@@ -266,6 +272,9 @@
 				A11CE00000000000000000A2 /* InviteJoinView.swift */,
 				A11CE00000000000000000A1 /* PeopleView.swift */,
 				A11CE0000000000000000F1 /* ShareAgentSheet.swift */,
+				B3B62ACA7CC342EEB0829556 /* MacProblemCard.swift */,
+				924434E796E089EF8EEF144F /* AccountShareSlot.swift */,
+				3C0992226556C3AB0BCF03FF /* YourDevices.swift */,
 				4EB282B31FBC94EE70D07638 /* AccountSwitcherView.swift */,
 				DD3DE9A4EEB369C4F75C9448 /* ActivityGalleryView.swift */,
 				0582B6169BFC36E4BCD51C0D /* BotListView.swift */,
@@ -638,6 +647,9 @@
 				A11CE00000000000000000B1 /* PeopleView.swift in Sources */,
 				A11CE0000000000000000F2 /* ShareAgentSheet.swift in Sources */,
 				7E5F670CFFA0E4373F44DB41 /* AccountSession.swift in Sources */,
+				2E4AD532B29AD0697482AE49 /* MacProblemCard.swift in Sources */,
+				B34C2F4BBE5AC8FAA1DF4D04 /* AccountShareSlot.swift in Sources */,
+				752EEF0AFAE5EB7F1CED80BD /* YourDevices.swift in Sources */,
 				9BBB2FAEDBD35A83EAB02981 /* AccountSwitcherView.swift in Sources */,
 				00F78E3DAAF66E8E0933D091 /* ActivityGalleryView.swift in Sources */,
 				01A1F820EFEE49A8FCCFC3F3 /* BotListView.swift in Sources */,

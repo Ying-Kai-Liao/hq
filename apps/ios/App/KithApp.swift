@@ -135,7 +135,8 @@ private struct DebugHooks: ViewModifier {
                 try? await Task.sleep(for: .seconds(1))
                 switch screen {
                 case "settings": app.showSettings = true
-                case "computers": app.showComputers = true
+                case "computers", "account", "account-devices": app.showComputers = true
+                case "problem": app.showSettings = true
                 case "widgets":
                     // The page is pushed inside the Settings sheet, so wait for the sheet and its stack to be up.
                     app.showSettings = true
