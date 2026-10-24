@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import QRCode from 'qrcode'
 import type { AccountApproval, AuthorizedDevice, PairingInfo } from '@shared/models'
 import { newSSHProfile, type SSHProfile } from '@shared/ssh'
 import { Button, CardSection, IconButton, Spinner, Switch } from '../../components/Controls'
@@ -22,7 +21,7 @@ import { useSSH } from './ssh-model'
 import { SSHRow } from './SSHRow'
 import { BackupChains } from './BackupChain'
 import { VoiceChatSettingsView } from './VoiceChatSettingsView'
-import '../pairing-window.css'
+import { PairingCode, type PairingSource } from '../PairingCode'
 
 /**
  * The Account pane's devices: every computer this account can use with its Show in Crew switch (this Mac and SSH
@@ -99,10 +98,10 @@ export function AccountDevices({ owner }: { owner: boolean }) {
           />
         ) : null}
       </Sheet>
-      <Sheet className="settings-sheet" open={pairing !== null} onClose={() => setPairing(null)} width={340}>
+      <Sheet className="settings-sheet" open={pairing !== null} onClose={() => setPairing(null)} width={380}>
         {pairing ? (
           <>
-            <ModalHeader title={`Pair iPhone with ${pairing.hostName}`} />
+            <ModalHeader title="Pair iPhone" />
             <PairingPanel store={pairing} />
           </>
         ) : null}
@@ -416,72 +415,19 @@ function deviceDetail(device: AuthorizedDevice) {
   return parts.join(' · ')
 }
 
-/** A one-time pairing QR (v3) from a computer this app manages: its keys, a code, and how to reach it. */
+/** A one-time pairing QR from a computer this app manages. */
 function PairingPanel({ store }: { store: BotStore }) {
   useModel(store)
-  const [info, setInfo] = useState<PairingInfo | null>(null)
-  const [qr, setQr] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const name = store.hostName
-
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<PairingSource> => {
     const client = liveClient(store)
-    if (!client) return setError(`${store.hostName} isn't connected.`)
+    if (!client) throw new Error(`${store.hostName} isn't connected.`)
     try {
-      const pairing = await client.call<PairingInfo>('pairing')
-      setQr(await QRCode.toDataURL(pairing.pairingUrl, { errorCorrectionLevel: 'M', margin: 0, width: 400, color: { dark: '#000000', light: '#ffffff' } }))
-      setInfo(pairing)
-      setError(null)
+      return { info: await client.call<PairingInfo>('pairing'), name: store.hostName, cloud: store.cloud }
     } catch (e) {
-      setError(errorText(e))
+      throw new Error(errorText(e))
     }
   }, [store])
-
-  useEffect(() => void load(), [load])
-  // A fresh code when this one expires while it's on screen.
-  useEffect(() => {
-    if (!info?.expiresAt) return
-    const timer = setTimeout(() => void load(), Math.max(1000, info.expiresAt - Date.now()))
-    return () => clearTimeout(timer)
-  }, [info?.expiresAt, load])
-
-  return (
-    <VStack align="center" gap={12} className="settings-pairing">
-      {info && qr ? (
-        <>
-          <div className="pairing-qr settings-appear">
-            <img src={qr} alt={`Pairing code for ${name}`} width={200} height={200} />
-          </div>
-          <Text as="div" size="caption" tone="secondary" className="settings-centered">
-            Scan with the Kith app or the iPhone Camera. No Tailscale or open ports needed: your iPhone connects directly on the same Wi-Fi, and through the encrypted relay anywhere else.
-          </Text>
-          {store.cloud?.enabled !== true ? (
-            <Text as="div" size="caption" tone="attention" className="settings-centered">
-              {info.urls.length === 0
-                ? 'No network address found and “Reach from anywhere” is off. Connect to Wi-Fi or turn it on.'
-                : `“Reach from anywhere” is off, so the iPhone only reaches ${name} on the same network.`}
-            </Text>
-          ) : null}
-          <HStack gap={4}>
-            {info.expiresAt ? (
-              <Text size="caption2" tone="tertiary">
-                Works once, until {new Date(info.expiresAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-              </Text>
-            ) : null}
-            <IconButton title="New code" icon="arrow.clockwise" onClick={() => void load()} />
-            <IconButton title="Copy pairing link" icon="doc.on.doc" onClick={() => window.kith.app.copy(info.pairingUrl)} />
-          </HStack>
-        </>
-      ) : error ? (
-        <>
-          <Text as="div" size="caption" tone="danger" className="settings-centered">{error}</Text>
-          <IconButton title="Try again" icon="arrow.clockwise" onClick={() => void load()} />
-        </>
-      ) : (
-        <Spinner size={20} />
-      )}
-    </VStack>
-  )
+  return <PairingCode load={load} cloud={store.cloud} />
 }
 // MARK: SSH
 

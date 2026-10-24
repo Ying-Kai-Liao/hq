@@ -7,32 +7,46 @@
 }
 
 .welcome {
+  position: relative;
   height: 100%;
   overflow-y: auto;
   background: var(--background);
 }
 .welcome-column {
+  position: relative;
+  z-index: 1;
   min-height: 100%;
   max-width: 480px;
   margin: 0 auto;
   padding: 0 24px 12px;
 }
-.welcome-glimpse {
-  padding-bottom: 24px;
+.welcome-text {
+  text-align: center;
 }
-/* A fixed display size: it doesn't follow the text size preference. */
+/* A fixed size: it doesn't follow the text size preference. */
 .welcome-title {
-  font-size: 34px;
+  font-size: 20px;
   font-weight: 600;
-  letter-spacing: -0.6px;
-  line-height: 1.15;
+  line-height: 1.25;
   color: var(--text);
 }
 .styled-button.welcome-button {
+  align-self: center;
   width: 100%;
-  min-height: 50px;
+  max-width: 360px;
+  min-height: 44px;
+  border-radius: var(--radius-m);
   font-size: var(--text-body);
-  font-weight: 700;
+  font-weight: 600;
+}
+/* Primary is ink (white in dark); the sign-in buttons are white with a hairline edge. */
+.styled-button.welcome-primary {
+  background: var(--kith-ink);
+  color: var(--kith-ground);
+}
+.styled-button.welcome-button.secondary {
+  background: var(--panel);
+  border: 1px solid var(--border);
 }
 
 .welcome-crew {
@@ -44,22 +58,6 @@
   left: 50%;
   top: 50%;
 }
-
-.welcome-bubble {
-  padding: 9px 14px;
-  border-radius: 18px;
-}
-.welcome-bubble.user {
-  background: var(--bubble-user);
-}
-.welcome-bubble.agent {
-  background: var(--bubble-agent);
-  transform-origin: bottom left;
-  animation: welcome-bubble-in 0.45s var(--ease-out) both;
-}
-@keyframes welcome-bubble-in {
-  from {
-    opacity: 0;
-    transform: scale(0.92);
-  }
+.welcome-footnote {
+  text-align: center;
 }

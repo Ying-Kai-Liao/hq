@@ -10,21 +10,24 @@ import { useAccount } from '../store/account'
 import googleLogo from '../assets/google.svg'
 import './account-welcome.css'
 
+// Apple sign-in hidden until it works.
+const showAppleSignIn = false
+
 const deviceName = window.kith.platform === 'darwin' ? 'Mac' : 'computer'
 
 /** First-run account choice. A restored session skips this screen as soon as it is back. */
 export function AccountWelcomeView({ onContinue }: { onContinue: () => void }) {
   const account = useAccount()
   const reduce = useReduceMotion()
-  const [beat, setBeat] = useState(reduce ? 4 : 0)
+  const [beat, setBeat] = useState(reduce ? 3 : 0)
 
   useEffect(() => {
     if (account.isSignedIn) onContinue()
   }, [account.isSignedIn, onContinue])
 
   useEffect(() => {
-    if (reduce) return setBeat(4)
-    const timers = [150, 430, 710, 990].map((at, i) => setTimeout(() => setBeat(i + 1), at))
+    if (reduce) return setBeat(3)
+    const timers = [150, 430, 710].map((at, i) => setTimeout(() => setBeat(i + 1), at))
     return () => timers.forEach(clearTimeout)
   }, [reduce])
 
@@ -49,36 +52,32 @@ export function AccountWelcomeView({ onContinue }: { onContinue: () => void }) {
 
   return (
     <div className="welcome">
+      <div className="kith-sky-home" aria-hidden />
       <VStack className="welcome-column">
         <Spacer min={24} />
         <WelcomeCrew shown={beat >= 1} />
         <Spacer min={24} />
-        <div className="welcome-glimpse">
-          <WelcomeChatGlimpse shown={beat >= 2} />
-        </div>
-        <VStack gap={10} style={rise(beat >= 3)}>
-          <div className="welcome-title">
-            Your coding agents,
-            <br />
-            as teammates.
-          </div>
-          <Text as="div" size="body" tone="secondary">Give each one a name and a project. They work on your computer while you're away.</Text>
+        <VStack gap={10} className="welcome-text" style={rise(beat >= 2)}>
+          <div className="welcome-title">Your coding agents, as teammates.</div>
+          <Text as="div" size={14} tone="secondary">Give each one a name and a project. They work on your computer while you're away.</Text>
         </VStack>
         <Spacer min={32} />
-        <VStack gap={10} style={rise(beat >= 4)}>
-          <Button onClick={onContinue} className="welcome-button">
+        <VStack gap={8} style={rise(beat >= 3)}>
+          <Button onClick={onContinue} className="welcome-button welcome-primary">
             Continue on this {deviceName}
           </Button>
-          <Button onClick={() => void account.signIn('apple')} disabled={!account.isConfigured || account.isBusy} className="welcome-button">
-            {account.isBusy ? (
-              <Spinner size={18} />
-            ) : (
-              <HStack as="span" gap={10}>
-                <Icon name="apple.logo" size={20} />
-                Continue with Apple
-              </HStack>
-            )}
-          </Button>
+          {showAppleSignIn ? (
+            <Button kind="secondary" onClick={() => void account.signIn('apple')} disabled={!account.isConfigured || account.isBusy} className="welcome-button">
+              {account.isBusy ? (
+                <Spinner size={18} />
+              ) : (
+                <HStack as="span" gap={10}>
+                  <Icon name="apple.logo" size={20} />
+                  Continue with Apple
+                </HStack>
+              )}
+            </Button>
+          ) : null}
           <Button kind="secondary" onClick={() => void account.signIn('google')} disabled={!account.isConfigured || account.isBusy} className="welcome-button">
             {account.isBusy ? (
               <Spinner size={18} />
@@ -100,9 +99,9 @@ export function AccountWelcomeView({ onContinue }: { onContinue: () => void }) {
             )}
           </Button>
           {!account.isConfigured ? (
-            <Text as="div" size="footnote" tone="tertiary">Sign-in isn't configured in this build. You can still use Kith on this {deviceName}.</Text>
+            <Text as="div" size="footnote" tone="tertiary" className="welcome-footnote">Sign-in isn't configured in this build. You can still use Kith on this {deviceName}.</Text>
           ) : null}
-          {account.errorMessage ? <Text as="div" size="footnote" tone="attention">{account.errorMessage}</Text> : null}
+          {account.errorMessage ? <Text as="div" size="footnote" tone="danger" className="welcome-footnote">{account.errorMessage}</Text> : null}
         </VStack>
       </VStack>
     </div>
@@ -147,34 +146,5 @@ function WelcomeCrew({ shown }: { shown: boolean }) {
         </div>
       ))}
     </div>
-  )
-}
-
-/** A short animated user and bot exchange, matching the iPhone onboarding preview. */
-function WelcomeChatGlimpse({ shown }: { shown: boolean }) {
-  const reduce = useReduceMotion()
-  const [replied, setReplied] = useState(false)
-  useEffect(() => {
-    if (!shown) return
-    const timer = setTimeout(() => setReplied(true), reduce ? 0 : 1600)
-    return () => clearTimeout(timer)
-  }, [shown, reduce])
-  const rise: CSSProperties = { opacity: shown ? 1 : 0, transform: shown ? 'none' : 'translateY(14px)', transition: 'opacity 0.6s, transform 0.6s var(--ease-out)' }
-  return (
-    <VStack gap={10}>
-      <HStack align="stretch" justify="flex-end" style={rise}>
-        <Text size="subheadline" tone="text" className="welcome-bubble user">Fix the flaky login test</Text>
-      </HStack>
-      <HStack align="flex-end" gap={8} style={rise}>
-        <LiveBot face={{ kind: 'crew', name: 'builder' }} size={28} id="builder" mood={replied ? 'idle' : 'working'} />
-        {replied ? (
-          <Text size="subheadline" tone="text" className="welcome-bubble agent">
-            Done. It raced the session refresh; tests pass on fix/login.
-          </Text>
-        ) : (
-          <Text size="subheadline" tone="tertiary">Working…</Text>
-        )}
-      </HStack>
-    </VStack>
   )
 }
