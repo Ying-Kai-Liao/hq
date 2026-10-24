@@ -13,7 +13,7 @@ import { Text } from '../../components/Text'
 import { paletteValue } from '@shared/living-bots'
 import { AVATAR_PALETTE } from '../../lib/theme'
 import { useStore } from '../../store/context'
-import { botSections, PERMISSION_MODES, permissionMode } from '@shared/bot-sections'
+import { botSections, permissionMenu, permissionMode } from '@shared/bot-sections'
 import { useAgentModels } from './agent-models'
 import { AgentModelPicker } from './AgentModelPicker'
 import { errorText, fillDefaults, isValid, lastPathComponent, normalized, usePlugins, type Plugins } from './drafts'
@@ -119,6 +119,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all', bare =
   const [pickingFolder, setPickingFolder] = useState(false)
   const [viewingSkill, setViewingSkill] = useState<SkillRef | null>(null)
   const set = <K extends keyof BotDraft>(key: K, value: BotDraft[K]) => onChange((d) => ({ ...d, [key]: value }))
+  const mode = permissionMode(draft.permission)
   // Options belong to one model.
   const setModel = useCallback((model: string | null) => onChange((d) => (d.model === model ? d : { ...d, model, modelOptions: {} })), [onChange])
   const setModelOptions = useCallback((modelOptions: Record<string, string>) => onChange((d) => ({ ...d, modelOptions })), [onChange])
@@ -273,17 +274,22 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all', bare =
               </DropdownMenu>
             </ValueRow>
           ) : null}
-          {shown.kithSettings ? <ValueRow
-            label="Permissions"
-            detail={PERMISSION_MODES.find((m) => m.id === permissionMode(draft.permission))?.detail}
-          >
-            <ChoicePicker
-              selection={permissionMode(draft.permission)}
-              options={PERMISSION_MODES}
-              onChange={(id) => set('permission', id)}
-            />
-          </ValueRow> : null}
         </CardSection>
+
+        {shown.kithSettings ? (
+          <CardSection title="Permissions">
+            <ValueRow label="Mode">
+              <DropdownMenu
+                items={() => permissionMenu().map((m) => ({ title: m.label, detail: m.detail, selected: m.id === mode, destructive: m.risky, action: () => set('permission', m.id) }))}
+              >
+                <Pill outlined className="workspace-pill">
+                  <Text truncate className="workspace-pill-label">{permissionMenu().find((m) => m.id === mode)?.label ?? mode}</Text>
+                  <Icon name="chevron.up.chevron.down" size={10} weight="semibold" color="var(--secondary)" />
+                </Pill>
+              </DropdownMenu>
+            </ValueRow>
+          </CardSection>
+        ) : null}
 
         <CardSection title="Activity">
           <SwitchRow title="Notifications" detail="Get notified when this bot finishes or needs you" on={draft.notify ?? true} onChange={(on) => set('notify', on)} />

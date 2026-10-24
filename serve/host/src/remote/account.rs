@@ -64,6 +64,7 @@ pub async fn sync(hub: &Hub, owner: Option<&str>) {
 async fn apply(store: &Store, bin: &Path, owner: Option<&str>) -> Result<()> {
     let Some(uid) = owner else {
         // Unclaimed (or the account was deleted): the handle goes with it.
+        let _w = crate::api::people::AUTH_WRITES.lock().await;
         if let Some(old) = store.kv_get(APPLIED) {
             if let Some(person) = who(bin, &old).await.person {
                 run(bin, &["handle", &person, PLATFORM, "--rm"]).await?;
@@ -73,6 +74,7 @@ async fn apply(store: &Store, bin: &Path, owner: Option<&str>) -> Result<()> {
         }
         return Ok(());
     };
+    let _w = crate::api::people::AUTH_WRITES.lock().await;
     let found = who(bin, uid).await;
     match (&found.person, &found.owner_id) {
         (Some(_), _) if found.owner => {}
@@ -144,7 +146,10 @@ async fn who_owner(bin: &Path) -> Result<String> {
 pub async fn link_code(hub: &Hub, caller: &Caller) -> Result<Value> {
     let bin = bin().await.ok_or_else(|| anyhow!("Linking isn't available on this computer (kith-auth not found)."))?;
     let person = caller_person(hub, &bin, caller).await?;
-    let out = run(&bin, &["invite", &person, &LINK_MINUTES.to_string()]).await?;
+    let out = {
+        let _w = crate::api::people::AUTH_WRITES.lock().await;
+        run(&bin, &["invite", &person, &LINK_MINUTES.to_string()]).await?
+    };
     let code = out.lines().next().unwrap_or("").trim().to_owned();
     if code.is_empty() {
         bail!("kith-auth gave no code");

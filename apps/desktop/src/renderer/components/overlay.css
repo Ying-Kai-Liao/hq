@@ -212,6 +212,9 @@
 .menu-row.destructive {
   color: var(--danger);
 }
+.menu-row.destructive .menu-detail {
+  color: inherit;
+}
 .menu-row.highlight {
   background: rgba(var(--text-rgb), 0.07);
 }

@@ -46,7 +46,7 @@ enum CallStatus {
     static func text(phase: VoicePhase?, muted: Bool, working: Bool, warning: String?) -> String {
         switch phase {
         case .none, .starting?: warning ?? "Connecting…"
-        case .speaking?: "Speaking"
+        case .speaking?: "Speaking · tap to interrupt"
         case .failed?: "Can't listen"
         case .listening? where muted: "Muted"
         case .listening?: warning ?? (working ? "Working…" : "Listening")

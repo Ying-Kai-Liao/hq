@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# kith-agent-dontask-allow-check — `kith <agent> --launch-json` adds no allow rules of its own for the owner's run
+# kith-agent-allow-check — `kith <agent> --launch-json` adds no allow rules of its own for the owner's run
 # beyond the memory/skills Edit list: nothing from capabilities.yaml `tools:` and no read of the agent's own folder.
-# The role's settings.json allow/deny rules pass through, every deny rule stays, and the mode reaches claude unchanged. Throwaway HOME and KITH_HOME; fake `claude` on PATH.
+# The role's settings.json allow/deny rules pass through, every deny rule stays, and the mode reaches claude unchanged,
+# but for a retired one (manual, dontAsk), which reads as the mode that replaced it wherever it was stored.
+# Throwaway HOME and KITH_HOME; fake `claude` on PATH.
 #
-#   kernel/tests/kith-agent-dontask-allow-check     a few seconds; exits 1 when a check fails
+#   kernel/tests/kith-agent-allow-check     a few seconds; exits 1 when a check fails
 set -uo pipefail
 
 KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
-T=$(mktemp -d "${TMPDIR:-/tmp}/kith-dontask-allow-check.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-agent-allow-check.XXXXXX")
 T=$(cd "$T" && pwd -P)
 trap 'rm -rf "$T"' EXIT
 export HOME=$T/home KITH_HOME="$T/real root" KITH_AUTH=$T/auth.json
@@ -79,7 +81,8 @@ expect "already quoted: once" "$(n "Bash(\"$K/kith-who\":*)")" 1
 expect "no duplicate rules" "$(sort <<< "$OUT" | uniq -d | wc -l | tr -d ' ')" 0
 OUT=$(rules deny kt)
 expect "kernel deny quoted" "$(n "Bash(\"$K/kith-auth\")")" 1
-# The mode: a stored 'manual' reads as default; the six built-in modes pass through; manual is refused on set.
+# The mode: a stored 'manual' reads as default and 'dontAsk' as auto; the five modes kith offers pass through; the
+# retired ones are refused on set.
 mkdir -p "$KITH_HOME/machine"
 SETTINGS=$(python3 "$KERNEL/lib/kith_paths.py" --sh | sed -n 's/^export KITH_MACHINE=//p' | tr -d "'\"")
 mkdir -p "$SETTINGS"
@@ -87,10 +90,37 @@ printf '{"permission_mode":"manual","agents":{"plain":{"permission_mode":"manual
 expect "stored manual (global) reads as default" "$(python3 "$KERNEL/lib/kith_settings.py" permission_mode)" default
 expect "stored manual (agent) reads as default" "$(python3 "$KERNEL/lib/kith_settings.py" permission_mode plain)" default
 expect "other agent's mode kept" "$(python3 "$KERNEL/lib/kith_settings.py" permission_mode unk)" plan
-python3 "$KERNEL/lib/kith_settings.py" set permission_mode plain manual >/dev/null 2>&1
-expect "set manual is refused" "$?" 1
-for m in default acceptEdits plan auto dontAsk bypassPermissions; do
+for m in manual dontAsk; do
+  python3 "$KERNEL/lib/kith_settings.py" set permission_mode plain $m >/dev/null 2>&1
+  expect "set $m is refused" "$?" 1
+done
+for m in default acceptEdits plan auto bypassPermissions; do
   python3 "$KERNEL/lib/kith_settings.py" set permission_mode plain $m >/dev/null 2>&1
   expect "mode $m accepted and read back" "$(python3 "$KERNEL/lib/kith_settings.py" permission_mode plain)" $m
 done
+# A stored dontAsk, wherever it is, starts the run in auto: what --info-json and --launch-json report, and the
+# defaultMode the run's settings carry.
+info() { (cd "$KITH_HOME/agents/$1" && "$KITH" "$1" --info-json 2>/dev/null) | python3 -c 'import json,sys; print(json.load(sys.stdin)["permission_mode"])'; }
+launch() { (cd "$KITH_HOME/agents/$1" && "$KITH" "$1" --launch-json 2>/dev/null) | python3 -c '
+import json,sys
+j=json.load(sys.stdin)
+s=j.get("settings") or {}
+if isinstance(s,str): s=json.load(open(s))
+print(j["permission_mode"], s.get("permissions",{}).get("defaultMode"))'; }
+printf '{"permission_mode":"dontAsk","agents":{"plain":{"permission_mode":"dontAsk"}}}' > "$SETTINGS/settings.json"
+expect "stored dontAsk (global) reads as auto" "$(python3 "$KERNEL/lib/kith_settings.py" permission_mode)" auto
+expect "stored dontAsk (agent): --info-json" "$(info plain)" auto
+expect "stored dontAsk (agent): --launch-json" "$(launch plain)" "auto None"
+expect "stored dontAsk (global): --launch-json" "$(launch artist)" "auto auto"
+printf '{}' > "$SETTINGS/settings.json"
+printf '{"permissions":{"defaultMode":"dontAsk"}}' > "$KITH_HOME/agents/unk/role/settings.json"
+expect "agent's defaultMode dontAsk: --info-json" "$(info unk)" auto
+expect "agent's defaultMode dontAsk: --launch-json" "$(launch unk)" "auto auto"
+expect "caller's dontAsk: --launch-json" "$(KITH_PERMISSION_MODE=dontAsk launch plain)" "auto None"
+# kith doctor says where it found one.
+printf '{"permission_mode":"dontAsk","agents":{"plain":{"permission_mode":"dontAsk"}}}' > "$SETTINGS/settings.json"
+DOC=$("$KERNEL/bin/kith-doctor" 2>&1)
+expect "doctor: stored dontAsk (global)" "$(grep -c ': permission_mode is dontAsk, which kith no longer offers' <<< "$DOC")" 1
+expect "doctor: stored dontAsk (agent)" "$(grep -c 'agents.plain.permission_mode is dontAsk, which kith no longer offers' <<< "$DOC")" 1
+expect "doctor: agent's defaultMode dontAsk" "$(grep -c 'unk (.*defaultMode is dontAsk, which kith no longer offers' <<< "$DOC")" 1
 exit $((fails > 0))

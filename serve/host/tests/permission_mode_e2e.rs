@@ -65,11 +65,11 @@ fn set_modes(requests: &[Value]) -> Vec<String> {
 
 #[tokio::test]
 async fn an_owners_run_starts_in_the_mode_launch_json_reports() {
-    let (host, home) = start("dontAsk").await;
+    let (host, home) = start("acceptEdits").await;
     let bot = house(&host).await;
     host.call("send", json!({"botId": bot, "text": "go", "clientNonce": "n1"})).await;
     let requests = requests_after_a_turn(&home).await;
-    assert_eq!(set_modes(&requests), ["dontAsk"], "{requests:?}");
+    assert_eq!(set_modes(&requests), ["acceptEdits"], "{requests:?}");
     // The mode is asked for before the first prompt, not after.
     let order: Vec<&str> = requests.iter().map(|r| r["method"].as_str().unwrap()).collect();
     let set = order.iter().position(|m| *m == "session/set_mode").unwrap();

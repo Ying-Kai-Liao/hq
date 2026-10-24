@@ -14,6 +14,7 @@ const STATUS: Record<TaskStatus, { label: string; icon: string | null }> = {
   working: { label: 'Working', icon: null },
   needsYou: { label: 'Needs you', icon: 'exclamationmark.circle' },
   stopped: { label: 'Stopped', icon: 'stop.circle' },
+  failed: { label: 'Failed', icon: 'stop.circle' },
   done: { label: 'Done', icon: 'checkmark.circle' },
 }
 

@@ -283,10 +283,10 @@ export function useWindowHeight() {
 }
 
 /** A Marketplace form in its own modal card (`.kithSheet`). */
-export function FormSheet({ open, onClose, width = 520, height = 600, children }: { open: boolean; onClose: () => void; width?: number; height?: number; children: ReactNode }) {
+export function FormSheet({ open, onClose, width = 520, height = 600, className, children }: { open: boolean; onClose: () => void; width?: number; height?: number; className?: string; children: ReactNode }) {
   const windowHeight = useWindowHeight()
   return (
-    <Sheet open={open} onClose={onClose} width={width} height={Math.min(height, windowHeight - 76)}>
+    <Sheet open={open} onClose={onClose} className={className} width={width} height={Math.min(height, windowHeight - 76)}>
       {children}
     </Sheet>
   )

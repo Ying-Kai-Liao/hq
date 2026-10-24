@@ -331,10 +331,13 @@ impl Actor {
                     // A resumed session can come back on the agent's last-used model (Cursor
                     // keeps one for all its sessions), so the bot's own is set again.
                     let res = if res.get("configOptions").is_some() || res.get("models").is_some() {
-                        select_model(&conn.acp, &res, &sid, &self.cfg).await?
+                        let acp = conn.acp.clone();
+                        let selected = select_model(&acp, &res, &sid, &self.cfg).await;
+                        self.drop_if_silent(selected)?
                     } else {
                         res
                     };
+                    let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
                     conn.loaded.insert(sid.clone(), Instant::now());
                     self.note_options(&sid, &res, Listing::Session);
                     self.set_bot_mode(&sid, &loaded).await;
@@ -371,7 +374,9 @@ impl Actor {
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
         conn.loaded.insert(sid.clone(), Instant::now());
-        let options = select_model(&conn.acp, &res, &sid, &self.cfg).await?;
+        let acp = conn.acp.clone();
+        let selected = select_model(&acp, &res, &sid, &self.cfg).await;
+        let options = self.drop_if_silent(selected)?;
         self.note_options(&sid, &options, Listing::Session);
         self.set_bot_mode(&sid, &res).await;
         self.set_session(slot, Some(&sid));
@@ -399,6 +404,17 @@ impl Actor {
         }
         let message = format!("the agent didn't answer {method} within {}s", SESSION_TIMEOUT.as_secs());
         Err(acp::Failure::error(acp::FailureKind::Timeout, message))
+    }
+
+    /// A model switch the agent never answered stopped its process (see `timed_request`): forget the connection, so
+    /// the next turn starts a fresh agent instead of writing to a dead one.
+    fn drop_if_silent<T>(&mut self, result: Result<T>) -> Result<T> {
+        if let Err(e) = &result
+            && super::launch::timed_out(e)
+        {
+            self.conn = None;
+        }
+        result
     }
 
     /// The folder of `lane` changed (or its bot's default did, and it follows it): the session there ends and its

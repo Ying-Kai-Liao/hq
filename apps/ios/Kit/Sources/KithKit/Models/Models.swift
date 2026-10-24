@@ -168,6 +168,8 @@ public struct ThreadSummary: Codable, Hashable, Sendable {
     /// The writer is mid-turn.
     public var liveBusy: Bool?
     public var terminal: TerminalSession?
+    /// A task's status as the host says it: working, needsYou, stopped, failed, done. nil from an older host and a terminal's thread.
+    public var status: String?
 }
 
 public struct OriginBot: Codable, Hashable, Sendable {

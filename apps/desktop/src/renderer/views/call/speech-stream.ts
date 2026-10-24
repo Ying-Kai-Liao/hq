@@ -137,6 +137,14 @@ export function isEcho(heard: string, spoken: string): boolean {
   return covered.filter(Boolean).length / words.length >= 0.7
 }
 
+/** How much of the bot's recent speech is kept to compare against. */
+export const ECHO_WINDOW_CHARS = 800
+
+/** `recent` with `said` added, keeping only the last `ECHO_WINDOW_CHARS` characters. */
+export function rememberSpoken(recent: string, said: string): string {
+  return `${recent} ${said}`.slice(-ECHO_WINDOW_CHARS)
+}
+
 /** A run of at least this many words copied from the spoken text counts as the bot's voice. */
 const MIN_ECHO_RUN = 3
 
@@ -149,7 +157,7 @@ export function stripEcho(heard: string, spoken: string): string {
   const said = tokens(heard)
   const reference = ` ${tokens(spoken).map((t) => t.word).join(' ')} `
   for (let n = said.length; n >= MIN_ECHO_RUN; n--) {
-    if (reference.includes(` ${said.slice(0, n).map((t) => t.word).join(' ')} `)) return heard.slice(said[n - 1]!.end).trim()
+    if (reference.includes(` ${said.slice(0, n).map((t) => t.word).join(' ')} `)) return heard.slice(said[n - 1]!.end).replace(/^[^\p{L}\p{N}]+/u, '').trimEnd()
   }
   return heard
 }

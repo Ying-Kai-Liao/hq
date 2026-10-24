@@ -1,11 +1,12 @@
 //! Starting a turn and wrapping it up: final reply, notices, replies to waiters, alerts and memory.
 
-use super::{Actor, Conn, Done, Instructions, NoticeStyle, Queued, Seg};
+use super::{Actor, Cmd, Conn, Done, Instructions, NoticeStyle, Queued, Seg};
 use crate::agent::acp::{self, Incoming};
 use crate::analytics::{self, TurnOutcome, TurnSource};
 use crate::channels::text::used_pct;
 use crate::chat::context::{self, Snapshot};
 use crate::chat::memory;
+use crate::chat::tasks::TaskState;
 use crate::hub::BotStatus;
 use crate::remote::push::{self, AlertKind};
 use crate::store::{EntryKind, Lane, now_ms};
@@ -81,8 +82,67 @@ impl Actor {
         Ok(prompt)
     }
 
-    /// Starts a turn in `lane` for the given user entries (none for a hidden turn).
+    /// Starts a turn in `lane` for the given user entries (none for a hidden turn). Stop and Shutdown still work
+    /// while it starts (an install or a slow session load takes minutes): they end the start, and the agent process
+    /// with it. Other commands wait until it is over, in order.
     pub(super) async fn start_turn(
+        &mut self,
+        lane: Lane,
+        entry_ids: &[String],
+        text: &str,
+        hidden: bool,
+        done_tx: &mpsc::UnboundedSender<Done>,
+    ) -> Result<()> {
+        let stopping = |c: &Cmd| matches!(c, Cmd::Stop | Cmd::Shutdown);
+        let cancelled = self.deferred.iter().any(stopping);
+        if !cancelled && let Some(mut rx) = self.cmd_rx.take() {
+            let mut open = true;
+            let mut arrived = Vec::new();
+            let mut finished = None;
+            {
+                let start = self.start_turn_inner(lane, entry_ids, text, hidden, done_tx);
+                tokio::pin!(start);
+                loop {
+                    tokio::select! {
+                        result = &mut start => {
+                            finished = Some(result);
+                            break;
+                        }
+                        cmd = rx.recv(), if open => match cmd {
+                            Some(cmd) => {
+                                let stop = stopping(&cmd);
+                                arrived.push(cmd);
+                                if stop {
+                                    break;
+                                }
+                            }
+                            None => open = false,
+                        },
+                    }
+                }
+            }
+            self.cmd_rx = Some(rx);
+            self.deferred.extend(arrived);
+            if let Some(result) = finished {
+                return result;
+            }
+        } else if !cancelled {
+            return self.start_turn_inner(lane, entry_ids, text, hidden, done_tx).await;
+        }
+        // The half-started session may be anywhere (loading, installing): the process goes, the next turn starts a
+        // fresh one.
+        if let Some(c) = self.conn.take() {
+            c.acp.kill().await;
+        }
+        for id in entry_ids {
+            if self.hub.store.entry(id).is_some_and(|e| e.kind == EntryKind::User.as_str()) {
+                self.set_user_status(id, crate::chat::team::RequestStatus::Cancelled);
+            }
+        }
+        Err(StartCancelled.into())
+    }
+
+    async fn start_turn_inner(
         &mut self,
         lane: Lane,
         entry_ids: &[String],
@@ -138,6 +198,7 @@ impl Actor {
             }
         }
         self.lane = lane.clone();
+        self.hub.set_task_status(&lane, TaskState::Working);
         if !hidden {
             memory::summary::resume(&self.hub, &lane);
         }
@@ -266,7 +327,7 @@ impl Actor {
             }
         }
         let sid = self.turn_session.clone().ok_or_else(|| anyhow!("no session"))?;
-        self.claim_for_turn(&sid, lane)?;
+        self.claim_for_turn(&sid, lane).await?;
         let prompt =
             if std::mem::take(&mut self.raw_prompt) { text.to_owned() } else { self.compose(&sid, text).await? };
         self.hub.set_runtime(&self.rt, |r| r.activity = "Thinking…".into());
@@ -294,11 +355,11 @@ impl Actor {
         Ok(())
     }
 
-    /// While a turn runs in a thread, the agent process holds the session: a writer claim for its pid keeps a terminal
+    /// While a turn runs (in a thread or the main chat), the agent process holds the session: a writer claim for its pid keeps a terminal
     /// out, also after a host crash leaves the process behind (the claim is live as long as the process is).
-    fn claim_for_turn(&mut self, sid: &str, lane: &Lane) -> Result<()> {
+    async fn claim_for_turn(&mut self, sid: &str, lane: &Lane) -> Result<()> {
         self.release_turn_claim();
-        let Some(pid) = self.conn.as_ref().and_then(|c| c.acp.pid()).filter(|_| lane.thread.is_some()) else {
+        let Some(pid) = self.conn.as_ref().and_then(|c| c.acp.pid()) else {
             return Ok(());
         };
         let state = self.hub.terminal.env().state;
@@ -306,10 +367,20 @@ impl Actor {
         let bot =
             lane.thread.as_deref().is_some_and(|r| self.hub.store.bot_conversation_of_thread(&lane.chat, r).is_some());
         let kind = if bot { crate::terminal::claim::Kind::Bot } else { crate::terminal::claim::Kind::App };
-        match crate::terminal::claim::take(&state, sid, kind, pid, false) {
+        // flock and `ps` block: not on an async worker thread.
+        let (st, id) = (state, sid.to_owned());
+        let taken = tokio::task::spawn_blocking(move || crate::terminal::claim::take(&st, &id, kind, pid, false))
+            .await
+            .unwrap_or_else(|e| Err(std::io::Error::other(e)));
+        match taken {
             Ok(Ok(())) => self.turn_claim = Some((sid.to_owned(), pid)),
             // A terminal got in between the start check and here: it keeps the session.
             Ok(Err(held)) if held.0.pid == pid => self.turn_claim = Some((sid.to_owned(), pid)),
+            // A main-lane claim only keeps a terminal out; it never stops the turn (bots of one room or team may
+            // hold the same session id, and a terminal can't attach to the main chat). Run without the claim.
+            Ok(Err(held)) if lane.thread.is_none() => {
+                tracing::warn!(holder = held.0.pid, "main-lane turn runs without its writer claim: another holds it");
+            }
             Ok(Err(_)) => {
                 let held =
                     crate::terminal::HeldByWriter { code: if bot { "heldByOtherWriter" } else { "liveInTerminal" } };
@@ -350,6 +421,8 @@ impl Actor {
         self.seg = Seg::None;
         // Unanswered permission cards can't be answered after the turn.
         let ids: Vec<String> = self.perms.drain().map(|(k, _)| k).collect();
+        // Cards nobody answered: an owner's gave up the turn's slot, which comes back with the dropped guard.
+        self.parked_prompts.clear();
         for id in ids {
             if let Some(mut e) = self.hub.store.entry(&id) {
                 e.data["status"] = "expired".into();
@@ -463,6 +536,7 @@ impl Actor {
         } else {
             Ok(final_text.clone())
         });
+        self.hub.set_task_status(&self.lane, TaskState::after_turn(stopped, failed, &stop_reason));
         self.release_turn_claim();
         self.turn = None;
         if self.routine_completion.is_none() {
@@ -605,3 +679,15 @@ mod tests {
         assert_eq!(turn_alert(true, "error", true), Some(AlertKind::Failed));
     }
 }
+
+/// A Stop (or shutdown) ended the turn while it was starting: nothing failed.
+#[derive(Debug)]
+pub(super) struct StartCancelled;
+
+impl std::fmt::Display for StartCancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("stopped before the agent started")
+    }
+}
+
+impl std::error::Error for StartCancelled {}

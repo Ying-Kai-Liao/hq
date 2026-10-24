@@ -49,13 +49,27 @@ export const PERMISSION_MODES: { id: string; label: string; detail: string }[] =
   { id: 'acceptEdits', label: 'Accept edits', detail: 'File edits are accepted without asking; other actions ask' },
   { id: 'plan', label: 'Plan only', detail: 'Read-only planning; changes nothing' },
   { id: 'auto', label: 'Auto', detail: 'A classifier approves safe actions; risky ones ask or are blocked' },
-  { id: 'dontAsk', label: "Don't ask", detail: 'Refuses anything not pre-approved by permission rules' },
   { id: 'bypassPermissions', label: 'Bypass permissions', detail: 'No permission checks' },
 ]
 
-/** A stored mode as the picker knows it: the old `ask` and `manual` are `default`. */
+/** The Mode menu's wording (the same as the iPhone's), by mode id. A mode with no entry shows its PERMISSION_MODES text. */
+const PERMISSION_MENU_TEXT: Record<string, { label: string; detail: string }> = {
+  default: { label: 'Default', detail: 'Asks before edits and commands' },
+  acceptEdits: { label: 'Accept edits', detail: 'Edits files, asks before commands' },
+  plan: { label: 'Plan', detail: 'Reads and plans, changes nothing' },
+  auto: { label: 'Auto', detail: 'Decides itself, risky steps are checked' },
+  bypassPermissions: { label: 'Bypass permissions', detail: 'Never asks. Only in a sandbox' },
+}
+
+/** The Mode menu's items: PERMISSION_MODES, so a mode that leaves it leaves the menu. */
+export function permissionMenu(): { id: string; label: string; detail: string; risky: boolean }[] {
+  return PERMISSION_MODES.map((m) => ({ ...m, ...PERMISSION_MENU_TEXT[m.id], risky: m.id === 'bypassPermissions' }))
+}
+
+/** A stored mode as the picker knows it: the old `ask` and `manual` are `default`, a stored `dontAsk` is `auto`. */
 export function permissionMode(mode: string | null | undefined): string {
-  return mode === 'ask' || mode === 'manual' ? 'default' : (mode ?? 'auto')
+  if (mode === 'ask' || mode === 'manual') return 'default'
+  return mode === 'dontAsk' ? 'auto' : (mode ?? 'auto')
 }
 
 /** What a voice call can run on (`kith <agent> set call-model`); `default` follows this Mac's global call model (sonnet unless changed), `own` is the agent's own model. */

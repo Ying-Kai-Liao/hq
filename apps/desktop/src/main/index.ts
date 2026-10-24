@@ -22,6 +22,8 @@ import { registerSSH } from './ssh'
 import { QuitLifecycle } from './quit-lifecycle'
 import { Island } from './island'
 import { registerIncomingCall } from './incoming-call'
+import { fromRenderer } from './ipc-guard'
+import { isRendererURL, isSafeExternalURL } from '../shared/navigation'
 import { registerErrorReports } from './error-reports'
 import { openSettingsWindow, registerProfileMenu } from './settings-window'
 import type { SettingsPage } from '../shared/settings-pages'
@@ -54,6 +56,27 @@ function rendererURL(page: string) {
     : `file://${join(__dirname, '../renderer/index.html')}?window=${page}`
 }
 
+/** Links the user meant to follow open in the browser; anything else is dropped. */
+function openExternally(url: string) {
+  if (isSafeExternalURL(url)) void shell.openExternal(url)
+}
+
+// Every window, now and later: the preload hands the owner's tokens to whatever page is loaded,
+// so a window never leaves the renderer's own origin.
+app.on('web-contents-created', (_e, contents) => {
+  contents.setWindowOpenHandler(({ url }) => {
+    openExternally(url)
+    return { action: 'deny' }
+  })
+  const guard = (event: { preventDefault(): void }, url: string) => {
+    if (isRendererURL(url, rendererURL('chat'))) return
+    event.preventDefault()
+    openExternally(url)
+  }
+  contents.on('will-navigate', guard)
+  contents.on('will-redirect', guard)
+})
+
 const background = () => (nativeTheme.shouldUseDarkColors ? '#0A0A0A' : '#FFFFFF')
 
 function snapshot(): HostSnapshot {
@@ -83,10 +106,6 @@ function openChat() {
   // Closing hides: the window keeps the stores (and the menu bar's data) alive.
   chat.on('close', (e) => quitLifecycle.closeToBackground(e, () => chat?.hide()))
   chat.on('closed', () => (chat = null))
-  chat.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
-    return { action: 'deny' }
-  })
   void chat.loadURL(rendererURL('chat'))
   return chat
 }
@@ -168,7 +187,7 @@ function registerIPC(tray: Tray) {
   ipcMain.on('app:version', (e) => (e.returnValue = app.getVersion()))
   ipcMain.on('app:computerName', (e) => (e.returnValue = computerName()))
   ipcMain.on('app:debugOpen', (e) => (e.returnValue = app.isPackaged ? null : (process.env.KITH_DEBUG_OPEN ?? null)))
-  ipcMain.handle('host:snapshot', () => snapshot())
+  ipcMain.handle('host:snapshot', fromRenderer(() => snapshot()))
   ipcMain.on('host:install', () => void host.install())
   ipcMain.on('host:restart', () => host.restart())
   ipcMain.on('app:openExternal', (_e, url: string) => {
@@ -210,7 +229,7 @@ function registerIPC(tray: Tray) {
     app.setLoginItemSettings({ openAtLogin: on })
     return app.getLoginItemSettings().openAtLogin
   })
-  ipcMain.handle('app:resetAllData', async () => {
+  ipcMain.handle('app:resetAllData', fromRenderer(async () => {
     // Tell paired devices first: connected ones see "No access" at once, and the account drops
     // this computer instead of keeping an unreachable older copy of it.
     await host.call('unclaim', {}, 30_000).catch(() => {})
@@ -225,7 +244,7 @@ function registerIPC(tray: Tray) {
     app.relaunch()
     quitLifecycle.beginQuit()
     app.exit(0)
-  })
+  }))
 }
 
 if (!app.requestSingleInstanceLock()) {

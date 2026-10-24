@@ -10,7 +10,7 @@
 
 use crate::LockExt;
 use crate::api;
-use crate::api::devices::{self, Caller, RejectCode};
+use crate::api::devices::{self, Caller, Principal, RejectCode};
 use crate::hub::Hub;
 use crate::remote::crypto::{self, FrameError, Opener, Sealer};
 use crate::store::{Device, DeviceSource, Scope, now_ms};
@@ -185,6 +185,7 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         caller: Arc::new(Caller::Local),
         lease: None,
         online: None,
+        who: Principal::Nobody,
     };
     let opener = Opener::new(hs.labels, hs.keys.d2h, MAX_INBOUND);
     let (code, reason) = if let Some(d) = hs.device {
@@ -349,6 +350,8 @@ struct Channel {
     caller: Arc<Caller>,
     lease: Option<Instant>,
     online: Option<Online>,
+    /// Who the device was at its last check: an open event stream was cut for that role.
+    who: Principal,
 }
 
 type CloseWith = (u16, &'static str);
@@ -377,6 +380,7 @@ fn err_coded(id: u64, status: u16, message: &str, code: Option<&str>) -> Value {
 impl Channel {
     fn set_device(&mut self, d: &Device) {
         self.caller = Arc::new(Caller::Device { key: d.key.clone(), scopes: d.scopes.clone() });
+        self.who = devices::principal(&self.hub.store, &self.caller);
         self.lease = match (d.source, d.lease_until) {
             (DeviceSource::Account, Some(until)) => {
                 let left = u64::try_from(until - now_ms()).unwrap_or(0) + 1;
@@ -394,7 +398,15 @@ impl Channel {
     async fn recheck(&mut self) -> Result<(), CloseWith> {
         match devices::authorize(&self.hub, &self.key) {
             Ok(d) => {
+                let before = std::mem::replace(&mut self.who, Principal::Nobody);
                 self.set_device(&d);
+                // A running event stream was cut for the role it opened with (owner or an invited person); a device that
+                // became someone else, or nobody, must reconnect. Proving an invite or a bot joining only widens a role the
+                // channel never streamed under.
+                if matches!(before, Principal::Owner | Principal::Member(_)) && before != self.who {
+                    tracing::info!(device = self.key, "closing channel: the device's person or role changed");
+                    return Err((close::REKEY, "rekey"));
+                }
                 Ok(())
             }
             Err(code) => {
@@ -524,7 +536,7 @@ impl Channel {
             },
             "term" => {
                 // Setup terminals are the computer's own: an invited person never watches one.
-                if devices::principal(&self.hub.store, &self.caller) != devices::Principal::Owner {
+                if devices::principal(&self.hub.store, &self.caller) != Principal::Owner {
                     self.send(err(id, 403, "This can only be done at the computer itself.")).await;
                     return;
                 }

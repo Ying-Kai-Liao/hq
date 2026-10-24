@@ -65,13 +65,13 @@ export function PeopleView() {
         </CardSection>
       ) : null}
 
-      <Sheet open={inviting !== null} onClose={() => setInviting(null)} width={480}>
+      <Sheet className="settings-sheet" open={inviting !== null} onClose={() => setInviting(null)} width={480}>
         {inviting ? <InviteSheet store={local} personId={inviting.personId} /> : null}
       </Sheet>
-      <Sheet open={editing !== null} onClose={() => setEditing(null)} width={480}>
+      <Sheet className="settings-sheet" open={editing !== null} onClose={() => setEditing(null)} width={480}>
         {editing ? <EditSheet store={local} person={editing} /> : null}
       </Sheet>
-      <Sheet open={activity} onClose={() => setActivity(false)} width={520}>
+      <Sheet className="settings-sheet" open={activity} onClose={() => setActivity(false)} width={520}>
         <ActivitySheet store={local} />
       </Sheet>
       <Dialog

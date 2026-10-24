@@ -124,12 +124,20 @@ check "launch-json passes KITH_ROOM on" "[ \"\$(KITH_ROOM=grp1 \"$KERNEL/bin/kit
 check "a link out of memory/ is not followed" "ln -s $KITH_STATE/secrets/key.md $M/leak.md && ! env KITH_AGENT=echo \"$R\" TOPSECRET | grep -q TOPSECRET; rm -f $M/leak.md"
 check "frontmatter kind is stored" "[ \"\$(sqlite3 $DB \"select note_kind from index_rows where text like 'session zebra%'\" 2>/dev/null)\" = project-detail ] || python3 -c \"import sqlite3,sys; sys.exit(0 if sqlite3.connect('$DB').execute(\\\"select note_kind from index_rows where text like 'session zebra%'\\\").fetchone()[0]=='project-detail' else 1)\""
 
-# bots: this tree's kith-auth has no `people --json`, so a bot fails closed
+# bots: fail closed without a parent; shared only, and only for an agent bot_may allows
 check "bot guest with no resolvable parent gets nothing" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=bot-ab12 \"$R\" zebra --json)\" = '[]' ]"
 BR() { python3 -c 'import sys, json; sys.path.insert(0, sys.argv[1]); import kith_recall as r; print(r.bot_root(json.loads(sys.argv[2]), "bot-a"))' "$KERNEL/lib" "$1"; }
 BOT_OK='{"bot-a": {"bot_of": "kai"}, "kai": {}}' BOT_GONE='{"bot-a": {"bot_of": "gone"}}'
 check "bot_root follows bot_of to the root" '[ "$(BR "$BOT_OK")" = kai ]'
 check "bot_root: a missing parent is None" '[ "$(BR "$BOT_GONE")" = None ]'
+BOT_LIST='[{"id":"bot-a","bot_of":"kai"},{"id":"kai","bot_of":""}]'
+check "bot_root reads the list kith-auth people --json prints" '[ "$(BR "$BOT_LIST")" = kai ]'
+python3 "$KA" bot bot-ab12 --of kai >/dev/null; python3 "$KA" bot bot-cd34 --of kai >/dev/null
+python3 "$KA" member echo bot-ab12 >/dev/null
+check "bot with a row for the agent: shared only" "[ \"\$(aud KITH_AGENT=echo KITH_PERSON=bot-ab12)\" = shared ]"
+check "bot with no row (bot_may false): nothing" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=bot-cd34 \"$R\" zebra --json)\" = '[]' ]"
+check "recall room members: a member outside the room cuts the set to shared" "[ \"\$(aud KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=grp1 KITH_ROOM_MEMBERS=sam,eve)\" = shared ]"
+
 
 # output shape
 check "text output frames hits as data" "env KITH_AGENT=echo \"$R\" zebra | grep -q '^<recalled source=\"note\" tier=\"2\" audience=\"'"

@@ -208,9 +208,15 @@ def release_claims(pid):
     """Give back every claim pid holds (the terminal's own run ended)."""
     d = reg_dir()
     for f in (d.glob('*.claim') if d and d.is_dir() else ()):
-        c = read_claim(f)
-        if c and c.get('pid') == pid:
-            f.unlink(missing_ok=True)
+        # Under the claim lock, re-reading: a taker may have replaced the claim since the glob.
+        lock = os.open(f.with_name(f.name[:-len('.claim')] + '.claim.lock'), os.O_WRONLY | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            c = read_claim(f)
+            if c and c.get('pid') == pid:
+                f.unlink(missing_ok=True)
+        finally:
+            os.close(lock)
 
 
 def live_pid(entry):

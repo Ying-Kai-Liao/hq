@@ -140,7 +140,7 @@ pub fn spawn_tidier(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<Tidy
 /// The user's messages since the bookmark.
 fn waiting(store: &Store, bot: &str) -> usize {
     store
-        .conversation_since(bot, bookmark(store, bot), READ_LIMIT)
+        .owner_conversation_since(bot, bookmark(store, bot), READ_LIMIT)
         .map_or(0, |entries| entries.iter().filter(|e| e.kind == EntryKind::User.as_str()).count())
 }
 
@@ -190,7 +190,12 @@ async fn run(hub: &Arc<Hub>, bot_id: &str) -> Result<Ran> {
         return Ok(Ran::Later);
     }
     let after = bookmark(&hub.store, bot_id);
-    let entries = hub.store.conversation_since(bot_id, after, READ_LIMIT)?;
+    if cfg.person.is_some() {
+        // An invited person's chat isn't the owner's: nothing in it feeds the owner's memory. Skip past it.
+        set_bookmark(&hub.store, bot_id, hub.store.last_seq(bot_id))?;
+        return Ok(Ran::Done { more: false });
+    }
+    let entries = hub.store.owner_conversation_since(bot_id, after, READ_LIMIT)?;
     let read = within_batch(&entries);
     let more = read.len() < entries.len() || i64::try_from(entries.len()).is_ok_and(|n| n == READ_LIMIT);
     let last_seq = read.last().map_or(after, |e| e.seq);
@@ -296,7 +301,27 @@ fn message(e: &Entry) -> Option<Message> {
 
 #[cfg(test)]
 mod tests {
-    use super::dated;
+    use super::{dated, message, waiting};
+    use crate::store::Store;
+    use crate::store::{EntryKind, Lane};
+    use serde_json::json;
+
+    #[test]
+    fn tidying_reads_only_the_owners_turns() {
+        let dir = std::env::temp_dir().join(format!("kith-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = Store::open(&dir.join("t.db")).unwrap();
+        let main = Lane::main("b1");
+        s.insert_entry(&main, EntryKind::User, 1, &json!({"text": "owner"})).unwrap();
+        s.insert_entry(&main, EntryKind::Agent, 1, &json!({"text": "ok", "final": true})).unwrap();
+        s.insert_entry(&main, EntryKind::User, 2, &json!({"text": "sam says", "person": "sam"})).unwrap();
+        s.insert_entry(&main, EntryKind::Agent, 2, &json!({"text": "reply to sam", "final": true})).unwrap();
+        s.insert_entry(&main, EntryKind::User, 3, &json!({"text": "guest", "sender": {"botId": "g"}})).unwrap();
+        assert_eq!(waiting(&s, "b1"), 1);
+        let seen: Vec<String> =
+            s.owner_conversation_since("b1", 0, 50).unwrap().iter().filter_map(message).flat_map(|m| m.text).collect();
+        assert_eq!(seen, ["owner", "ok"]);
+    }
 
     #[test]
     fn only_dates_trigger_the_time_review() {

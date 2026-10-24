@@ -70,6 +70,11 @@ impl Actor {
                 }
             }
             Cmd::SendToUser { text, reply } => {
+                // The outbox gave up waiting and told the agent the send failed; posting now would show a bubble
+                // the agent will send again.
+                if reply.is_closed() {
+                    return true;
+                }
                 let _ = reply.send(self.send_to_user(text));
             }
             Cmd::SendFile { path, name, cancelled, reply } => self.begin_file(path, name, cancelled, reply),
@@ -121,6 +126,10 @@ impl Actor {
                 }
                 if restart {
                     self.files.cancel();
+                    // A deliberate restart, not a failure: the cut-off turn ends as stopped (as a cancelled ask's does).
+                    if self.turn.is_some() {
+                        self.stop_requested = true;
+                    }
                     if let Some(c) = self.conn.take() {
                         c.acp.kill().await;
                     }
@@ -249,7 +258,7 @@ impl Actor {
         }
     }
 
-    fn set_user_status(&self, entry_id: &str, status: RequestStatus) {
+    pub(super) fn set_user_status(&self, entry_id: &str, status: RequestStatus) {
         if let Some(mut e) = self.hub.store.entry(entry_id) {
             e.data["status"] = json!(status);
             self.hub.set_entry(entry_id, &e.data);
@@ -380,13 +389,17 @@ impl Actor {
     }
 
     pub(super) fn start_failed(&mut self, e: &anyhow::Error) {
+        let stopped = e.is::<super::turn::StartCancelled>();
         if self.turn.is_some() {
-            self.report_turn(false, Some(e), "start_failed");
+            self.report_turn(stopped, (!stopped).then_some(e), "start_failed");
         }
-        self.finish_routine(crate::routines::Status::Failed, Some(format!("Could not start routine: {e:#}")), None);
+        let status = if stopped { crate::routines::Status::Cancelled } else { crate::routines::Status::Failed };
+        self.finish_routine(status, Some(format!("Could not start routine: {e:#}")), None);
         self.complete_request(Err(anyhow!("couldn't start recipient: {e:#}")), false);
         self.complete_group(Err(anyhow!("couldn't start: {e:#}")));
-        if let Some(none) = e.downcast_ref::<crate::agent::backups::NoAccount>() {
+        if stopped {
+            self.notice("Stopped.", NoticeStyle::Info);
+        } else if let Some(none) = e.downcast_ref::<crate::agent::backups::NoAccount>() {
             self.notice(&none.0, NoticeStyle::Info);
         } else if let Some(refused) = e.downcast_ref::<crate::agent::hq::Refused>() {
             // The kernel said no for this person (not a member any more, or over their budget): it says why.
@@ -403,7 +416,7 @@ impl Actor {
             self.set_inflight(false);
         }
         // A terminal holding the thread is not an error of this bot: it goes on with its other places.
-        let held = e.is::<crate::terminal::HeldByWriter>();
+        let held = e.is::<crate::terminal::HeldByWriter>() || stopped;
         self.hub.set_runtime(&self.rt, |r| {
             r.status = if held { BotStatus::Idle } else { BotStatus::Error };
             r.activity = if held { String::new() } else { "Couldn't start".into() };

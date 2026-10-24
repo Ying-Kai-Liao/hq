@@ -91,6 +91,7 @@ EDITING_MAX_AGE = 3600                                       # a stale .editing 
 KEEP = 2                                                     # newest versions kept besides good/pinned/running/recent
 
 
+EINTR_TRIES, EINTR_SLEEP = 4, 0.25
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
 
 
@@ -99,15 +100,29 @@ def die(msg, code=1):
     sys.exit(code)
 
 
+def retry_eintr(fn, what):
+    """fn() again when the disk answers EINTR (macOS does that while it blocks access to an external disk); a clear
+    one-line exit when it keeps failing, instead of a traceback that leaves the caller reading empty output."""
+    for attempt in range(EINTR_TRIES):
+        try:
+            return fn()
+        except InterruptedError as e:
+            if attempt == EINTR_TRIES - 1:
+                die(f'cannot read {what}: {e.strerror or e} (errno {e.errno}); the disk may be blocked, try again')
+            time.sleep(EINTR_SLEEP)
+
+
 def installed():
     """{name: package folder}: the agents folder first, then the repo's own agents/ (older installs)."""
-    out = {}
-    for root in (AGENTS, KITH / 'agents'):
-        for d in sorted(root.iterdir()) if root.is_dir() else []:
-            pkg = d / 'role' if (d / 'role' / 'agent.md').is_file() else d   # role/ next to the agent's life
-            if not d.name.startswith('.') and (pkg / 'agent.md').is_file():
-                out.setdefault(d.name, pkg)
-    return out
+    def scan():
+        out = {}
+        for root in (AGENTS, KITH / 'agents'):
+            for d in sorted(root.iterdir()) if root.is_dir() else []:
+                pkg = d / 'role' if (d / 'role' / 'agent.md').is_file() else d   # role/ next to the agent's life
+                if not d.name.startswith('.') and (pkg / 'agent.md').is_file():
+                    out.setdefault(d.name, pkg)
+        return out
+    return retry_eintr(scan, AGENTS)   # the whole walk: is_dir/is_file can get EINTR as well
 
 
 def life(agent):
@@ -693,7 +708,7 @@ def choose_mode(name, home):
     """Someone's agent only suggests its permission mode (settings.json defaultMode): the mode it starts in on this Mac
     is the installer's, kept in kith's settings so an update of theirs can't change it. bypassPermissions needs a yes."""
     try:
-        mode = json.loads((home / 'settings.json').read_text()).get('permissions', {}).get('defaultMode')
+        mode = kith_settings.current(json.loads((home / 'settings.json').read_text()).get('permissions', {}).get('defaultMode'))
     except (OSError, ValueError):
         mode = None
     if not mode:

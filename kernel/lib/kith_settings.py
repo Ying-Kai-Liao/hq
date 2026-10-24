@@ -40,7 +40,28 @@ from kith_paths import paths  # noqa: E402  the one place that knows where kith'
 
 FILE = paths()['KITH_MACHINE'] / 'settings.json'
 DEFAULTS = {'permission_mode': 'auto', 'plugins': [], 'backups': [], 'call_model': 'sonnet'}
-CHOICES = {'permission_mode': ('default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions')}
+CHOICES = {'permission_mode': ('default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions')}
+# Modes kith no longer offers, and what a stored one reads as: 'manual' was kith's own word for Claude Code's 'default';
+# 'dontAsk' (refuse whatever no allow rule names) is gone, and its runs start in auto.
+RETIRED = {'manual': 'default', 'dontAsk': 'auto'}
+
+
+def current(mode):
+    """The mode a run starts in for a mode from any source: a retired one as the mode that replaced it."""
+    return RETIRED.get(mode, mode) if isinstance(mode, str) else mode
+
+
+def retired():
+    """Where this Mac's file names a retired mode: [(key, mode)], e.g. ('agents.coder.permission_mode', 'dontAsk')."""
+    try:
+        s = json.loads(FILE.read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(s, dict):
+        return []
+    agents = s.get('agents') if isinstance(s.get('agents'), dict) else {}
+    places = [('permission_mode', s)] + [(f'agents.{n}.permission_mode', a) for n, a in agents.items() if isinstance(a, dict)]
+    return [(k, d['permission_mode']) for k, d in places if current(d.get('permission_mode')) != d.get('permission_mode')]
 
 
 def read():
@@ -54,13 +75,10 @@ def read():
     if not isinstance(s, dict):
         return {}, f'{FILE} is not a JSON object'
     agents = s.get('agents', {})
-    # 'manual' was a mode kith invented; Claude Code's own 'default' is what it always meant. Old files still read back.
-    if s.get('permission_mode') == 'manual':
-        s['permission_mode'] = 'default'
-    if isinstance(agents, dict):
-        for a in agents.values():
-            if isinstance(a, dict) and a.get('permission_mode') == 'manual':
-                a['permission_mode'] = 'default'
+    # Old files still read back: a retired mode as the mode that replaced it (kith doctor says where one is).
+    for d in [s] + (list(agents.values()) if isinstance(agents, dict) else []):
+        if isinstance(d, dict) and 'permission_mode' in d:
+            d['permission_mode'] = current(d['permission_mode'])
     if not isinstance(agents, dict) or not all(isinstance(a, dict) for a in agents.values()):
         return {}, f'{FILE}: agents is not {{"<agent>": {{...}}}}'
     plugins = s.get('plugins', [])

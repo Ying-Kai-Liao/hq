@@ -57,11 +57,13 @@ extension BotStore {
     }
 
     /// Fire-and-forget actions; only what waiting and retrying couldn't settle reaches the dialog.
-    private func perform(replay: Bool = false, _ op: @escaping @MainActor (HostClient) async throws -> Void) {
+    /// `rollback` undoes an optimistic local change when the host refuses or can't be reached.
+    private func perform(replay: Bool = false, rollback: (@MainActor () -> Void)? = nil, _ op: @escaping @MainActor (HostClient) async throws -> Void) {
         Task {
             do {
                 try await withLink(replay: replay, op)
             } catch {
+                rollback?()
                 lastError = error.localizedDescription
             }
         }
@@ -114,8 +116,12 @@ extension BotStore {
         guard let i = entries[entry.botId]?.firstIndex(where: { $0.id == entry.id }) else { return }
         var reactions = entries[entry.botId]?[i].data.reactions ?? []
         if let at = reactions.firstIndex(of: emoji) { reactions.remove(at: at) } else { reactions.append(emoji) }
+        let previous = entries[entry.botId]?[i].data.reactions
         entries[entry.botId]?[i].data.reactions = reactions
-        perform { client in
+        perform(rollback: { [weak self] in
+            guard let self, let at = self.entries[entry.botId]?.firstIndex(where: { $0.id == entry.id }) else { return }
+            self.entries[entry.botId]?[at].data.reactions = previous
+        }) { client in
             let e = try await client.react(entryId: entry.id, emoji: emoji)
             self.upsert(e)
         }
@@ -196,50 +202,41 @@ extension BotStore {
         perform(replay: true) { try await $0.markRead(botId, all: true) }
     }
 
+    /// Changes one setting: shown at once, then sent alone (the host merges it), and put back if the host refuses.
+    private func setting<Value: Encodable & Sendable>(_ bot: Bot, _ key: String, _ value: Value, _ path: WritableKeyPath<Bot, Value>) {
+        let previous = bots[bot.id]?[keyPath: path]
+        bots[bot.id]?[keyPath: path] = value
+        perform(replay: true, rollback: { [weak self] in
+            if let previous { self?.bots[bot.id]?[keyPath: path] = previous }
+        }) { try await $0.updateBotSetting(bot.id, key, value) }
+    }
+
     public func setPinned(_ bot: Bot, _ pinned: Bool) {
-        var d = BotDraft(bot)
-        d.pinned = pinned
-        bots[bot.id]?.pinned = pinned
-        perform(replay: true) { _ = try await $0.updateBot(d) }
+        setting(bot, "pinned", pinned, \.pinned)
     }
 
     /// A palette colour for the bot's body (`AvatarPalette.Swatch.stored`).
     public func setAvatarColor(_ bot: Bot, _ color: String) {
-        var d = BotDraft(bot)
-        d.avatarColor = color
-        bots[bot.id]?.avatarColor = color
-        perform(replay: true) { _ = try await $0.updateBot(d) }
+        setting(bot, "avatarColor", color, \.avatarColor)
     }
 
     public func setHidden(_ bot: Bot, _ hidden: Bool) {
-        var d = BotDraft(bot)
-        d.hidden = hidden
-        bots[bot.id]?.hidden = hidden
-        perform(replay: true) { _ = try await $0.updateBot(d) }
+        setting(bot, "hidden", hidden, \.hidden)
     }
 
     /// Whether the bot may see and use the computer's screen.
     public func setComputer(_ bot: Bot, _ computer: Bool) {
-        var d = BotDraft(bot)
-        d.computer = computer
-        bots[bot.id]?.computer = computer
-        perform(replay: true) { _ = try await $0.updateBot(d) }
+        setting(bot, "computer", computer, \.computer)
     }
 
     /// Whether the bot uses the memory all bots share.
     public func setSharedMemory(_ bot: Bot, _ shared: Bool) {
-        var d = BotDraft(bot)
-        d.sharedMemory = shared
-        bots[bot.id]?.sharedMemory = shared
-        perform(replay: true) { _ = try await $0.updateBot(d) }
+        setting(bot, "sharedMemory", Bool?.some(shared), \.sharedMemory)
     }
 
     /// Whether the bot's harness keeps its own memory on beside Kith's.
     public func setHarnessMemory(_ bot: Bot, _ on: Bool) {
-        var d = BotDraft(bot)
-        d.harnessMemory = on
-        bots[bot.id]?.harnessMemory = on
-        perform(replay: true) { _ = try await $0.updateBot(d) }
+        setting(bot, "harnessMemory", Bool?.some(on), \.harnessMemory)
     }
 
     /// Saves the user's version of a handoff that hasn't been sent. Whether it did.
@@ -268,10 +265,7 @@ extension BotStore {
     }
 
     public func setFastMode(_ bot: Bot, _ fastMode: Bool) {
-        var d = BotDraft(bot)
-        d.fastMode = fastMode
-        bots[bot.id]?.fastMode = fastMode
-        perform(replay: true) { _ = try await $0.updateBot(d) }
+        setting(bot, "fastMode", fastMode, \.fastMode)
     }
 
     // MARK: roster order
@@ -279,8 +273,11 @@ extension BotStore {
     /// Puts the roster in `ids` order (pinned bots still sort first) and sends it; the host
     /// syncs it to every device.
     public func reorder(_ ids: [String]) {
+        let before = ids.reduce(into: [String: Int]()) { $0[$1] = bots[$1]?.position }
         for (position, id) in ids.enumerated() { bots[id]?.position = position }
-        perform(replay: true) { try await $0.reorderBots(ids) }
+        perform(replay: true, rollback: { [weak self] in
+            for (id, position) in before { self?.bots[id]?.position = position }
+        }) { try await $0.reorderBots(ids) }
     }
 
     /// One place up (-1) or down (+1) among bots with the same pin state (VoiceOver).
@@ -293,10 +290,14 @@ extension BotStore {
     }
 
     public func delete(_ bot: Bot) {
+        let kept = entries[bot.id]
         removeComposerDrafts(for: bot.id)
         bots[bot.id] = nil
         entries[bot.id] = nil
-        perform(replay: true) { try await $0.deleteBot(bot.id) }
+        perform(replay: true, rollback: { [weak self] in
+            self?.bots[bot.id] = bot
+            if let kept { self?.entries[bot.id] = kept }
+        }) { try await $0.deleteBot(bot.id) }
     }
 
     /// Creates a group chat (or opens the one these bots already share) and selects it.
@@ -312,9 +313,22 @@ extension BotStore {
         bots[group.id] = group
     }
 
+    /// A background load failed: log it, and tell the person unless the view just went away (a cancelled task isn't an error).
+    private func reportLoadFailure(_ what: String, _ error: Error) {
+        log.error("\(what) failed: \(error.localizedDescription)")
+        if !Task.isCancelled, !error.isCancellation { lastError = error.localizedDescription }
+    }
+
     /// Pages in a thread's replies (the stream only carries recent entries).
     public func loadThread(_ botId: String, root: String) async {
-        guard let client, let page = try? await client.threadPage(botId: botId, rootId: root) else { return }
+        guard let client else { return }
+        let page: (entries: [Entry], folder: PlaceFolder?)
+        do {
+            page = try await client.threadPage(botId: botId, rootId: root)
+        } catch {
+            reportLoadFailure("thread load", error)
+            return
+        }
         for e in page.entries { upsert(e) }
         if let folder = page.folder { threadFolders[Self.threadFolderKey(botId, root)] = folder }
     }
@@ -338,13 +352,24 @@ extension BotStore {
 
     public func refreshUsage() async {
         guard !retired, let client else { return }
-        if let u = try? await client.usage(refresh: true), !Task.isCancelled { setUsage(u) }
+        do {
+            let u = try await client.usage(refresh: true)
+            if !Task.isCancelled { setUsage(u) }
+        } catch {
+            reportLoadFailure("usage refresh", error)
+        }
     }
 
     public func loadOlder(_ botId: String) async {
         guard let client, !historyComplete.contains(botId) else { return }
         let first: Int64 = chat(botId).first(where: { $0.seq > 0 && $0.seq != Int64.max })?.seq ?? Int64.max
-        guard let older = try? await client.history(botId: botId, beforeSeq: first, limit: 100) else { return }
+        let older: [Entry]
+        do {
+            older = try await client.history(botId: botId, beforeSeq: first, limit: 100)
+        } catch {
+            reportLoadFailure("older messages", error)
+            return
+        }
         if older.count < 100 { historyComplete.insert(botId) }
         for e in older { upsert(e) }
     }

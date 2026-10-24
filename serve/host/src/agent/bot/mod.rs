@@ -166,6 +166,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
     let fast_support = FastModeSupport::from_stored(hub.store.kv_get(&fast_mode::stored_key(&cfg.id)).as_deref());
     let support = fast_support.clone();
     hub.set_runtime(&rt, |r| r.fast_mode = support);
+    let retire_after = lifecycle::retire_after(&hub.store);
     let actor = Actor {
         hub,
         cfg,
@@ -209,6 +210,8 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
         files: files::FileShares::default(),
         perms: HashMap::new(),
         parked_prompts: HashMap::new(),
+        cmd_rx: None,
+        deferred: VecDeque::new(),
         stop_requested: false,
         cancel_deadline: None,
         exit_tail: None,
@@ -230,6 +233,9 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
         tools_changed: false,
         fast_support,
         idle_checked: Instant::now(),
+        busy_at: Instant::now(),
+        own_tx: tx.downgrade(),
+        retire_after,
         permit: None,
         admission: None,
         waiting_shown: false,
@@ -411,6 +417,10 @@ struct Actor {
     perms: HashMap<String, Value>,
     /// permission entry id -> the gate slot given up while the owner decides (an invited person's guest prompt)
     parked_prompts: HashMap<String, crate::agent::gate::Parked>,
+    /// The command channel, held here so a turn's start phase (minutes on an install) can listen for Stop.
+    cmd_rx: Option<mpsc::UnboundedReceiver<Cmd>>,
+    /// Commands that arrived during a start phase, handled in order once it ends.
+    deferred: VecDeque<Cmd>,
     stop_requested: bool,
     /// A cancelled turn still running past this stops its agent process.
     cancel_deadline: Option<Instant>,
@@ -453,6 +463,12 @@ struct Actor {
     fast_support: FastModeSupport,
     /// When idle sessions and agents were last looked for.
     idle_checked: Instant,
+    /// When this actor was last in use (see `lifecycle::retire_if_unused`).
+    busy_at: Instant,
+    /// The hub's channel to this actor, weak so it doesn't keep the channel open once the hub lets go.
+    own_tx: mpsc::WeakUnboundedSender<Cmd>,
+    /// How long a thread actor may sit unused before it ends.
+    retire_after: Duration,
     /// The gate slot the running turn holds (see `room`); none between turns.
     permit: Option<Permit>,
     /// This actor's place in the gate's line, while it has turns queued and no slot.
@@ -473,7 +489,8 @@ type Done = Result<Value>;
 impl Actor {
     /// `interrupted`: the previous host process stopped a turn in this lane (the bot's
     /// chat or one of its threads); resume it first.
-    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Cmd>, interrupted: Option<Lane>) {
+    async fn run(mut self, rx: mpsc::UnboundedReceiver<Cmd>, interrupted: Option<Lane>) {
+        self.cmd_rx = Some(rx);
         let (done_tx, mut done_rx) = mpsc::unbounded_channel::<Done>();
         let mut flush_tick = tokio::time::interval(Duration::from_millis(300));
         // Routines run in the bot's own chat actor.
@@ -495,7 +512,7 @@ impl Actor {
         }
         loop {
             tokio::select! {
-                cmd = rx.recv() => {
+                cmd = next_cmd(&mut self.deferred, &mut self.cmd_rx) => {
                     let Some(cmd) = cmd else { break };
                     if !self.on_cmd(cmd, &done_tx).await { break }
                 }
@@ -549,6 +566,7 @@ impl Actor {
                         if let Some(c) = self.conn.take() { c.acp.kill().await; }
                     }
                     self.release_idle().await;
+                    if self.retire_if_unused() { break }
                     // The idle check may have queued a compaction.
                     if self.turn.is_none() && !self.queue.is_empty() {
                         self.next_in_queue(&done_tx).await;
@@ -607,6 +625,14 @@ const RESUME_PROMPT: &str = "[Kith restarted on this computer and interrupted yo
 
 /// How long a cancelled turn may take to wind down before its agent process is stopped.
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
+
+/// The next command: those set aside during a start phase first, then the channel. Cancel safe.
+async fn next_cmd(deferred: &mut VecDeque<Cmd>, rx: &mut Option<mpsc::UnboundedReceiver<Cmd>>) -> Option<Cmd> {
+    if let Some(cmd) = deferred.pop_front() {
+        return Some(cmd);
+    }
+    rx.as_mut()?.recv().await
+}
 
 async fn recv_incoming(conn: &mut Option<Conn>) -> Option<Incoming> {
     match conn {

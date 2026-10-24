@@ -39,7 +39,7 @@ transcript() {   # transcript <sid> <cwd> <dir name> <first human text>: a meta 
   python3 - "$CLAUDE_CONFIG_DIR/projects/$3/$1.jsonl" "$2" "$4" <<'PY'
 import json, sys
 p, cwd, text = sys.argv[1:]
-lines = [{"type": "permission-mode", "permissionMode": "dontAsk"},
+lines = [{"type": "permission-mode", "permissionMode": "auto"},
          {"type": "user", "isMeta": True, "cwd": cwd, "message": {"role": "user", "content": "<local-command-caveat>x</local-command-caveat>"}},
          {"type": "user", "cwd": cwd, "message": {"role": "user", "content": "<command-name>/clear</command-name>"}},
          {"type": "user", "cwd": cwd, "message": {"role": "user", "content": [{"type": "text", "text": text}]}},

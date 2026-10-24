@@ -139,7 +139,8 @@ agent_suggest() {
 }
 
 if [[ $1 == ls && ${2:-} == --json ]]; then
-  "$KITH/bin/kith-pkg" list --json | python3 -c '
+  pkgs=$("$KITH/bin/kith-pkg" list --json) && [[ -n $pkgs ]] || exit 1   # kith-pkg already printed why on stderr
+  python3 -c '
 import json, os, re, sys
 def field(text, k):
     m = re.match(r"---\n(.*?)\n---", text, re.S)
@@ -153,7 +154,7 @@ for name, o in json.load(sys.stdin).items():
     h = field(text, "harness") or "claude"
     out.append({"name": name, "description": d.group(1) if d else "", "home": home, "model": field(text, "model"),
                 "effort": field(text, "effort"), "harness": "claude" if h == "claude-code" else h})
-print(json.dumps(out))'
+print(json.dumps(out))' <<<"$pkgs"
   exit 0
 fi
 if [[ $1 == ls ]]; then
@@ -467,6 +468,8 @@ if [[ $p_owner == 0 ]]; then
     done
   done
 fi
+# A mode kith no longer offers, from whichever source, starts as the one that replaced it (kith_settings.RETIRED).
+case $perm_mode in manual) perm_mode=default ;; dontAsk) perm_mode=auto ;; esac
 # The agent's settings plus a SessionStart hook that tags each session (new, resumed, /clear) in the cost ledger, and
 # kith's secrets kept out of its file tools (they sit inside ~/.kith, which every run can read; tools get them from kith-auth),
 # and the writes PROTOCOL asks for allowed without a prompt (a one-shot run has no one to approve them): its memory,
@@ -587,9 +590,11 @@ for rules in (allow, s["permissions"]["deny"]):
             rules.insert(rules.index(r) + 1, q)
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
 sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
-from kith_settings import get
+from kith_settings import current, get
 if not os.environ["PERM_MODE"]:
     s["permissions"].setdefault("defaultMode", get("permission_mode"))
+if "defaultMode" in s["permissions"]:   # the agent author may still suggest a retired one
+    s["permissions"]["defaultMode"] = current(s["permissions"]["defaultMode"])
 try:
     installed = [p["id"] for p in json.loads(os.environ["PLUGINS"])]
 except (ValueError, KeyError, TypeError):
@@ -735,6 +740,10 @@ print(json.dumps({"mcpServers": servers}))' "${f[@]}"
 }
 # The launch JSON for kith serve, from the lists built above: dirs[] holds --add-dir pairs; the arguments are the argv to give
 # claude (none for Codex, which the host builds itself: settings and claude_args are then null).
+# Claude Code turns the Artifact tools off under the SDK and -p; the owner's runs get them (their artifacts publish to
+# their own claude.ai account). Not a guest's run: whether guests may publish is open.
+[[ $harness == claude && $p_owner == 1 ]] && export CLAUDE_CODE_ARTIFACT=1
+export KITH_OWNER=$p_owner   # the plugin's answer to "is this run the owner's": KITH_PERSON can name the owner too
 emit_launch() {
   # Only a Claude run on the agent's own model: a person's membership picks their model, and another harness names its own.
   local call_model=""
@@ -745,7 +754,7 @@ emit_launch() {
   [[ $harness == claude ]] && settings=$(cat "$runs/$$.settings.json")
   grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null && no_slash=false || no_slash=true
   [[ $harness == claude ]] || allowed_tools=""
-  ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_RUN_TOKEN KITH_RUN_SOCKET KITH_ROOM KITH_VIA KITH_PROVIDER KITH_ACCOUNT $backup_cfg_var $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
+  ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_RUN_TOKEN KITH_RUN_SOCKET KITH_ROOM KITH_VIA KITH_PROVIDER KITH_ACCOUNT KITH_OWNER CLAUDE_CODE_ARTIFACT $backup_cfg_var $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
     ADD_DIRS=$add_dirs ALLOWED=$allowed_tools SETTINGS=$settings MCP=$(merged_mcp) PROMPT=$prompt PERM_MODE=$perm_mode NO_SLASH=$no_slash CALL_MODEL=$call_model \
     BACKUP=$backup HARNESS=$harness KITH_LIB=$KITH/lib \
     python3 -c '
