@@ -46,6 +46,9 @@ pub struct Claim {
     /// the terminal), and the revoke sweep never touches those. Set by the writer from what kith-auth resolved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub person: Option<String>,
+    /// The agent the run is on (with `person`): narrowing someone's access ends only the holders on agents they lost.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 fn terminal() -> Kind {
@@ -91,10 +94,10 @@ pub fn holder(state: &Path, sid: &str) -> Option<Claim> {
 /// Takes the claim for `pid` (a running process). `Err(Held)`: a live claim is there. A stale claim is replaced under a
 /// lock file next to it, so two takers never both judge it stale and one delete the other's fresh claim.
 pub fn take(state: &Path, sid: &str, kind: Kind, pid: u32, takeover: bool) -> std::io::Result<Result<(), Held>> {
-    take_as(state, sid, kind, pid, takeover, None)
+    take_as(state, sid, kind, pid, takeover, None, None)
 }
 
-/// [`take`] for a run that has `person`'s profile (`None`: the owner's).
+/// [`take`] for a run that has `person`'s profile on `agent` (`None`: the owner's).
 pub fn take_as(
     state: &Path,
     sid: &str,
@@ -102,6 +105,7 @@ pub fn take_as(
     pid: u32,
     takeover: bool,
     person: Option<&str>,
+    agent: Option<&str>,
 ) -> std::io::Result<Result<(), Held>> {
     if !safe_id(sid) {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a session id"));
@@ -109,7 +113,7 @@ pub fn take_as(
     let dest = path(state, sid, takeover);
     let parent = dest.parent().unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent)?;
-    let mine = Claim { pid, proc_start: start_of(pid), at: chrono::Utc::now().to_rfc3339(), kind, takeover, person: person.map(str::to_owned) };
+    let mine = Claim { pid, proc_start: start_of(pid), at: chrono::Utc::now().to_rfc3339(), kind, takeover, person: person.map(str::to_owned), agent: agent.map(str::to_owned) };
     let tmp = parent.join(format!(".{sid}.claim.{}.{}.tmp", std::process::id(), pid));
     write_new(&tmp, &serde_json::to_string(&mine).map_err(std::io::Error::other)?)?;
     let result = (|| {
@@ -136,8 +140,8 @@ pub fn take_as(
 /// Keeps a person's agent process findable between turns: the turn claim is given back when the turn ends, but the warm
 /// process (with that person's profile) goes on, and after a host crash it can outlive the host. This claim names no
 /// session (`proc-<pid>`), so it keeps no writer out; it only lets [`sweep`] find the process. Stale ones are pruned.
-pub fn take_proc(state: &Path, pid: u32, person: &str) -> std::io::Result<()> {
-    take_as(state, &format!("proc-{pid}"), Kind::App, pid, false, Some(person))?.ok();
+pub fn take_proc(state: &Path, pid: u32, person: &str, agent: Option<&str>) -> std::io::Result<()> {
+    take_as(state, &format!("proc-{pid}"), Kind::App, pid, false, Some(person), agent)?.ok();
     if let Ok(entries) = std::fs::read_dir(dir(state)) {
         for e in entries.flatten() {
             let name = e.file_name();
@@ -150,11 +154,22 @@ pub fn take_proc(state: &Path, pid: u32, person: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// The live claims that name one of `persons` (what [`sweep`] would consider).
+pub fn holders_of(state: &Path, persons: &[String]) -> Vec<Claim> {
+    let Ok(entries) = std::fs::read_dir(dir(state)) else { return Vec::new() };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "claim"))
+        .filter_map(|e| read(&e.path()))
+        .filter(|c| c.person.as_deref().is_some_and(|p| persons.iter().any(|x| x == p)) && c.is_live())
+        .collect()
+}
+
 /// Ends the live holders of every claim whose person is one of `persons` (a revoked person and their bots), and their
 /// child processes (the launcher's claude, ACP adapters and what they started). A claim without a person is the owner's
 /// and is never touched. Each holder is checked first (`is_live`: pid and start time, so a reused pid is left alone).
-/// SIGTERM, then SIGKILL after `grace`. Blocking: call from `spawn_blocking`. Returns the holders it ended.
-pub fn sweep(state: &Path, persons: &[String], grace: std::time::Duration) -> Vec<u32> {
+/// `keep` spares a holder (a narrowed access: those still allowed on their agent). SIGTERM, then SIGKILL after `grace`. Blocking: call from `spawn_blocking`. Returns the holders it ended.
+pub fn sweep(state: &Path, persons: &[String], keep: &dyn Fn(&Claim) -> bool, grace: std::time::Duration) -> Vec<u32> {
     let Ok(entries) = std::fs::read_dir(dir(state)) else { return Vec::new() };
     let mut holders: Vec<(PathBuf, Claim)> = Vec::new();
     for entry in entries.flatten() {
@@ -163,7 +178,7 @@ pub fn sweep(state: &Path, persons: &[String], grace: std::time::Duration) -> Ve
             continue;
         }
         let Some(claim) = read(&path) else { continue };
-        if claim.person.as_deref().is_some_and(|p| persons.iter().any(|x| x == p)) && claim.is_live() {
+        if claim.person.as_deref().is_some_and(|p| persons.iter().any(|x| x == p)) && !keep(&claim) && claim.is_live() {
             holders.push((path, claim));
         }
     }

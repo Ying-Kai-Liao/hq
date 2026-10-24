@@ -570,7 +570,7 @@ pub(crate) async fn end_bot(hub: &Hub, bot_id: &str, final_state: BotState, why:
         }
     }
     // Then whatever still runs as the bot: processes a restarted host no longer knows, found by their claims.
-    sweep_claims(hub, vec![bot.person_id.clone()]).await;
+    sweep_claims(hub, vec![bot.person_id.clone()], false).await;
     for c in hub.store.bot_conversations_of(bot_id, 1000).unwrap_or_default() {
         let lane = Lane::in_thread(&c.chat_bot_id, &c.thread_root);
         let data = json!({"text": "This bot's access to this computer ended.", "style": "info", "ended": why});
@@ -606,15 +606,31 @@ pub(crate) async fn revoke_owned_by(hub: &Hub, person: &str, why: &str) {
             end_bot(hub, &g.bot_id, BotState::Revoked, why, "host").await;
         }
     }
-    sweep_claims(hub, vec![person.to_owned()]).await;
+    sweep_claims(hub, vec![person.to_owned()], false).await;
 }
 
 /// Kills the holders of every writer claim that names one of `persons`, and what they started (see
 /// `terminal::claim::sweep`): the runs a restarted host lost track of. Never the owner's (their claims name nobody).
-pub(crate) async fn sweep_claims(hub: &Hub, persons: Vec<String>) {
+/// With `only_denied` (access narrowed, not removed) a holder survives while its person may still use its agent; a claim
+/// that names no agent (from before claims did) cannot be judged and goes.
+pub(crate) async fn sweep_claims(hub: &Hub, persons: Vec<String>, only_denied: bool) {
     let state = hub.terminal.env().state;
+    let mut allowed: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
+    if only_denied {
+        let (st, ps) = (state.clone(), persons.clone());
+        let held = tokio::task::spawn_blocking(move || crate::terminal::claim::holders_of(&st, &ps)).await.unwrap_or_default();
+        for (person, agent) in held.into_iter().filter_map(|c| Some((c.person?, c.agent?))) {
+            if roles::may_use(&person, &agent).await {
+                allowed.insert((person, agent));
+            }
+        }
+    }
     let ended = tokio::task::spawn_blocking(move || {
-        crate::terminal::claim::sweep(&state, &persons, Duration::from_secs(2))
+        let keep = |c: &crate::terminal::claim::Claim| {
+            only_denied
+                && c.person.clone().zip(c.agent.clone()).is_some_and(|pa| allowed.contains(&pa))
+        };
+        crate::terminal::claim::sweep(&state, &persons, &keep, Duration::from_secs(2))
     })
     .await
     .unwrap_or_default();

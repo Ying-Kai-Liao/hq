@@ -207,7 +207,16 @@ is "claim of a reused pid (other procStart) is stale" "$(claimcli take cs-1 $C2)
 python3 "$SK" claim cs-pers "$C1" guest-sam; is "claim: a person's one-shot names the person" "$(field $REG/cs-pers.claim person)" guest-sam
 is "claim: the one-shot kind is kept" "$(field $REG/cs-pers.claim kind)" oneshot
 python3 "$SK" claim cs-own "$C1"; is "claim: the owner's has no person" "$(field $REG/cs-own.claim person)" ""
+is "claim: a person's one-shot names the agent" "$(python3 "$SK" claim cs-ag "$C1" guest-sam money; field $REG/cs-ag.claim agent)" money
+python3 "$SK" proc "$C1" guest-sam money
+is "proc claim: names the person" "$(field $REG/proc-$C1.claim person)" guest-sam
+is "proc claim: names the agent" "$(field $REG/proc-$C1.claim agent)" money
+is "proc claim: names the pid" "$(field $REG/proc-$C1.claim pid)" "$C1"
+is "proc claim: kind the host reads (no session held)" "$(field $REG/proc-$C1.claim kind)" app
+sleep 300 & C9=$!; python3 "$SK" proc "$C9" guest-sam money; kill $C9; wait $C9 2>/dev/null; python3 "$SK" proc "$C1" guest-sam money
+[[ ! -e $REG/proc-$C9.claim ]] && ok "proc claim: a dead run's claim is pruned" || bad "stale proc claim kept"
 rm -f $REG/cs-pers.claim $REG/cs-own.claim
+rm -f $REG/proc-*.claim
 # a second terminal --resume on a claimed session is refused, before anything starts
 python3 - "$REG/cs-2.claim" "$C2" <<'PY'
 import json, subprocess, sys
@@ -375,6 +384,28 @@ is "one-shot resume: second is refused" "$rc" 1
 (cd "$T/work/a" && KITH_RESUME=os2 STUB_SID=os2 STUB_OUT=$T/os-c.out "$KERNEL/bin/kith" designer "other" >/dev/null 2>&1); is "one-shot resume: other session runs" "$?" 0
 # the first ends: its claim is stale, a new resume takes it over
 touch "$T/oneshot.go"; wait
+
+# a run for anyone but the owner is findable by the revoke sweep for its whole life: a session-less proc claim naming the person
+# and the agent, for the pid that execs claude (fresh or resumed); the owner's run leaves none
+export KITH_AUTH=$T/auth.json
+"$KERNEL/bin/kith-auth" person gsam name=Sam >/dev/null 2>&1; "$KERNEL/bin/kith-auth" member designer gsam mode=default >/dev/null 2>&1
+rm -rf "$REG"; rm -f "$T/proc.go"
+mkdir -p "$T/gbin"; printf '#!/bin/sh\n[ "$1" = "--version" ] && { echo "2.1.309 (Claude Code)"; exit 0; }\nexec "%s/bin/claude" "$@"\n' "$T" > "$T/gbin/claude"; chmod +x "$T/gbin/claude"
+(cd "$T/work/a" && PATH=$T/gbin:$PATH KITH_PERSON=gsam STUB_SID=pr1 STUB_WAIT=$T/proc.go STUB_OUT=$T/pr-a.out "$KERNEL/bin/kith" designer "fresh guest task" >"$T/pr.log" 2>&1) &
+PBG=$!
+for _ in $(seq 50); do ls "$REG"/proc-*.claim >/dev/null 2>&1 && break; sleep 0.1; done
+pc=$(ls "$REG"/proc-*.claim 2>/dev/null | head -1)
+[[ -n $pc ]] && ok "guest one-shot (fresh): has a proc claim" || bad "guest one-shot: no proc claim" "$(cat "$T/pr.log")"
+is "guest proc claim: person" "$(field "$pc" person)" gsam
+is "guest proc claim: agent" "$(field "$pc" agent)" designer
+is "guest proc claim: the run's own pid (the shell that execs claude)" "$(field "$pc" pid)" "$(pgrep -f 'fresh guest task' | head -1)"
+touch "$T/proc.go"; wait $PBG
+rm -rf "$REG"; rm -f "$T/proc2.go"
+(cd "$T/work/a" && STUB_SID=pr2 STUB_WAIT=$T/proc2.go STUB_OUT=$T/pr-b.out "$KERNEL/bin/kith" designer "owner task" >/dev/null 2>&1) &
+OBG=$!
+sleep 1
+is "owner one-shot: no proc claim" "$(ls "$REG"/proc-*.claim 2>/dev/null | wc -l | tr -d ' ')" 0
+touch "$T/proc2.go"; wait $OBG
 (cd "$T/work/a" && KITH_RESUME=os1 STUB_SID=os1 STUB_OUT=$T/os-d.out "$KERNEL/bin/kith" designer "third" >/dev/null 2>&1); is "one-shot resume: stale claim replaced" "$?" 0
 # another writer's live claim (the host's app turn, a terminal) holds the session: refused, never written over
 sleep 30 & holder=$!

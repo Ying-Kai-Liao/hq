@@ -371,15 +371,16 @@ impl Actor {
         // flock and `ps` block: not on an async worker thread.
         // The claim names the run's person (its bot's `person`, set by the host), so revoking them ends this process too,
         // also when a restarted host no longer knows it. The owner's runs carry none and are never swept.
-        let (st, id, person) = (state, sid.to_owned(), self.cfg.person.clone());
+        let (st, id, person, agent) =
+            (state, sid.to_owned(), self.cfg.person.clone(), self.cfg.hq_agent.clone());
         let taken = tokio::task::spawn_blocking(move || {
             if let Some(p) = &person {
                 // The warm process outlives the turn claim (and can outlive a crashed host): it stays findable.
-                if let Err(error) = crate::terminal::claim::take_proc(&st, pid, p) {
+                if let Err(error) = crate::terminal::claim::take_proc(&st, pid, p, agent.as_deref()) {
                     tracing::warn!(%error, "couldn't record a person's agent process");
                 }
             }
-            crate::terminal::claim::take_as(&st, &id, kind, pid, false, person.as_deref())
+            crate::terminal::claim::take_as(&st, &id, kind, pid, false, person.as_deref(), agent.as_deref())
         })
         .await
             .unwrap_or_else(|e| Err(std::io::Error::other(e)));
