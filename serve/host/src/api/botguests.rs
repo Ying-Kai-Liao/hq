@@ -252,7 +252,11 @@ async fn create_bot_invite(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result
 
     let (cid, host_key) = (hub.identity.computer_id(), hub.identity.sign_pub_b64());
     let link = format!("{base}/b/{cid}/{invite_id}#t={token}&k={host_key}");
-    let kith_link = format!("{}://bot?c={cid}&i={invite_id}&t={token}&k={host_key}&r={}", Environment::current().url_scheme(), enc(&base));
+    let kith_link = format!(
+        "{}://bot?c={cid}&i={invite_id}&t={token}&k={host_key}&r={}",
+        Environment::current().url_scheme(),
+        enc(&base)
+    );
     let share = share_text(&link, &bot.agents);
     Ok(json!({
         "botId": bot.bot_id, "inviteId": invite_id, "expiresAt": invite.expires_at, "link": link,
