@@ -389,8 +389,10 @@ impl Core {
     /// An approved card's resume for the thread behind work key `wk`: `text` joins the thread's inbox as a batch of
     /// its own and a worker starts if none runs. The card store is the record of the owed resume, not this inbox
     /// (the inbox is emptied before a run starts): `claim` is the card's compare-and-set, taken only once the thread
-    /// and its connection are known to be here, so a refusal leaves the resume owed.
-    pub fn wake(self: &Arc<Self>, wk: &str, text: &str, claim: impl FnOnce() -> bool) -> Wake {
+    /// and its connection are known to be here, so a refusal leaves the resume owed. It returns the ids of the cards it
+    /// took (none: someone else did). If the turn that carries `text` then fails to start (the session is held, the
+    /// spawn failed), [`Self::settle_wake`] gives the cards back to the store, so the resume stays owed (C5).
+    pub fn wake(self: &Arc<Self>, wk: &str, text: &str, claim: impl FnOnce() -> Vec<String>) -> Wake {
         let (key, agent) = wk.rsplit_once('#').unwrap_or((wk, ""));
         let ad = self.ads.locked().iter().find(|(conn, _)| key.starts_with(&format!("{conn}:"))).map(|(_, ad)| ad.clone());
         let Some(ad) = ad else { return Wake::Offline };
@@ -398,9 +400,11 @@ impl Core {
             if !i.st.threads.contains_key(key) {
                 return None;
             }
-            if !claim() {
+            let cards = claim();
+            if cards.is_empty() {
                 return Some(None);
             }
+            self.wakes.locked().push((text.to_owned(), cards));
             i.st.inbox.entry(wk.to_owned()).or_default().push(vec![text.to_owned()]);
             let spawn = !i.busy.contains_key(wk);
             if spawn {
@@ -419,6 +423,18 @@ impl Core {
                 Wake::Queued
             }
         }
+    }
+
+    /// The turn that carried `task` is over. `started`: it produced a result, so the wake was delivered. Otherwise (no
+    /// result: the kernel refused the held session, or the spawn failed) the cards go back to the store as owed.
+    pub(super) fn settle_wake(&self, task: &str, started: bool) -> Vec<String> {
+        let done: Vec<Vec<String>> = {
+            let mut wakes = self.wakes.locked();
+            let (mine, rest): (Vec<_>, Vec<_>) = wakes.drain(..).partition(|(note, _)| task.contains(note.as_str()));
+            *wakes = rest;
+            mine.into_iter().map(|(_, cards)| cards).collect()
+        };
+        if started { Vec::new() } else { done.into_iter().flatten().collect() }
     }
 
     /// Messages that waited for this connection when the host last stopped, and live sessions' answers.

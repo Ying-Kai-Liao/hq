@@ -277,6 +277,13 @@ impl Core {
                 continue;
             }
             let res = serde_json::from_slice::<Value>(&attempt.out).ok();
+            // A card's wake rides in this task: no result means the turn never ran (held session, failed spawn).
+            let failed = self.settle_wake(task, res.is_some());
+            if !failed.is_empty()
+                && let Some(hub) = crate::runauth::hub()
+            {
+                crate::cards::resume::channel_failed(&hub, &failed);
+            }
             let limit = res.as_ref().and_then(depleted);
             if let Some(limit) = limit {
                 if chain.len() < 2 && self.backups.known_chain(agent).is_none() {

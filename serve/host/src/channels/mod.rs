@@ -86,7 +86,7 @@ pub async fn stop_person_runs(person: &str, only_denied: bool) {
 
 /// An approved card's resume for a channel thread (`wk` is `<thread>#<agent>`). A host without channels reports
 /// `Offline`: the resume stays owed.
-pub fn wake(wk: &str, text: &str, claim: impl FnOnce() -> bool) -> Wake {
+pub fn wake(wk: &str, text: &str, claim: impl FnOnce() -> Vec<String>) -> Wake {
     CORE.get().map_or(Wake::Offline, |core| core.wake(wk, text, claim))
 }
 

@@ -16,6 +16,7 @@ use crate::hub::Hub;
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use std::ops::ControlFlow;
+use crate::terminal::claim::Stopped;
 use std::sync::Arc;
 
 /// How long a holder gets to end after SIGTERM before SIGKILL.
@@ -57,7 +58,6 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             })
             .await?;
             let shown = |c: &crate::terminal::claim::Claim| json!({"kind": c.kind, "pid": c.pid, "since": c.at});
-            use crate::terminal::claim::Stopped;
             match result {
                 Stopped::Nobody => json!({"stopped": null}),
                 Stopped::OwnTurn(c) => json!({"stopped": null, "ownTurn": shown(&c)}),

@@ -21,6 +21,7 @@
 //! if it still needs it.
 
 use super::Card;
+use crate::channels::Wake;
 use crate::hub::Hub;
 use crate::store::{CardState, EntryKind, Lane, now_ms};
 use serde_json::{Value, json};
@@ -30,9 +31,13 @@ use std::time::Duration;
 
 const FIRST_RETRY: Duration = Duration::from_secs(5);
 const MAX_RETRY: Duration = Duration::from_secs(600);
-/// A held session makes the kernel's one-shot wait 5 s and then exit 1 with "held by ...": a spawn that is still alive
-/// after this long has the session.
-const EARLY_EXIT: Duration = Duration::from_secs(8);
+/// How long the kernel's one-shot waits for a held session before it exits 1 with "held by ..." (`KITH_CLAIM_WAIT`, #244,
+/// default 5). The spawn gets it explicitly so the rule below doesn't depend on the kernel's default.
+const CLAIM_WAIT_S: u64 = 5;
+/// The (c) delivered rule: a spawn still alive this long after start has the session, because a held one would have
+/// exited by `CLAIM_WAIT_S`. The two numbers are one rule: raise `CLAIM_WAIT_S` and this follows.
+#[cfg(not(test))]
+const EARLY_EXIT: Duration = Duration::from_secs(CLAIM_WAIT_S + 3);
 
 /// Cards with a retry loop running: an answer, a restart and a refused claim all offer the same card.
 static IN_FLIGHT: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
@@ -233,12 +238,11 @@ fn channel_door(hub: &Arc<Hub>, group: &[Card], wk: &str, note: &str) -> Step {
     let got = Mutex::new(Vec::new());
     let result = crate::channels::wake(wk, note, || {
         let claimed = claim_all(hub, group);
-        let any = !claimed.is_empty();
+        let ids = claimed.iter().map(|c| c.id.clone()).collect();
         *got.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = claimed;
-        any
+        ids
     });
     let claimed = got.into_inner().unwrap_or_default();
-    use crate::channels::Wake;
     match result {
         Wake::Queued => {
             clear_held(hub, &claimed);
@@ -252,6 +256,16 @@ fn channel_door(hub: &Arc<Hub>, group: &[Card], wk: &str, note: &str) -> Step {
             Step::Done
         }
         Wake::Offline => Step::Retry,
+    }
+}
+
+/// A channel turn carrying a wake never ran (the session was held, the spawn failed): the claims go back, the cards stay
+/// owed and are offered again with the usual backoff (C5: the marker means the turn started).
+pub fn channel_failed(hub: &Arc<Hub>, card_ids: &[String]) {
+    for id in card_ids {
+        let Some(card) = hub.store.card(id) else { continue };
+        let _ = hub.store.card_resume_release(id);
+        offer(hub, &card);
     }
 }
 
@@ -273,6 +287,7 @@ pub fn spawn_for(card: &Card, session: &str, note: &str) -> Spawn {
         .collect();
     let mut set = |name: &str, v: &str| env.extend(crate::kernel::both(name, v));
     set("VIA", "host");
+    set("CLAIM_WAIT", &CLAIM_WAIT_S.to_string());
     if card.person.is_empty() {
         // The owner: no person, no room set here.
     } else {

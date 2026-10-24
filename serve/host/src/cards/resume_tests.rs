@@ -154,6 +154,7 @@ async fn an_approval_after_the_park_resumes_the_session_exactly_once_even_with_a
     let seen = tests_seen::of(&card.session);
     assert_eq!(seen.len(), 1, "one resume per card: {seen:?}");
     assert!(seen[0].note.contains("allowed") && seen[0].note.contains("go on"), "{}", seen[0].note);
+    assert_eq!(seen[0].door, "run");
     assert!(r.hub.store.card(&card.id).unwrap().resumed_at.is_some());
     assert!(r.hub.store.cards_awaiting_resume(now_ms()).is_empty());
     // The grant is still there for the resumed run's own ask, which uses it once (L3: no profile carries it).
@@ -222,6 +223,24 @@ async fn a_refused_wake_turn_gives_the_claim_back_and_stays_owed() {
 }
 
 #[tokio::test]
+async fn a_channel_wake_whose_turn_never_started_stays_owed() {
+    let r = Rig::new().await;
+    r.owner_bot("house");
+    claims(&r);
+    off(&r.hub);
+    let card = approved_while_gone(&r, owner_run("tg:1#house"), ls()).await;
+    assert!(matches!(door_of(&card), Some(Door::Channel(_))));
+    // The wake went into the channel inbox: claimed. The turn then fails to start.
+    assert!(r.hub.store.card_resume_claim(&card.id, now_ms()).unwrap());
+    assert!(r.hub.store.cards_awaiting_resume(now_ms()).is_empty());
+    resume::channel_failed(&r.hub, std::slice::from_ref(&card.id));
+    assert_eq!(r.hub.store.cards_awaiting_resume(now_ms()).len(), 1, "owed again, so the retry can deliver it");
+    // No channel core in this test: each retry finds the connection offline and waits, the card stays owed.
+    assert_eq!(attempt(&r.hub, &card.id).await, Step::Retry);
+    assert_eq!(r.hub.store.cards_awaiting_resume(now_ms()).len(), 1);
+}
+
+#[tokio::test]
 async fn a_person_revoked_before_the_resume_gets_none_and_their_cards_end() {
     let r = Rig::new().await;
     r.owner_bot("house");
@@ -271,6 +290,7 @@ async fn the_p_door_resumes_as_the_cards_person() {
     let env = |s: &resume::Spawn, k: &str| s.env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
     assert_eq!(env(&spawned[0], "KITH_PERSON").as_deref(), Some("sam"));
     assert_eq!(env(&spawned[0], "HQ_PERSON").as_deref(), Some("sam"));
+    assert_eq!(env(&spawned[0], "KITH_CLAIM_WAIT").as_deref(), Some("5"), "tied to the 8 s delivered rule");
     assert_eq!(&spawned[0].args[..3], ["house", "--resume", "pdoor-a"]);
     // The owner's resume carries no person at all.
     let owner = approved_while_gone(&r, owner_run("pdoor-b"), ls()).await;
@@ -356,9 +376,9 @@ async fn stop_holder_is_the_owners_alone_and_ends_only_the_live_holder_it_judged
 
     // A claim whose pid was reused (it started at another time) is left alone.
     let (mut sh2, pid2) = sleeper();
-    let stale = json!({"pid": pid2, "procStart": "Mon Jan 1 00:00:00 2001", "at": "2001-01-01T00:00:00Z", "kind": "terminal", "takeover": false});
+    let reused = json!({"pid": pid2, "procStart": "Mon Jan 1 00:00:00 2001", "at": "2001-01-01T00:00:00Z", "kind": "terminal", "takeover": false});
     std::fs::create_dir_all(claim::path(&state, "stop-b", false).parent().unwrap()).unwrap();
-    std::fs::write(claim::path(&state, "stop-b", false), stale.to_string()).unwrap();
+    std::fs::write(claim::path(&state, "stop-b", false), reused.to_string()).unwrap();
     let out = dispatch(&r.hub, &Caller::Local, "stopHolder", json!({"session": "stop-b"})).await.unwrap();
     assert!(out["stopped"].is_null());
     assert!(alive(pid2), "the reused pid's process was not signalled");
