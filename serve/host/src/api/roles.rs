@@ -459,10 +459,9 @@ pub fn event_for(store: &Store, who: Option<&str>, v: Value) -> Option<Value> {
         // The owner answers the permission prompts of an invitee's runs (a guest's always, a member's when they like);
         // nothing else of the chat reaches them.
         // A bot guest's conversation is the owner's to see whole (6.2); only an invitee's chat is held back.
-        (None, Some(Some(p))) => {
-            (store.bot_guest_of_person(&p).is_some() || (kind == "entry" && v["entry"]["kind"] == "permission"))
-                .then_some(v)
-        }
+        (None, Some(Some(p))) => (store.bot_guest_of_person(&p).is_some()
+            || (kind == "entry" && v["entry"]["kind"] == "permission"))
+            .then_some(v),
         (None, _) => Some(v),
         (Some(me), Some(Some(p))) if p == me => {
             let agents = store.person(me).map(|p| p.agents).unwrap_or_default();
