@@ -1,3 +1,6 @@
+import http from 'node:http'
+import https from 'node:https'
+import { randomBytes } from 'node:crypto'
 import type { RelayState } from '../../shared/relay.ts'
 import { FrameOpener, FrameSealer, Handshake, TooLarge, computerIdOf, signatureHeader, unb64url, type Signer } from './crypto.ts'
 
@@ -24,6 +27,10 @@ const OFFLINE = 'That computer is offline.'
 const REMOVED = "Your access to this computer was removed."
 const IDENTITY_CHANGED = "This computer's identity changed, so Kith won't connect to it. Remove it and add it again if you expected that."
 const UPGRADE = 'This computer needs a newer Kith. Update it, then try again.'
+const UPDATE_APP = 'This version of Kith is too old to connect. Update Kith, then try again.'
+const UNKNOWN_COMPUTER = "This computer isn't on your account."
+
+const failedStatus = (code: string) => (code === 'upgrade' ? 426 : code === 'unknownComputer' ? 404 : 0)
 
 const unreachable = () => new RelayError(0, UNREACHABLE, 'unreachable')
 
@@ -39,6 +46,31 @@ export interface Socket {
 }
 
 export type Dial = (url: string, headers: Record<string, string>) => Socket
+
+/** undici's WebSocket never says why an upgrade was refused; this repeats it as plain HTTP and returns the status (null: no answer). */
+export type Probe = (url: string, headers: Record<string, string>) => Promise<number | null>
+
+export const probeUpgrade: Probe = (url, headers) =>
+  new Promise((resolve) => {
+    const u = new URL(url)
+    const lib = u.protocol === 'http:' ? http : https
+    const req = lib.request(u, {
+      method: 'GET',
+      timeout: 5000,
+      headers: { ...headers, Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': randomBytes(16).toString('base64') },
+    })
+    req.on('response', (res) => {
+      res.resume()
+      resolve(res.statusCode ?? null)
+    })
+    req.on('upgrade', (_res, sock) => {
+      sock.destroy()
+      resolve(101)
+    })
+    req.on('timeout', () => req.destroy())
+    req.on('error', () => resolve(null))
+    req.end()
+  })
 
 export const dialWebSocket: Dial = (url, headers) => {
   // Node's (undici) WebSocket takes the upgrade headers in its init object.
@@ -91,6 +123,7 @@ export interface LinkOptions {
   hostSignKey: string
   signer: Signer
   dial?: Dial
+  probe?: Probe
   random?: () => number
   /** Ms between a failed attempt and the next; default `Backoff`. */
   delay?: () => number
@@ -266,7 +299,7 @@ export class RelayLink {
           throw new RelayError(401, s.message, s.retrying ? 'leaseExpired' : 'accessRemoved')
         case 'failed':
           // A retrying failure is waited out like connecting; a final one is the answer.
-          if (s.final) throw new RelayError(s.code === 'upgrade' ? 426 : 0, s.message, s.code)
+          if (s.final) throw new RelayError(failedStatus(s.code), s.message, s.code)
           break
       }
       const left = deadline - Date.now()
@@ -334,7 +367,7 @@ export class RelayLink {
 
   private errorFor(s: LinkState): RelayError {
     if (s.kind === 'unauthorized') return new RelayError(401, s.message, s.retrying ? 'leaseExpired' : 'accessRemoved')
-    if (s.kind === 'failed') return new RelayError(s.code === 'upgrade' ? 426 : 0, s.message, s.code)
+    if (s.kind === 'failed') return new RelayError(failedStatus(s.code), s.message, s.code)
     return unreachable()
   }
 
@@ -388,15 +421,31 @@ export class RelayLink {
           finish(outcome)
         }
       }
-      socket.onclose = (code) => finish(opened ? this.outcomeForClose(code) : this.outcomeForRefusal())
+      socket.onclose = (code) => {
+        if (opened) return finish(this.outcomeForClose(code))
+        void this.outcomeForRefusal().then(finish)
+      }
       if (this.closed || this.restartRequested) socket.close(1000)
     })
   }
 
   /** The upgrade never completed. undici doesn't say why, so a computer the cloud keeps refusing is retried quietly and slowly. */
-  private outcomeForRefusal(): Outcome {
+  private async outcomeForRefusal(): Promise<Outcome> {
+    const status = await this.probeRefusal()
+    if (status === 426) return { kind: 'stop', state: { kind: 'failed', message: UPDATE_APP, code: 'upgrade', final: true } }
+    if (status === 404) return { kind: 'stop', state: { kind: 'failed', message: UNKNOWN_COMPUTER, code: 'unknownComputer', final: true } }
     this.refusals += 1
     return { kind: 'retry', message: this.refusals > 3 ? `${UNREACHABLE} If this keeps happening, your access may have been removed.` : UNREACHABLE }
+  }
+
+  /** Asks the relay again, in the open, why it refused; a failed probe changes nothing. */
+  private async probeRefusal(): Promise<number | null> {
+    try {
+      const { url, headers } = this.upgrade()
+      return await (this.o.probe ?? probeUpgrade)(url, headers)
+    } catch {
+      return null
+    }
   }
 
   private outcomeForClose(code: number): Outcome {

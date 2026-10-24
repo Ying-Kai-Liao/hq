@@ -154,6 +154,8 @@ jobs:
         run: kernel/tests/kith-migrate-check
       - name: Unknown agent check
         run: kernel/tests/kith-unknown-agent-check
+      - name: Pkg EINTR check
+        run: kernel/tests/kith-pkg-eintr-check
       - name: Auth check
         run: kernel/tests/kith-auth-check
       - name: Auth lock check
@@ -164,6 +166,13 @@ jobs:
         run: kernel/tests/kith-cost-bots-check
       - name: Call check
         run: kernel/tests/kith-call-check
+      - name: Ask check
+        run: kernel/tests/kith-ask-check
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.8
+      - name: Plugin hooks test
+        run: bun test kernel/tests/kith-hooks.test.ts
       - name: Trajectory check
         run: kernel/tests/kith-trajectory-check
       - name: Recall check

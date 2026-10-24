@@ -330,10 +330,15 @@ impl Telegram {
         if !(private || addressed || thread.is_some()) {
             return None;
         }
-        let (files, notes) = self.download(m).await;
+        let sender = id_text(&sender["id"]);
+        let (files, notes) = if Self::has_files(m) && self.core.knows_sender("telegram", &sender, false).await {
+            self.download(m).await
+        } else {
+            (Vec::new(), Vec::new()) // a stranger's files are not fetched
+        };
         let text = notes.iter().fold(text, |t, n| if t.is_empty() { n.clone() } else { format!("{t}\n\n{n}") });
         Some(Incoming {
-            uid: id_text(&sender["id"]),
+            uid: sender,
             text,
             room: format!("{}:{}", self.conn, id_text(cid)),
             origin: json!({"chat": cid, "message": mid}),
@@ -346,6 +351,10 @@ impl Telegram {
             sent: m["date"].as_f64(),
             ..Incoming::default()
         })
+    }
+
+    fn has_files(m: &Value) -> bool {
+        ["photo", "document", "audio", "voice", "video", "video_note"].iter().any(|k| !m[*k].is_null())
     }
 
     /// The files of a message, saved under the connection's attachments folder (`<chat>/<message>`: message ids

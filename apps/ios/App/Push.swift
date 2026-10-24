@@ -158,6 +158,8 @@ final class LiveActivities {
     static let shared = LiveActivities()
 
     private var requests: [String: Task<Void, Never>] = [:]
+    /// The client each computer's activities were registered through, so ending one can unregister it.
+    private var clients: [ComputerID: HostClient] = [:]
 
     #if DEBUG
     /// Simulator-only visual verification. No host, relay, or APNs request.
@@ -189,9 +191,12 @@ final class LiveActivities {
         requests.values.forEach { $0.cancel() }
         requests.removeAll()
         let ids = Set(Activity<BotActivityAttributes>.activities.map(\.id))
+        let clients = self.clients
+        self.clients.removeAll()
         Task.detached {
             for activity in Activity<BotActivityAttributes>.activities where ids.contains(activity.id) {
                 await activity.end(nil, dismissalPolicy: .immediate)
+                await Self.unregister(activity.attributes, client: clients[activity.attributes.computerId])
             }
         }
     }
@@ -210,10 +215,16 @@ final class LiveActivities {
         case .delivered: status = bot.needsInput ? "needsInput" : "working"
         case .failed:
             let state = BotActivityAttributes.ContentState(status: "error", activity: "Couldn't send", startedAt: nil)
-            Task.detached { await Self.apply(ref, state: state, end: true) }
+            let client = clients[ref.computerId]
+            Task.detached { await Self.apply(ref, state: state, end: true, client: client) }
             return
         case .cancelled:
-            Task.detached { await Self.find(ref)?.end(nil, dismissalPolicy: .immediate) }
+            let client = clients[ref.computerId]
+            Task.detached {
+                guard let activity = Self.find(ref) else { return }
+                await activity.end(nil, dismissalPolicy: .immediate)
+                await Self.unregister(activity.attributes, client: client)
+            }
             return
         }
         let state = BotActivityAttributes.ContentState(status: status, activity: "", startedAt: progress == .delivered ? .now : nil)
@@ -226,6 +237,7 @@ final class LiveActivities {
         guard UserDefaults.standard.object(forKey: "liveActivitiesEnabled") as? Bool ?? true,
               ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let attributes = BotActivityAttributes(bot: bot, computerId: ref.computerId, link: store.storage.botURL(ref))
+        if let client = store.client { clients[ref.computerId] = client }
         do {
             let activity = try Activity.request(attributes: attributes, content: .init(state: state, staleDate: staleDate), pushType: .token)
             // Offline (mailbox): `resume(with:)` registers the push token once the computer connects.
@@ -243,6 +255,7 @@ final class LiveActivities {
             where activity.attributes.computerId == store.computer.id {
             observe(activity, client: client)
         }
+        clients[store.computer.id] = client
     }
 
     private func observe(_ activity: Activity<BotActivityAttributes>, client: HostClient) {
@@ -289,15 +302,25 @@ final class LiveActivities {
             startedAt: bot.startedAt.map(Date.init(milliseconds:))
         )
         let working = bot.isWorking
-        Task.detached { await Self.apply(ref, state: state, end: !working) }
+        let client = clients[ref.computerId]
+        Task.detached { await Self.apply(ref, state: state, end: !working, client: client) }
     }
 
-    private nonisolated static func apply(_ ref: BotReference, state: BotActivityAttributes.ContentState, end: Bool) async {
+    private nonisolated static func apply(_ ref: BotReference, state: BotActivityAttributes.ContentState, end: Bool, client: HostClient?) async {
         guard let activity = find(ref) else { return }
         if end {
             await activity.end(.init(state: state, staleDate: nil), dismissalPolicy: .after(.now + 60))
+            await unregister(activity.attributes, client: client)
         } else {
             await activity.update(.init(state: state, staleDate: .now + 15 * 60))
+        }
+    }
+
+    /// Best effort: the host drops a stale registration on its own when APNs refuses it, so a failure is only logged.
+    private nonisolated static func unregister(_ attributes: BotActivityAttributes, client: HostClient?) async {
+        guard let client else { return }
+        do { try await client.unregisterActivity(botId: attributes.botId) } catch {
+            log.error("Live activity unregister failed: \(error.localizedDescription)")
         }
     }
 }

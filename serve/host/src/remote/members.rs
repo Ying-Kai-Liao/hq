@@ -37,6 +37,13 @@ pub async fn sync(hub: &Hub, listed: Option<&[Listed]>, owner_uid: Option<&str>)
     }
 }
 
+/// A kith-auth change that rewrites auth.json, one writer at a time with the owner's own changes (`AUTH_WRITES`).
+/// Callers here never hold the lock.
+async fn locked_run(bin: &Path, args: &[&str]) -> Result<String> {
+    let _w = crate::api::people::AUTH_WRITES.lock().await;
+    account::run(bin, args).await
+}
+
 /// A Kith account id as kith-auth takes it. Anything else the cloud sends is not an account.
 fn valid_user_id(id: &str) -> bool {
     id.strip_prefix("user_").is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric()))
@@ -65,13 +72,13 @@ pub async fn apply(hub: &Hub, bin: Option<&Path>, listed: &[Listed], owner_uid: 
             tracing::warn!("kith-auth not found; can't bind an invited account to its person");
             continue;
         };
-        if let Err(e) = account::run(bin, &["handle", &invite.person_id, "kith", &m.user_id]).await {
+        if let Err(e) = locked_run(bin, &["handle", &invite.person_id, "kith", &m.user_id]).await {
             tracing::warn!(error = format!("{e:#}"), person = invite.person_id, "couldn't bind the invited account");
             continue;
         }
         if !hub.store.use_invite(&invite.invite_id, now_ms())? {
             // Revoked or used between the check and now.
-            account::run(bin, &["handle", &invite.person_id, "kith", "--rm"]).await.ok();
+            locked_run(bin, &["handle", &invite.person_id, "kith", "--rm"]).await.ok();
             continue;
         }
         hub.store.add_membership(&Membership {
@@ -103,14 +110,14 @@ pub async fn end_access(hub: &Hub, bin: Option<&Path>, person: &str) -> Result<(
         // Their bot guests lose their owner with the last membership.
         crate::api::botguests::revoke_owned_by(hub, person, "person").await;
         if let Some(bin) = bin
-            && let Err(e) = account::run(bin, &["handle", person, "kith", "--rm"]).await
+            && let Err(e) = locked_run(bin, &["handle", person, "kith", "--rm"]).await
         {
             tracing::warn!(error = format!("{e:#}"), person, "couldn't remove an invited account's handle");
         }
         return Ok(());
     };
     if let Some(bin) = bin
-        && let Err(e) = account::run(bin, &["handle", person, "kith", &still.user_id]).await
+        && let Err(e) = locked_run(bin, &["handle", person, "kith", &still.user_id]).await
     {
         tracing::warn!(error = format!("{e:#}"), person, "couldn't keep an invited account's handle");
     }

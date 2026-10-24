@@ -56,16 +56,25 @@ final class AccountSession {
         let resolved = AccountConfig.resolve(env: env, cloudURL: config?.cloudURL, clerkPublishableKey: config?.clerkPublishableKey)
         cloudURL = resolved.cloudURL
         guard let key = resolved.clerkPublishableKey else {
+            // Empty or malformed: sign-in is unavailable. Clerk would assert on a key it can't decode.
+            if let raw = config?.clerkPublishableKey ?? env["KITH_CLERK_PUBLISHABLE_KEY"], !raw.isEmpty {
+                NSLog("Kith: Clerk publishable key is malformed; sign-in is unavailable")
+            }
             clerk = nil
             return
         }
         let scheme = Bundle.main.bundleIdentifier ?? AccountConfig.fallbackScheme(
             environment: Bundle.main.object(forInfoDictionaryKey: "KithEnvironment") as? String)
-        clerk = Clerk.configure(publishableKey: key, options: .init(
-            telemetryEnabled: false,
-            redirectConfig: .init(redirectUrl: "\(scheme)://callback", callbackUrlScheme: scheme)
-        ))
+        clerk = Self.configured.get {
+            Clerk.configure(publishableKey: key, options: .init(
+                telemetryEnabled: false,
+                redirectConfig: .init(redirectUrl: "\(scheme)://callback", callbackUrlScheme: scheme)
+            ))
+        }
     }
+
+    /// Clerk is one per process; a second session (re-created, or built by a background launch) shares it.
+    private static let configured = ConfigureOnce<Clerk>()
 
     /// The signed-in session's JWT for the Kith cloud (Clerk caches it for a minute).
     func sessionToken() async throws -> String {

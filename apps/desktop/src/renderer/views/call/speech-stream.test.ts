@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { isEcho, SentenceStream, sentenceEnd, shouldCue, stripEcho, wordCount } from './speech-stream.ts'
+import { ECHO_WINDOW_CHARS, isEcho, rememberSpoken, SentenceStream, sentenceEnd, shouldCue, stripEcho, wordCount } from './speech-stream.ts'
 
 test('sentenceEnd ignores dots inside numbers and file names', () => {
   assert.equal(sentenceEnd('Version 3.5 is out'), 0)
@@ -84,4 +84,18 @@ test('shouldCue fires once, only while working and silent', () => {
   assert.equal(shouldCue({ ...base, working: false }), false)
   assert.equal(shouldCue({ ...base, lastSpokenAt: 3000 }), false)
   assert.equal(shouldCue({ ...base, sentAt: null }), false)
+})
+
+test('stripEcho drops the bot greeting heard by the on-device recognizer, keeps the user part', () => {
+  const greeting = 'Hello, what can I do for you today?'
+  assert.equal(stripEcho("Hello, what can I do for you today? check what's expiring", greeting), "check what's expiring")
+  assert.equal(stripEcho('Hello what can I do for you today', greeting), '')
+  // fewer than three words in a row from the bot is the user's own
+  assert.equal(stripEcho('yes check the pantry', 'Should I check the pantry or the fridge?'), 'yes check the pantry')
+})
+
+test('rememberSpoken keeps only the latest window', () => {
+  const kept = rememberSpoken('old', 'word '.repeat(400))
+  assert.equal(kept.length, ECHO_WINDOW_CHARS)
+  assert.ok(rememberSpoken('', 'hi').endsWith('hi'))
 })

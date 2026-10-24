@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# kith-sched-prune-check — run-log retention, auth.log rotation and terminal-record cleanup. No network, no secrets.
+#
+#   kernel/tests/kith-sched-prune-check
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+python3 -I - "$here/../bin/kith-sched" "$tmp" <<'PY'
+import importlib.machinery, importlib.util, os, subprocess, sys, time
+from pathlib import Path
+src, tmp = sys.argv[1], Path(sys.argv[2])
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader('ks', src)
+spec = importlib.util.spec_from_loader('ks', loader); ks = importlib.util.module_from_spec(spec); loader.exec_module(ks)
+now, day = time.time(), 86400
+def mk(p, age_days, data=''):
+    p.parent.mkdir(parents=True, exist_ok=True); p.write_text(data); t = now - age_days * day; os.utime(p, (t, t)); return p
+
+# run logs: 60 old ones for job a, 3 old ones for job b, 2 recent
+runs = tmp / 'runs'
+old = [mk(runs / 'ag' / ('a-2025%02d%02d-0800.log' % (1 + i // 28, 1 + i % 28)), 90) for i in range(60)]
+b = [mk(runs / 'ag' / ('b-20250%d01-0800.log' % (i + 1)), 90) for i in range(3)]
+recent = mk(runs / 'ag' / 'c-20261020-0800.log', 2)
+busy_old = old[0]   # oldest, beyond the newest 50, but a run is writing it
+n = ks.prune_runs(runs, busy={str(busy_old)}, now=now)
+left_a = sorted(f for f in (runs / 'ag').glob('a-*.log'))
+assert len(left_a) == 51, len(left_a)                 # newest 50 + the busy one
+assert busy_old.exists() and recent.exists()
+assert all(f.exists() for f in b), 'fewer than 50 runs: all kept'
+assert n == 9, n
+assert ks.prune_runs(runs, busy=set(), now=now) == 1   # idempotent: only the formerly busy one goes now
+# 30 days keeps more than the count: 60 runs all younger than 30 days stay
+runs2 = tmp / 'runs2'
+for i in range(60): mk(runs2 / 'ag' / ('a-202610%02d-%04d.log' % (1 + i % 28, i)), 5)
+assert ks.prune_runs(runs2, now=now) == 0
+
+# auth.log: over the limit rotates (keeps the old content in .1), under it stays
+log = tmp / 'auth.log'
+log.write_text('x' * 100)
+assert not ks.rotate_log(log, limit=1000) and log.exists()
+(tmp / 'auth.log.1').write_text('older')
+assert ks.rotate_log(log, limit=50)
+assert not log.exists() and (tmp / 'auth.log.1').read_text() == 'x' * 100
+assert not ks.rotate_log(log, limit=50)   # nothing to rotate: no error
+
+# terminal records: old + dead pid goes; old + live pid, recent + dead, and no-pid-but-recent stay
+term = tmp / 'terminal'
+dead = subprocess.Popen(['true']); dead.wait()
+live = subprocess.Popen(['sleep', '30'])
+try:
+    a = mk(term / 'dead-old.json', 10, '{"pid": %d}' % dead.pid)
+    b2 = mk(term / 'live-old.json', 10, '{"pid": %d}' % live.pid)
+    c = mk(term / 'dead-new.json', 1, '{"pid": %d}' % dead.pid)
+    d = mk(term / 'nopid-old.json', 10, '{}')
+    e = mk(term / 'x.claim.lock', 10, '')
+    assert ks.prune_terminal(term, now=now) == 2
+    assert not a.exists() and not d.exists()
+    assert b2.exists() and c.exists() and e.exists()
+finally:
+    live.kill(); live.wait()
+print('ok: run logs keep 50 or 30 days, auth.log rotates not truncates, terminal records keep live pids')
+PY

@@ -153,6 +153,10 @@ fn start_of(pid: u32) -> Option<String> {
 /// Gives the claim back; only the claimer's own file is removed.
 pub fn release(state: &Path, sid: &str, pid: u32, takeover: bool) {
     let p = path(state, sid, takeover);
+    // Under the claim lock: a taker may have replaced our (stale) claim with its own between the read and the remove.
+    let Some(parent) = p.parent() else { return };
+    let _lock =
+        Lock::exclusive(&parent.join(format!("{sid}.{}claim.lock", if takeover { "takeover." } else { "" }))).ok();
     if read(&p).is_some_and(|c| c.pid == pid) {
         let _ = std::fs::remove_file(p);
     }

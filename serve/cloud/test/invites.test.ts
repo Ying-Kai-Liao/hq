@@ -281,6 +281,75 @@ describe("revoking a membership", () => {
     expect((await accept(await newUser("late"), spare.inviteId, spare.token)).status).toBe(410);
   });
 
+  const deliver = (payload: unknown, id = `msg_${ref.b64url(ref.random(8))}`) => {
+    const body = JSON.stringify(payload);
+    const now = new Date();
+    return call("POST", "/v1/webhooks/clerk", {
+      body: payload,
+      headers: {
+        "svix-id": id,
+        "svix-timestamp": String(Math.floor(now.getTime() / 1000)),
+        "svix-signature": new Webhook(env.CLERK_WEBHOOK_SECRET!).sign(id, now, body),
+      },
+    });
+  };
+  const botGuest = async (host: TestHost, n: string) => {
+    await env.DB.prepare("INSERT INTO bot_invites(invite_id, computer_id, token_hash, expires_at, created_at, accepted_at) VALUES (?1, ?2, 'h', ?3, 1, 1)")
+      .bind(`binv_${n}`, host.cid, Date.now() + 1e6)
+      .run();
+    await env.DB.prepare("INSERT INTO bot_devices(bot_device_id, computer_id, invite_id, sign_pub, name, created_at) VALUES (?1, ?2, ?3, ?4, 'Rex', 1)")
+      .bind(`bd_${n}`, host.cid, `binv_${n}`, `pub_${n}`)
+      .run();
+  };
+  const botRevoked = async (n: string) =>
+    (await env.DB.prepare("SELECT revoked_at FROM bot_devices WHERE bot_device_id = ?").bind(`bd_${n}`).first<{ revoked_at: number | null }>())?.revoked_at != null;
+
+  it("revokes a banned member's access, once, and leaves the host owner alone", async () => {
+    const { owner, host, inviteId, token } = await setup();
+    const friend = await newUser("friend");
+    await accept(friend, inviteId, token);
+    const { grantId } = await grantAccess(friend, host);
+    const ban = { type: "user.updated", data: { id: friend.userId, banned: true } };
+    const id = `msg_${ref.b64url(ref.random(8))}`;
+    expect((await deliver({ type: "user.updated", data: { id: friend.userId, banned: false, locked: false } })).status).toBe(200);
+    expect((await state(host)).memberships).toHaveLength(1);
+    expect((await deliver(ban, id)).status).toBe(200);
+    expect((await state(host)).memberships).toEqual([]);
+    expect((await env.DB.prepare("SELECT status FROM grants WHERE id = ?").bind(grantId).first<Json>())?.status).toBe("revoked");
+    expect((await env.DB.prepare("SELECT revoked_at FROM devices WHERE owner_user_id = ?").bind(friend.userId).first<Json>())?.revoked_at).not.toBeNull();
+    expect((await deliver(ban, id)).status).toBe(200); // replay
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE action = 'accountBanned' AND target = ?").bind(friend.userId).first<{ n: number }>();
+    expect(n?.n).toBe(1);
+
+    // The owner is a different case: left as is.
+    await grantAccess(owner, host);
+    expect((await deliver({ type: "user.updated", data: { id: owner.userId, banned: true } })).status).toBe(200);
+    expect((await state(host)).owner).not.toBeNull();
+    expect((await state(host)).grants).toHaveLength(1);
+  });
+
+  it("ignores session.revoked: a device is not tied to a Clerk session", async () => {
+    const { host, inviteId, token } = await setup();
+    const friend = await newUser("friend");
+    await accept(friend, inviteId, token);
+    await grantAccess(friend, host);
+    expect((await deliver({ type: "session.revoked", data: { id: "sess_1", user_id: friend.userId } })).status).toBe(200);
+    expect((await state(host)).memberships).toHaveLength(1);
+    expect((await state(host)).grants).toHaveLength(1);
+  });
+
+  it("takes bot guests and unused bot invites along when an owner's account is deleted", async () => {
+    const { owner, host } = await setup();
+    await botGuest(host, "x");
+    await env.DB.prepare("INSERT INTO bot_invites(invite_id, computer_id, token_hash, expires_at, created_at) VALUES ('binv_open', ?1, 'h', ?2, 1)")
+      .bind(host.cid, Date.now() + 1e6)
+      .run();
+    expect(await botRevoked("x")).toBe(false);
+    expect((await deliver({ type: "user.deleted", data: { id: owner.userId } })).status).toBe(200);
+    expect(await botRevoked("x")).toBe(true);
+    expect((await env.DB.prepare("SELECT revoked_at FROM bot_invites WHERE invite_id = 'binv_open'").first<Json>())?.revoked_at).not.toBeNull();
+  });
+
   it("is done by the Clerk user.deleted webhook for a member", async () => {
     const { host, inviteId, token } = await setup();
     const friend = await newUser("friend");

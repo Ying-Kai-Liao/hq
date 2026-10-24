@@ -5,6 +5,7 @@
 use super::jsonl::{self, Item};
 use super::registry::{self, Live};
 use super::{Env, HeldByWriter, Terminal, sync};
+use crate::LockExt as _;
 use crate::hub::Hub;
 use crate::store::{BotConfig, Entry, Lane, Store, lane_key};
 use serde_json::{Value, json};
@@ -301,7 +302,7 @@ async fn new_lines_are_imported_once_and_the_terminal_writes_while_it_lives() {
     assert_eq!(r.texts(&root).iter().filter(|t| *t == "second").count(), 1);
     let finals: Vec<bool> =
         r.thread(&root).iter().filter(|e| e.kind == "agent").map(|e| e.data["final"] == true).collect();
-    assert_eq!(finals, [false, true], "an older reply stops being the final one");
+    assert_eq!(finals, [true, true], "each turn keeps its last reply final");
 
     // The terminal goes idle, then closes: a notice for the close, once.
     r.session_file(me, "s1", "idle");
@@ -882,4 +883,100 @@ async fn a_bot_ask_is_refused_while_another_writer_holds_and_waits_behind_its_ow
     // Its own running turn: the ask goes on to the queue.
     assert!(claim::take(&r.state(), "s6", Kind::Bot, bot, false).unwrap().is_ok());
     sync::bot_gate(&r.hub, &r.bot, &root).await.unwrap();
+}
+
+fn agent_finals(r: &Rig, root: &str) -> Vec<(String, bool)> {
+    r.thread(root)
+        .iter()
+        .filter(|e| e.kind == "agent")
+        .map(|e| (e.data["text"].as_str().unwrap_or("").to_owned(), e.data["final"] == true))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_reply_stays_final_after_a_tool_call_and_only_a_later_reply_moves_it() {
+    let r = Rig::new();
+    r.append("s1", &user("2026-10-23T01:00:01Z", "go"));
+    r.append("s1", &agent("2026-10-23T01:00:02Z", "first"));
+    r.append("s1", &tool_use("2026-10-23T01:00:03Z", "t1", "ls"));
+    r.register("s1", "builder", DEAD, None);
+    r.scan();
+    let root = r.roots()[0].id.clone();
+    assert_eq!(agent_finals(&r, &root), [("first".to_owned(), true)], "a tool call after the reply keeps it final");
+    r.append("s1", &agent("2026-10-23T01:00:04Z", "second"));
+    r.scan();
+    r.scan();
+    assert_eq!(agent_finals(&r, &root), [("first".to_owned(), false), ("second".to_owned(), true)]);
+    // A new turn leaves the last turn's reply alone.
+    r.append("s1", &user("2026-10-23T01:00:05Z", "more"));
+    r.append("s1", &tool_use("2026-10-23T01:00:06Z", "t2", "pwd"));
+    r.scan();
+    assert_eq!(agent_finals(&r, &root), [("first".to_owned(), false), ("second".to_owned(), true)]);
+}
+
+#[tokio::test]
+async fn the_repair_marks_each_turns_last_reply_final_once() {
+    let r = Rig::new();
+    r.append("s1", &user("2026-10-23T01:00:01Z", "go"));
+    r.append("s1", &agent("2026-10-23T01:00:02Z", "a1"));
+    r.append("s1", &user("2026-10-23T01:00:03Z", "again"));
+    r.append("s1", &agent("2026-10-23T01:00:04Z", "b1"));
+    r.append("s1", &agent("2026-10-23T01:00:05Z", "b2"));
+    r.register("s1", "builder", DEAD, None);
+    r.scan();
+    let root = r.roots()[0].id.clone();
+    // Put the data back the way the old importer left it.
+    for e in r.thread(&root).iter().filter(|e| e.kind == "agent") {
+        let mut data = e.data.clone();
+        data["final"] = false.into();
+        r.hub.set_entry(&e.id, &data);
+    }
+    sync::backfill_finals(&r.hub);
+    let fin = |r: &Rig| agent_finals(r, &root).into_iter().map(|(_, f)| f).collect::<Vec<_>>();
+    assert_eq!(fin(&r), [true, false, true]);
+    let rev = r.hub.store.current_rev();
+    sync::backfill_finals(&r.hub);
+    assert_eq!(r.hub.store.current_rev(), rev, "a second run changes nothing");
+}
+
+#[tokio::test]
+async fn a_main_lane_session_resolves_with_its_busy_state() {
+    let r = Rig::new();
+    r.hub.store.kv_set(&lane_key("session", &r.bot, &Lane::main(&r.bot)), "m1").unwrap();
+    let v = sync::resolve(&r.hub, "m1").await;
+    assert_eq!(v["sessionId"], "m1", "the kernel claims it like a thread's, not as a raw session id");
+    assert_eq!(v["agent"], "builder");
+    assert_eq!(v["hostBusy"], false);
+    assert_eq!(v["claims"], 1);
+}
+
+#[tokio::test]
+async fn a_dropped_take_over_does_not_jam_the_thread() {
+    let r = Rig::new();
+    let mut child = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    let pid = child.id();
+    r.append("s1", &user("2026-10-23T01:00:01Z", "first"));
+    r.register("s1", "builder", pid, None);
+    r.session_file(pid, "s1", "idle");
+    r.scan();
+    let root = r.roots()[0].id.clone();
+    let (hub, bot, r2) = (r.hub.clone(), r.bot.clone(), root.clone());
+    let task = tokio::spawn(async move { sync::take_over(&hub, &bot, &r2).await });
+    tokio::task::yield_now().await;
+    task.abort();
+    let _ = task.await;
+    assert!(!r.hub.terminal.taking.locked().contains(&format!("{}/{root}", r.bot)), "the key goes with the future");
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[tokio::test]
+async fn releasing_a_claim_leaves_a_foreign_claim_alone() {
+    let r = Rig::new();
+    let (a, b) = (r.sleeper(), r.sleeper());
+    assert!(claim::take(&r.state(), "s1", Kind::Terminal, b, false).unwrap().is_ok());
+    claim::release(&r.state(), "s1", a, false);
+    assert_eq!(claim::holder(&r.state(), "s1").map(|c| c.pid), Some(b));
+    claim::release(&r.state(), "s1", b, false);
+    assert!(claim::holder(&r.state(), "s1").is_none());
 }

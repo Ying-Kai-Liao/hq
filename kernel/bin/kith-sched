@@ -7,6 +7,7 @@
   kith-sched pause|resume AGENT ID                       keep a job but stop or restart it
   kith-sched run AGENT ID                                run a job now, in the background
   kith-sched log [AGENT [ID]]                            the last runs, with the path of each run's output
+  kith-sched prune                                       trim old run logs, rotate auth.log, drop dead terminal records (tick does it hourly)
   kith-sched tick                                        (launchd, every minute) start the jobs that are due
   kith-sched --install | --uninstall                     the LaunchAgent dev.kith.sched that ticks
 
@@ -24,7 +25,7 @@ defaultMode, else in kith's default (auto; ~/.kith/settings.json changes it): no
 one that would need it is refused. The agent's settings.json allow/deny rules still apply.
 Machine state (last tick, last runs): ~/.kith/sched/. Logs (tick.log, each run's output): ~/.kith/logs/sched/.
 """
-import datetime as dt, json, os, plistlib, re, subprocess, sys
+import datetime as dt, json, os, plistlib, re, subprocess, sys, time
 from pathlib import Path
 
 KITH = Path(__file__).resolve().parent.parent
@@ -41,6 +42,13 @@ EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
 MACROS = {'@hourly': '0 * * * *', '@daily': '0 0 * * *', '@midnight': '0 0 * * *',
           '@weekly': '0 0 * * 0', '@monthly': '0 0 1 * *'}
 CATCH_UP = dt.timedelta(days=1)
+# Pruning (reversible choices). Run logs: keep a job's newest KEEP_RUNS, or anything newer than KEEP_RUN_DAYS, whichever
+# keeps more. auth.log is an audit log: rotated past AUTH_LOG_MAX bytes (one .1 copy), never truncated. A terminal
+# session record is dropped after TERMINAL_DAYS once its process is gone.
+KEEP_RUNS, KEEP_RUN_DAYS = 50, 30
+AUTH_LOG_MAX = 5 * 1024 * 1024
+TERMINAL_DAYS = 7
+PRUNE_EVERY = 3600   # seconds between prunes: the tick runs every minute, the files grow slowly
 
 
 # --- cron -------------------------------------------------------------------------------------------------------------
@@ -183,7 +191,80 @@ def running(pid):
         return False
 
 
+# --- pruning ----------------------------------------------------------------------------------------------------------
+
+def prune_runs(runs_dir, busy=(), now=None, keep=KEEP_RUNS, days=KEEP_RUN_DAYS):
+    """Delete run logs beyond a job's newest `keep` that are also older than `days`. `busy` paths are never touched."""
+    now = now or time.time()
+    by_job = {}
+    for f in Path(runs_dir).glob('*/*.log'):
+        m = re.fullmatch(r'(.+)-\d{8}-\d{4}\.log', f.name)
+        if m: by_job.setdefault((f.parent.name, m.group(1)), []).append(f)
+    gone = 0
+    for files in by_job.values():
+        files.sort(key=lambda f: f.name)   # the name carries the start time; mtime can be bumped by a late write
+        for f in files[:-keep]:
+            try:
+                if str(f) in busy or now - f.stat().st_mtime < days * 86400:
+                    continue   # a skewed clock only ever keeps more: age is measured, never assumed
+                f.unlink(); gone += 1
+            except OSError:
+                pass   # already gone (another tick) or not ours to remove
+    return gone
+
+
+def rotate_log(log, limit=AUTH_LOG_MAX):
+    """auth.log over `limit` → auth.log.1 (replacing the older copy). Appenders that opened the old file finish into
+    .1; the next append creates a fresh file. Returns True when it rotated."""
+    try:
+        if Path(log).stat().st_size <= limit:
+            return False
+        os.replace(log, str(log) + '.1')
+        return True
+    except OSError:
+        return False
+
+
+def prune_terminal(dirpath, now=None, days=TERMINAL_DAYS):
+    """Remove live/terminal/*.json records older than `days` whose pid is not running (no pid: treated as gone)."""
+    now = now or time.time()
+    gone = 0
+    for f in Path(dirpath).glob('*.json'):
+        try:
+            if now - f.stat().st_mtime < days * 86400:
+                continue
+            try:
+                pid = json.loads(f.read_text()).get('pid')
+            except (OSError, ValueError, AttributeError):
+                pid = None
+            if running(pid):
+                continue
+            f.unlink(); gone += 1
+        except OSError:
+            pass
+    return gone
+
+
+def prune(force=False):
+    """Hourly housekeeping from the tick: run logs, auth.log, terminal records. Deletes are idempotent."""
+    s = machine()
+    t = time.time()
+    if not force and t - s.get('pruned', 0) < PRUNE_EVERY:
+        return
+    s['pruned'] = t
+    save_machine(s)
+    busy = {v.get('log') for v in s.get('last', {}).values() if running(v.get('pid'))}
+    prune_runs(LOGS / 'runs', busy, t)
+    auth = Path(os.environ.get('KITH_AUTH') or paths()['KITH_SECRETS'] / 'auth.json').with_name('auth.log')
+    rotate_log(auth)
+    prune_terminal(paths()['KITH_MACHINE'] / 'live' / 'terminal', t)
+
+
 def tick():
+    try:
+        prune()
+    except Exception as e:   # housekeeping must never stop jobs from starting
+        print('kith-sched: prune: %s' % e, file=sys.stderr)
     now = dt.datetime.now().replace(second=0, microsecond=0)
     s = machine()
     last = dt.datetime.fromisoformat(s['tick']) if s.get('tick') else now - dt.timedelta(minutes=1)
@@ -283,6 +364,7 @@ def main(argv):
         print(__doc__.strip()); return
     cmd, rest = argv[0], argv[1:]
     if cmd == 'tick': return tick()
+    if cmd == 'prune': return prune(force=True)
     if cmd == '--install': return install()
     if cmd == '--uninstall': return uninstall()
     if cmd == 'ls': return ls(rest[0] if rest else None)

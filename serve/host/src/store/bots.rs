@@ -64,6 +64,13 @@ impl Store {
         let rev = next_rev(&c)?;
         c.execute("UPDATE bots SET rev = ?2, deleted = 1, session_id = NULL WHERE id = ?1", params![id, rev])?;
         c.execute("DELETE FROM kv WHERE k IN (SELECT 'read.' || id FROM entries WHERE bot_id = ?1)", [id])?;
+        // Its threads' summaries go with it, and stay gone (a late write is refused).
+        let mut threads: Vec<String> = c
+            .prepare("SELECT DISTINCT thread_id FROM entries WHERE bot_id = ?1 AND thread_id IS NOT NULL")?
+            .query_map([id], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        threads.push(format!("main:{id}"));
+        kith_mem::summary::forget_threads(&c, &threads, super::now_ms())?;
         c.execute("DELETE FROM entries WHERE bot_id = ?1", [id])?;
         kith_mem::store::drop_bot(&c, id)?;
         // Its tidying bookmark, notices' revisions and the record of its moved memory.
@@ -273,10 +280,37 @@ mod tests {
         s.insert_entry(&Lane::in_thread("b1", &task.id), EntryKind::Agent, 3, &answer).unwrap();
         assert_eq!(s.last_message("b1").unwrap().text, "deployed");
 
+        // Deleting the bot takes its thread summaries (a thread's and the chat's) with it, however often.
+        let put = |thread: &str| {
+            s.memory_write(|c, now, _| {
+                let sum = kith_mem::summary::Summary {
+                    thread_id: thread.into(),
+                    room: "1:1:kith:owner".into(),
+                    agent: "kith".into(),
+                    audience: "owner".into(),
+                    projects: vec![],
+                    text: "Fine.".into(),
+                    links: vec![],
+                    covered_seq: 1,
+                    reason: kith_mem::summary::Reason::End,
+                    written_at: now,
+                    cost_via: "summary".into(),
+                };
+                Ok(kith_mem::summary::put(c, &sum).is_ok())
+            })
+            .unwrap()
+        };
+        assert!(put(&u.id) && put("main:b1"));
+        let has = |thread: &str| s.memory_read(|c| Ok(kith_mem::summary::get(c, thread)?.is_some())).unwrap();
+
         // A deleted bot stays deleted, and its winding-down actor leaves no lines behind.
         s.delete_bot("b1").unwrap();
         assert!(s.insert_entry(&Lane::main("b1"), EntryKind::Notice, 3, &reply).is_err());
         s.save_bot(&cfg).unwrap();
         assert!(s.bot("b1").unwrap().unwrap().deleted);
+        assert!(!has(&u.id) && !has("main:b1"));
+        s.delete_bot("b1").unwrap();
+        assert!(!has(&u.id) && !has("main:b1"));
+        assert!(!put(&u.id), "a late summary is refused");
     }
 }

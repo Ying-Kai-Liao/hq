@@ -1,3 +1,4 @@
+import { fromRenderer } from './ipc-guard'
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
@@ -99,7 +100,7 @@ export function registerCloud(account: AccountService): CloudAccess {
       return { ok: false, error: { status: 0, code: 'unreachable', message: "Can't reach the Kith cloud. Check your connection." } }
     }
   }
-  ipcMain.handle('cloud:request', (_e, method: string, path: string, body: unknown, signed: boolean) => send(method, path, body, signed))
+  ipcMain.handle('cloud:request', fromRenderer((_e, method: string, path: string, body: unknown, signed: boolean) => send(method, path, body, signed)))
   // Joining by invite link: the cloud gets h1 = sha256(token) and nothing else of the link. The shape is checked here so a
   // renderer slip can't put the token itself on the wire.
   ipcMain.handle('cloud:acceptInvite', (_e, inviteId: string, h1: string) => {

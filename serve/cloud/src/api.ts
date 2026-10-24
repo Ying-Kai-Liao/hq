@@ -31,8 +31,22 @@ export const oauthKithDevCallback = async (c: Ctx) =>
 
 // ---- cron (every 15 minutes) ----
 
+// Finished records and webhook ids are kept 30 days. Clerk (Svix) retries a failed delivery for about a day, so a
+// processed event id is long past any retry by then. Deleted in slices of PRUNE_BATCH so a first sweep over a big
+// backlog stays inside the Worker's limits; the cron (every 15 minutes, already there) drains the rest.
+const RECORD_KEEP_MS = 30 * 86_400_000;
+const PRUNE_BATCH = 500;
+
 export async function sweep(env: Env, now: number): Promise<void> {
+  const old = now - RECORD_KEEP_MS;
   await env.DB.batch([
+    env.DB.prepare(
+      "DELETE FROM processed_events WHERE rowid IN (SELECT rowid FROM processed_events WHERE processed_at <= ? LIMIT ?)",
+    ).bind(old, PRUNE_BATCH),
+    // Anything not pending (approved, denied, expired, cancelled) is finished; pending ones are expired first.
+    env.DB.prepare(
+      "DELETE FROM access_requests WHERE id IN (SELECT id FROM access_requests WHERE status != 'pending' AND created_at <= ? LIMIT ?)",
+    ).bind(old, PRUNE_BATCH),
     env.DB.prepare("DELETE FROM sig_nonces WHERE expires_at <= ?").bind(now),
     env.DB.prepare("DELETE FROM claims WHERE expires_at <= ?").bind(now - 86_400_000),
     env.DB.prepare(

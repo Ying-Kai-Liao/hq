@@ -1081,3 +1081,18 @@ async fn a_file_over_the_upload_cap_is_refused_before_reading_it() {
     assert!(err.to_string().contains("too big"), "{err}");
     assert_eq!(rig.fake.calls("files.getUploadURLExternal").len(), 0);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_strangers_files_are_not_downloaded() {
+    let rig = Rig::new().await;
+    rig.fake.state.locked().files.insert("F1".into(), b"x".to_vec());
+    let (_s, task) = rig.run();
+    let file = json!({"subtype": "file_share", "files": [{"id": "F1", "name": "a.txt",
+        "url_private_download": format!("{}/files/F1", rig.fake.url), "size": 1}]});
+    rig.fake.say("U_STRANGER", DM, "hello", 0, &file);
+    until("the not-linked reply", || !rig.fake.posted().is_empty()).await;
+    assert_eq!(rig.fake.state.locked().download_auth.len(), 0);
+    let kept = walk(&rig.core.attachments_dir("slack/hq"));
+    assert!(kept.is_empty(), "{kept:?}");
+    task.abort();
+}
