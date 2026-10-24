@@ -185,7 +185,10 @@ impl Actor {
         };
         let mut approver = None;
         if let Some((person, agent)) = &whose {
-            approver = Some(if crate::api::roles::approves_own(person, agent).await { "member" } else { "owner" });
+            let name = tool["_meta"]["claudeCode"]["toolName"].as_str().unwrap_or(&title);
+            let kind = tool["kind"].as_str().unwrap_or("other");
+            approver =
+                Some(if crate::api::roles::approves_own(person, agent, name, kind).await { "member" } else { "owner" });
         }
         let mut detail = json!({"output": "", "diffs": []});
         merge_tool_content(&mut detail, &tool["content"]);

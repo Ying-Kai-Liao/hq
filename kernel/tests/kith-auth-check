@@ -99,6 +99,24 @@ json.dump(d, open(p, 'w'))
 PY
 check "a stale bot whose parent is gone is denied" "! A may bot-z house && [ \"\$(R bot-z 'd[\"allowed\"]')\" = False ]"
 
+# --- F11: auto is a free shell like bypassPermissions: refused without --trusted, resolves to default when stored without it
+A person eve >/dev/null 2>&1
+A member house eve >/dev/null 2>&1
+check "mode=auto without --trusted is refused" "! A member house eve mode=auto"
+check "mode=bypassPermissions without --trusted is still refused" "! A member house eve mode=bypassPermissions"
+check "mode=acceptEdits needs no --trusted" "A member house eve mode=acceptEdits"
+check "mode=dontAsk needs no --trusted" "A member house eve mode=dontAsk"
+check "mode=auto with --trusted is stored and runs as auto" "A member house eve mode=auto --trusted && [ \"\$(R eve 'd[\"mode\"], d[\"trusted\"]')\" = \"('auto', True)\" ]"
+python3 - <<'PY'
+import json, os
+p = os.environ['KITH_AUTH']; a = json.load(open(p))
+a['members']['house']['eve'] = {'mode': 'auto'}   # set by hand, before --trusted existed for auto
+json.dump(a, open(p, 'w'))
+PY
+check "a stored auto row without trusted resolves to default" "[ \"\$(R eve 'd[\"mode\"], d[\"trusted\"]')\" = \"('default', False)\" ]"
+check "the listing marks the downgraded row" "A people eve | grep -q 'mode=auto runs as default: set with --trusted to allow'"
+check "an owner is never downgraded" "[ \"\$(R kai 'd[\"owner\"]')\" = True ]"
+
 # --- an auth.json from before bots reads and behaves the same
 cat > "$KITH_AUTH" <<'JSON'
 {"people": {"kai": {"owner": true}, "bob": {}}, "members": {"house": {"bob": {"preset": "guest", "budget": "5"}}}}

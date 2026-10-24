@@ -101,7 +101,7 @@ async fn permission_prompts_go_to_the_owner_for_a_guest_and_to_a_member_for_thei
     let e = guard("respondPermission", json!({"entryId": ask.id})).await.unwrap_err();
     assert!(e.is::<NotAllowed>(), "{e:#}");
     // The owner can always answer: the guard is for invitees only, the owner's calls never reach it.
-    assert!(roles::approves_own("sam", "house").await.eq(&false));
+    assert!(roles::approves_own("sam", "house", "Edit", "edit").await.eq(&false));
     call(&r, &sam, "history", json!({"botId": chat})).await.unwrap();
     call(&r, &sam, "stop", json!({"botId": chat})).await.unwrap();
 }

@@ -165,13 +165,48 @@ pub fn offered(data: &Value, option: &str) -> bool {
     data["options"].as_array().is_some_and(|all| all.iter().any(|o| o["optionId"].as_str() == Some(option)))
 }
 
-/// Who answers the agent's permission prompts in `person`'s chat with `agent`: a member answers their own, everyone
-/// else's (a guest's, or any preset that isn't `member`) go to the owner. Asked of kith-auth each time and failing
-/// toward the owner.
-pub async fn approves_own(person: &str, agent: &str) -> bool {
+/// Whether a tool runs code (or something the host can't see into): its card goes to the owner whoever asked. A
+/// member's own run executes as the owner's macOS user, so they can't approve their own shell (F11). Shell tools of any
+/// harness (ACP kind `execute`) and every `mcp__*` tool count; BashOutput and KillShell only act on a shell that is
+/// already running, so a member may answer those.
+pub fn runs_code(tool: &str, kind: &str) -> bool {
+    if matches!(tool, "BashOutput" | "KillShell") {
+        return false;
+    }
+    kind == "execute" || tool == "Bash" || tool.starts_with("mcp__")
+}
+
+/// Who answers the agent's permission prompts in `person`'s chat with `agent`: a member answers their own, except for
+/// a tool that runs code (`runs_code`); everyone else's (a guest's, or any preset that isn't `member`) go to the
+/// owner. Asked of kith-auth each time and failing toward the owner. The one rule behind the -p cards, the ACP cards
+/// and `respondPermission`.
+pub async fn approves_own(person: &str, agent: &str, tool: &str, kind: &str) -> bool {
+    if runs_code(tool, kind) {
+        return false;
+    }
     resolve(person, agent)
         .await
         .is_some_and(|v| v["allowed"].as_bool() == Some(true) && v["preset"].as_str() == Some("member"))
+}
+
+fn kind_of(entry: &crate::store::Entry) -> &str {
+    entry.data["toolKind"].as_str().unwrap_or_default()
+}
+
+/// Whether `person` may answer the permission card `entry` of `agent`: the card was made for a member (the approver
+/// stored on it, never recomputed without the tool), the tool it asks for isn't code, and kith-auth still says member
+/// now, so a revoke applies. A card with no approver stored (older ones) is judged by the tool alone; an open old Bash
+/// card stored with a member approver is owner-only from here on.
+async fn stored_member_approver(hub: &Hub, entry: &crate::store::Entry, person: &str, agent: &str) -> bool {
+    if entry.data["approver"].as_str().is_some_and(|a| a != "member") {
+        return false;
+    }
+    let tool = hub
+        .store
+        .card_by_entry(&entry.id)
+        .map(|c| c.tool)
+        .unwrap_or_else(|| entry.data["title"].as_str().unwrap_or_default().to_owned());
+    approves_own(person, agent, &tool, kind_of(entry)).await
 }
 
 /// The person's chat `bot`, when it is theirs and its agent is still granted to them.
@@ -226,7 +261,8 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
                     .store
                     .bot_guest_of_person(&card.person)
                     .is_some_and(|b| b.owner_person.as_deref() == Some(person));
-                return if entry.kind == "permission" && (theirs || their_bot) && approves_own(person, &card.agent).await
+                return if entry.kind == "permission" && (theirs || their_bot) && !runs_code(&card.tool, kind_of(&entry))
+                    && approves_own(person, &card.agent, &card.tool, kind_of(&entry)).await
                 {
                     Ok(())
                 } else {
@@ -237,7 +273,7 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
             if method == "respondPermission"
                 && let Some(agent) = owned_bot_chat_agent(hub, person, &entry.bot_id)
             {
-                return if entry.kind == "permission" && approves_own(person, &agent).await {
+                return if entry.kind == "permission" && stored_member_approver(hub, &entry, person, &agent).await {
                     Ok(())
                 } else {
                     Err(denied("Only the owner can answer this agent's permission requests for you."))
@@ -250,7 +286,7 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
                 let agent = hub.store.bot(&entry.bot_id).ok().flatten().and_then(|r| r.config.hq_agent);
                 // The bot that raised the card is stamped as its author; in a group it is a member bot, not this chat.
                 let own = entry.kind == "permission" && entry.data["author"].as_str().is_none_or(|a| a == entry.bot_id);
-                if !own || !approves_own(person, agent.as_deref().unwrap_or_default()).await {
+                if !own || !stored_member_approver(hub, &entry, person, agent.as_deref().unwrap_or_default()).await {
                     return Err(denied("Only the owner can answer this agent's permission requests for you."));
                 }
             }

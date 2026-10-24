@@ -673,7 +673,7 @@ fn kith_auth_answers_fail_closed() {
     for a in all {
         w.write_grants(&[[a.clone(), Ans::Fail], [Ans::Fail, Ans::Fail]]);
         let (may, approves) =
-            w.rt.block_on(async { (roles::may_use("p1", "a1").await, roles::approves_own("p1", "a1").await) });
+            w.rt.block_on(async { (roles::may_use("p1", "a1").await, roles::approves_own("p1", "a1", "Edit", "edit").await) });
         assert_eq!(may, a.allowed(), "may_use for {a:?}");
         assert_eq!(approves, a.member(), "approves_own for {a:?}");
         // An agent or person the table doesn't list is a failure of kith-auth: denied.
