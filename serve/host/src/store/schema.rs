@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 /// Current schema version (kv `schema`).
-const SCHEMA: i64 = 6;
+const SCHEMA: i64 = 7;
 
 /// 3: authorized devices (keys, not push tickets) with their push and Live Activity
 /// tickets. The old ticket-only `devices` table is dropped; phones re-register on connect.
@@ -16,6 +16,7 @@ const SCHEMA: i64 = 6;
 /// 5: invitee people: `devices.person_id` (NULL is the owner), invites, the memberships this host
 /// accepted, the people it made and the audit log of what non-owners asked.
 /// 6: bot guests (docs/kith-bot-guests.md 4.3): the bots, their invites and conversations, and `people.auto_bots`.
+/// 7: approval cards (host card store): what a run asked for beyond its limits, and what became of it.
 fn migrate(c: &Connection) -> Result<()> {
     let version: i64 =
         c.query_row("SELECT CAST(v AS INTEGER) FROM kv WHERE k = 'schema'", [], |r| r.get(0)).optional()?.unwrap_or(0);
@@ -31,7 +32,31 @@ fn migrate(c: &Connection) -> Result<()> {
     if version < 5 {
         migrate_5(c)?;
     }
-    migrate_6(c)
+    if version < 6 {
+        migrate_6(c)?;
+    }
+    migrate_7(c)
+}
+
+fn migrate_7(c: &Connection) -> Result<()> {
+    c.execute_batch(
+        "BEGIN;
+         CREATE TABLE IF NOT EXISTS cards(
+            id TEXT PRIMARY KEY, session TEXT NOT NULL, source TEXT NOT NULL CHECK (source IN ('acp','run')),
+            bot_id TEXT, run_id TEXT, entry_id TEXT, person TEXT NOT NULL DEFAULT '', agent TEXT NOT NULL DEFAULT '',
+            approver TEXT NOT NULL CHECK (approver IN ('owner','member')), tool TEXT NOT NULL, input TEXT NOT NULL,
+            resource TEXT NOT NULL, shown TEXT NOT NULL DEFAULT '', scope TEXT NOT NULL DEFAULT 'once',
+            state TEXT NOT NULL CHECK (state IN ('pending','live','parked','approved','denied','expired','withdrawn','used')),
+            created_at INTEGER NOT NULL, deadline INTEGER NOT NULL, answer TEXT, allowed INTEGER, answered_by TEXT,
+            answered_at INTEGER, answered_parked INTEGER NOT NULL DEFAULT 0, granted_at INTEGER, resumed_at INTEGER);
+         CREATE UNIQUE INDEX IF NOT EXISTS cards_open ON cards(session, resource)
+            WHERE state IN ('pending','live','parked');
+         CREATE INDEX IF NOT EXISTS cards_entry ON cards(entry_id);
+         CREATE INDEX IF NOT EXISTS cards_person ON cards(person, state);
+         INSERT INTO kv(k, v) VALUES('schema', '7') ON CONFLICT(k) DO UPDATE SET v = '7';
+         COMMIT;",
+    )?;
+    Ok(())
 }
 
 fn migrate_6(c: &Connection) -> Result<()> {
@@ -176,7 +201,7 @@ mod tests {
             .unwrap();
         }
         let s = Store::open(&db).unwrap();
-        assert_eq!(s.kv_get("schema").as_deref(), Some("6"));
+        assert_eq!(s.kv_get("schema").as_deref(), Some("7"));
         assert_eq!(s.device("old").unwrap().person_id, None, "an old device is the owner's");
         assert!(s.invites().unwrap().is_empty() && s.people().unwrap().is_empty());
     }
@@ -197,7 +222,7 @@ mod tests {
         }
         let s = Store::open(&db).unwrap();
         assert!(s.devices().unwrap().is_empty());
-        assert_eq!(s.kv_get("schema").as_deref(), Some("6"));
+        assert_eq!(s.kv_get("schema").as_deref(), Some("7"));
         assert!(s.thread("b", "root", 10).unwrap().is_empty(), "entries have a thread column");
         drop(s);
         let s = Store::open(&db).unwrap();

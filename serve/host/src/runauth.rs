@@ -9,6 +9,12 @@
 //! One request per connection: a JSON line `{"token", "method": "recall", "args": [..]}`, answered by one JSON line
 //! `{"ok": true, "stdout", "stderr", "code"}` or `{"ok": false, "error"}`.
 //!
+//! A second method, `requestPermission` (`{"token", "method": "requestPermission", "tool", "input"}`), is the host half of
+//! Claude Code's `--permission-prompt-tool`: the run asks the host whether it may do something its limits would refuse,
+//! the host makes a card for the approver (see `cards`) and answers `{"ok": true, "behavior": "allow"|"deny", "message"}`
+//! after a short live window. It is open to a guest's token and to an owner token (`TokenScope::OwnerAsk`), which
+//! carries no recall audience at all: `recall` with it is refused.
+//!
 //! The token also has to come from the run it was issued to: on macOS a process of the same user can read another
 //! process's environment (`ps eww` shows a Python or Node child's), so a token alone could be lifted from a
 //! neighbouring run. The peer pid of the connection must descend from the pid the run's process was started as.
@@ -21,11 +27,17 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
 
 pub const TOKEN_ENV: &str = "KITH_RUN_TOKEN";
 pub const SOCKET_ENV: &str = "KITH_RUN_SOCKET";
+/// The owner's runs get a token of their own kind under their own names: `KITH_RUN_TOKEN` in the environment means "not
+/// the owner" to `kith recall`, and an owner token must not change that.
+pub const ASK_TOKEN_ENV: &str = "KITH_ASK_TOKEN";
+pub const ASK_SOCKET_ENV: &str = "KITH_ASK_SOCKET";
+/// An owner token handed out over the API lives this long at most (a run is far shorter).
+pub const ASK_TOKEN_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// A request line longer than this is refused unread.
 const MAX_REQUEST: usize = 64 * 1024;
@@ -37,6 +49,15 @@ const RECALL_BUDGET: Duration = Duration::from_secs(30);
 /// How far up the process tree a peer is followed before it counts as not descending.
 const MAX_HOPS: usize = 64;
 
+/// What a token may ask for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenScope {
+    /// An invited person's or a bot guest's run: `recall` as them, and cards.
+    Guest,
+    /// The owner's run: cards only. The owner reads the index directly; this token reads nothing.
+    OwnerAsk,
+}
+
 /// Whom a token stands for. Everything the host decides about a request comes from here, never from its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunIdentity {
@@ -44,6 +65,9 @@ pub struct RunIdentity {
     pub agent: String,
     pub room: Option<String>,
     pub run_id: String,
+    pub scope: TokenScope,
+    /// What a card of this run belongs to (A6, C8): fixed when the token is issued, never taken from a request.
+    pub session: String,
 }
 
 /// What the host learned about the connection's other end.
@@ -56,6 +80,8 @@ struct Entry {
     identity: RunIdentity,
     /// The process the run was started as; the peer must be it or below it. Not bound yet: nobody matches.
     pid: Option<u32>,
+    /// Tokens handed out over the API have an end; a run's own ends with its process.
+    expires: Option<Instant>,
 }
 
 /// The live tokens, by the SHA-256 of the token (the map never holds a token itself).
@@ -63,6 +89,16 @@ pub struct TokenTable {
     entries: Mutex<HashMap<[u8; 32], Entry>>,
     /// `(peer, ancestor)`: whether `peer` is `ancestor` or one of its descendants. Replaceable for tests.
     ancestry: fn(u32, u32) -> bool,
+}
+
+/// Whether a process is still there.
+pub fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("ps")
+        .args(["-p", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 fn digest(token: &str) -> [u8; 32] {
@@ -88,7 +124,7 @@ impl TokenTable {
             acc
         });
         let key = digest(&token);
-        self.entries.locked().insert(key, Entry { identity, pid: None });
+        self.entries.locked().insert(key, Entry { identity, pid: None, expires: None });
         Ok((token, key))
     }
 
@@ -102,6 +138,37 @@ impl TokenTable {
         self.entries.locked().remove(key);
     }
 
+    /// A token for an owner run the kernel starts itself (over the API): bound to the process that will start the
+    /// run, ends at `ttl`. Not tied to a [`RunGrant`]; [`Self::reap`] and [`Self::revoke_token`] end it.
+    pub fn insert_ask(&self, identity: RunIdentity, pid: u32, ttl: Duration) -> Result<String> {
+        let (token, key) = self.insert(identity)?;
+        if let Some(e) = self.entries.locked().get_mut(&key) {
+            e.pid = Some(pid);
+            e.expires = Some(Instant::now() + ttl);
+        }
+        Ok(token)
+    }
+
+    /// Ends a token handed out by [`Self::insert_ask`]; false when it was not there.
+    pub fn revoke_token(&self, token: &str) -> bool {
+        self.entries.locked().remove(&digest(token)).is_some()
+    }
+
+    /// Drops API-issued tokens past their end or whose process is gone (`alive`); returns the run ids that lost one,
+    /// so their cards can park (C6). A run's own token ends with its [`RunGrant`] instead.
+    pub fn reap(&self, alive: fn(u32) -> bool) -> Vec<String> {
+        let now = Instant::now();
+        let mut gone = Vec::new();
+        self.entries.locked().retain(|_, e| {
+            let dead = e.expires.is_some_and(|t| t <= now || e.pid.is_some_and(|p| !alive(p)));
+            if dead {
+                gone.push(e.identity.run_id.clone());
+            }
+            !dead
+        });
+        gone
+    }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.entries.locked().len()
@@ -113,6 +180,9 @@ impl TokenTable {
         let (identity, pid) = {
             let entries = self.entries.locked();
             let e = entries.get(&digest(token))?;
+            if e.expires.is_some_and(|t| t <= Instant::now()) {
+                return None;
+            }
             (e.identity.clone(), e.pid?)
         };
         let peer = peer.pid?;
@@ -131,13 +201,16 @@ pub struct RunGrant {
     table: Arc<TokenTable>,
     key: [u8; 32],
     token: String,
+    run_id: String,
+    scope: TokenScope,
 }
 
 impl RunGrant {
     /// Issues a token on `table`.
     pub fn issue(table: &Arc<TokenTable>, identity: RunIdentity) -> Result<Self> {
+        let (run_id, scope) = (identity.run_id.clone(), identity.scope);
         let (token, key) = table.insert(identity)?;
-        Ok(Self { table: table.clone(), key, token })
+        Ok(Self { table: table.clone(), key, token, run_id, scope })
     }
 
     /// Binds the token to the process the run was started as. Until then no request resolves.
@@ -147,18 +220,41 @@ impl RunGrant {
 
     /// The environment the run gets. The only place the token leaves this module.
     pub fn env(&self, socket: &Path) -> [(String, String); 2] {
-        [(TOKEN_ENV.into(), self.token.clone()), (SOCKET_ENV.into(), socket.to_string_lossy().into_owned())]
+        let (token, sock) = match self.scope {
+            TokenScope::Guest => (TOKEN_ENV, SOCKET_ENV),
+            TokenScope::OwnerAsk => (ASK_TOKEN_ENV, ASK_SOCKET_ENV),
+        };
+        [(token.into(), self.token.clone()), (sock.into(), socket.to_string_lossy().into_owned())]
     }
 }
 
 impl Drop for RunGrant {
     fn drop(&mut self) {
         self.table.revoke(&self.key);
+        // The process is gone: what it was waiting on parks (C6).
+        if let Some(hub) = hub() {
+            crate::cards::run_exited(&hub, &self.run_id);
+        }
     }
 }
 
 static TABLE: OnceLock<Arc<TokenTable>> = OnceLock::new();
 static SOCKET: OnceLock<PathBuf> = OnceLock::new();
+static HUB: OnceLock<std::sync::Weak<crate::hub::Hub>> = OnceLock::new();
+
+/// Lets the socket reach the card store. Before this, `requestPermission` answers no.
+pub fn attach(hub: &Arc<crate::hub::Hub>) {
+    let _ = HUB.set(Arc::downgrade(hub));
+}
+
+fn hub() -> Option<Arc<crate::hub::Hub>> {
+    HUB.get()?.upgrade()
+}
+
+/// The socket path once it is listening.
+pub fn socket() -> Option<&'static Path> {
+    SOCKET.get().map(PathBuf::as_path)
+}
 
 pub fn table() -> &'static Arc<TokenTable> {
     TABLE.get_or_init(|| Arc::new(TokenTable::new()))
@@ -173,6 +269,8 @@ pub fn grant_for(person: &str, agent: &str, room: Option<&str>) -> Option<(RunGr
         agent: agent.to_owned(),
         room: room.filter(|r| !r.is_empty()).map(str::to_owned),
         run_id: uuid::Uuid::new_v4().simple().to_string(),
+        scope: TokenScope::Guest,
+        session: session_of(person, agent, room),
     };
     match RunGrant::issue(table(), identity) {
         Ok(grant) => {
@@ -186,13 +284,40 @@ pub fn grant_for(person: &str, agent: &str, room: Option<&str>) -> Option<(RunGr
     }
 }
 
+/// The session a -p run's cards belong to: its room, else the person and agent.
+fn session_of(person: &str, agent: &str, room: Option<&str>) -> String {
+    format!("run:{}", room.filter(|r| !r.is_empty()).map_or_else(|| format!("{person}:{agent}"), str::to_owned))
+}
+
+/// The identity of an owner run of `agent` under `session` (cards only, see [`TokenScope::OwnerAsk`]).
+pub fn ask_identity(agent: &str, session: &str) -> RunIdentity {
+    RunIdentity {
+        person: String::new(),
+        agent: agent.to_owned(),
+        room: None,
+        run_id: uuid::Uuid::new_v4().simple().to_string(),
+        scope: TokenScope::OwnerAsk,
+        session: format!("run:owner:{session}"),
+    }
+}
+
 /// For a run started from an environment list (channel runs): when it names a person, issues a grant and adds the
-/// token and socket to the list. The owner's list (no `KITH_PERSON`) is left alone.
-pub fn grant_for_env(env: &mut Vec<(std::ffi::OsString, std::ffi::OsString)>, agent: &str) -> Option<RunGrant> {
+/// token and socket to the list. The owner's list (no `KITH_PERSON`) gets an owner token (cards only) under its own
+/// names, keyed by `owner_session` (what the owner's run continues).
+pub fn grant_for_env(
+    env: &mut Vec<(std::ffi::OsString, std::ffi::OsString)>,
+    agent: &str,
+    owner_session: &str,
+) -> Option<RunGrant> {
     let get = |name: &str| env.iter().rev().find(|(k, _)| k == name).and_then(|(_, v)| v.to_str()).map(str::to_owned);
-    let person = get("KITH_PERSON").filter(|p| !p.is_empty())?;
-    let room = get("KITH_ROOM");
-    let (grant, vars) = grant_for(&person, agent, room.as_deref())?;
+    let (grant, vars) = if let Some(person) = get("KITH_PERSON").filter(|p| !p.is_empty()) {
+        grant_for(&person, agent, get("KITH_ROOM").as_deref())?
+    } else {
+        let socket = SOCKET.get()?;
+        let grant = RunGrant::issue(table(), ask_identity(agent, owner_session)).ok()?;
+        let vars = grant.env(socket);
+        (grant, vars)
+    };
     env.extend(vars.into_iter().map(|(k, v)| (k.into(), v.into())));
     Some(grant)
 }
@@ -220,7 +345,16 @@ fn machine_from_paths_json(json: &[u8]) -> Option<PathBuf> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Response {
-    Ok { stdout: String, stderr: String, code: i32 },
+    Ok {
+        stdout: String,
+        stderr: String,
+        code: i32,
+    },
+    /// The answer to `requestPermission`.
+    Decision {
+        allow: bool,
+        message: String,
+    },
     Refused(String),
 }
 
@@ -232,6 +366,9 @@ impl Response {
     fn to_line(&self) -> String {
         let v = match self {
             Self::Ok { stdout, stderr, code } => json!({"ok": true, "stdout": stdout, "stderr": stderr, "code": code}),
+            Self::Decision { allow, message } => {
+                json!({"ok": true, "behavior": if *allow { "allow" } else { "deny" }, "message": message})
+            }
             Self::Refused(error) => json!({"ok": false, "error": error}),
         };
         format!("{v}\n")
@@ -243,6 +380,15 @@ impl Response {
 pub struct Authorized {
     pub identity: RunIdentity,
     pub args: Vec<String>,
+    /// Set for `requestPermission`: what the run wants to do.
+    pub ask: Option<Ask>,
+}
+
+/// What a run asks to do: a tool name and its input, as Claude Code's permission prompt tool is given them.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Ask {
+    pub tool: String,
+    pub input: Value,
 }
 
 /// Checks a request line without running anything. Every token failure reads the same to the caller, so a probe
@@ -264,7 +410,24 @@ pub fn authorize(table: &TokenTable, line: &[u8], peer: PeerInfo) -> Result<Auth
         "recall" => {
             let args = recall_args(req["args"].as_array().map_or(&[][..], Vec::as_slice))
                 .map_err(|why| Response::Refused(why.to_owned()))?;
-            Ok(Authorized { identity, args })
+            // An owner token reads nothing: a guest's recall audience is neither widened by it nor given to it.
+            if identity.scope != TokenScope::Guest {
+                return Err(Response::refused("not authorized"));
+            }
+            Ok(Authorized { identity, args, ask: None })
+        }
+        "requestPermission" => {
+            let (Some(tool), input) = (req["tool"].as_str(), &req["input"]) else {
+                return Err(Response::refused("a tool is needed"));
+            };
+            if tool.len() > MAX_ARG_LEN || !(input.is_object() || input.is_null()) {
+                return Err(Response::refused("bad request"));
+            }
+            Ok(Authorized {
+                identity,
+                args: Vec::new(),
+                ask: Some(Ask { tool: tool.to_owned(), input: input.clone() }),
+            })
         }
         _ => Err(Response::refused("unknown method")),
     }
@@ -324,6 +487,13 @@ pub fn recall_args(args: &[Value]) -> Result<Vec<String>, &'static str> {
 /// Answers one request line: refuses it, or runs the kernel's `kith recall` as the token's identity.
 pub async fn handle_request(table: &TokenTable, line: &[u8], peer: PeerInfo) -> Response {
     match authorize(table, line, peer) {
+        Ok(Authorized { identity, ask: Some(ask), .. }) => match hub() {
+            Some(hub) => {
+                let d = crate::cards::request_permission(&hub, &identity, &ask.tool, &ask.input).await;
+                Response::Decision { allow: d.allow, message: d.message }
+            }
+            None => Response::Decision { allow: false, message: "Approvals aren't available right now.".into() },
+        },
         Ok(job) => run_recall(&job).await,
         Err(refused) => refused,
     }
@@ -343,6 +513,8 @@ const SCRUB: &[&str] = &[
     "HQ_VIA",
     TOKEN_ENV,
     SOCKET_ENV,
+    ASK_TOKEN_ENV,
+    ASK_SOCKET_ENV,
 ];
 
 async fn run_recall(job: &Authorized) -> Response {
@@ -482,6 +654,8 @@ mod tests {
             agent: "echo".into(),
             room: Some("1:1:echo:sam".into()),
             run_id: "r1".into(),
+            scope: TokenScope::Guest,
+            session: "run:1:1:echo:sam".into(),
         }
     }
 
@@ -605,6 +779,45 @@ mod tests {
     }
 
     #[test]
+    fn an_owner_token_can_ask_for_a_card_but_reads_nothing() {
+        let t = open_table();
+        let owner = ask_identity("echo", "s1");
+        let token = t.insert_ask(owner.clone(), 5, Duration::from_secs(60)).unwrap();
+        let line = json!({"token": token, "method": "requestPermission", "tool": "Bash", "input": {"command": "ls"}});
+        let job = authorize(&t, line.to_string().as_bytes(), peer(5)).unwrap();
+        assert_eq!(job.identity, owner);
+        assert_eq!(job.ask, Some(Ask { tool: "Bash".into(), input: json!({"command": "ls"}) }));
+        assert!(authorize(&t, &req(&token, "requestPermission", &json!([])), peer(5)).is_err(), "no tool, no ask");
+        // Recall is a guest's: an owner token is refused it, whatever it asks for (the audience is not widened).
+        assert_eq!(
+            authorize(&t, &req(&token, "recall", &json!(["zebra"])), peer(5)),
+            Err(Response::refused("not authorized"))
+        );
+        // Only from the process it was issued for, and not after it ends.
+        assert!(authorize(&t, line.to_string().as_bytes(), peer(6)).is_err());
+        assert!(t.revoke_token(&token) && !t.revoke_token(&token));
+        assert!(authorize(&t, line.to_string().as_bytes(), peer(5)).is_err());
+        // Its own environment names: `KITH_RUN_TOKEN` stays the sign of a guest to `kith recall`.
+        let g = RunGrant::issue(&t, owner).unwrap();
+        let env = g.env(Path::new("/s"));
+        assert_eq!((env[0].0.as_str(), env[1].0.as_str()), (ASK_TOKEN_ENV, ASK_SOCKET_ENV));
+    }
+
+    #[test]
+    fn an_api_issued_token_ends_with_its_process_or_its_time() {
+        let t = open_table();
+        let (a, b) = (ask_identity("echo", "a"), ask_identity("echo", "b"));
+        let (run_a, run_b) = (a.run_id.clone(), b.run_id.clone());
+        let ta = t.insert_ask(a, 7, Duration::from_secs(60)).unwrap();
+        let tb = t.insert_ask(b, 8, Duration::from_millis(0)).unwrap();
+        assert_eq!(t.resolve(&tb, peer(8)), None, "past its time");
+        assert_eq!(t.reap(|pid| pid == 7), vec![run_b], "the expired one goes, the live one stays");
+        assert!(t.resolve(&ta, peer(7)).is_some());
+        assert_eq!(t.reap(|_| false), vec![run_a], "its process is gone");
+        assert_eq!(t.len(), 0);
+    }
+
+    #[test]
     fn ancestry_follows_real_parents() {
         let me = std::process::id();
         let mut child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
@@ -622,10 +835,10 @@ mod tests {
     fn env_list_gets_a_token_only_with_a_person() {
         // No socket is listening in unit tests, so no token is issued: the list is left as it was.
         let mut owner = vec![("KITH_AGENT".into(), "echo".into())];
-        assert!(grant_for_env(&mut owner, "echo").is_none());
+        assert!(grant_for_env(&mut owner, "echo", "w1").is_none());
         assert_eq!(owner.len(), 1);
         let mut guest = vec![("KITH_PERSON".into(), "sam".into())];
-        assert!(grant_for_env(&mut guest, "echo").is_none());
+        assert!(grant_for_env(&mut guest, "echo", "w1").is_none());
         assert!(!guest.iter().any(|(k, _)| k == TOKEN_ENV));
     }
 

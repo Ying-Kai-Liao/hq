@@ -558,6 +558,8 @@ pub(crate) async fn end_bot(hub: &Hub, bot_id: &str, final_state: BotState, why:
             return false;
         }
     }
+    // What the bot had asked its owner for ends with it (A7).
+    crate::cards::withdraw_person(hub, &bot.person_id, None);
     if let Some(key) = &bot.device_key
         && let Err(e) = hub.revoke_device(key)
     {

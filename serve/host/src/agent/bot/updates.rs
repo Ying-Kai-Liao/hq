@@ -6,7 +6,7 @@ use crate::agent::acp::{self, Incoming};
 use crate::chat::tasks::TaskState;
 use crate::hub::BotStatus;
 use crate::remote::push::{self, AlertKind};
-use crate::store::EntryKind;
+use crate::store::{EntryKind, NewCard, Opened};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -28,6 +28,11 @@ impl Actor {
                 self.conn = None;
                 // The in-flight prompt request resolves with an error; finish_turn reports it with this output.
                 self.exit_tail = Some(tail);
+                // Questions this process still had open can't be answered through it any more: their cards park, and
+                // an answer later is recorded (it used to be dropped, leaving the card pending for good).
+                self.perms.clear();
+                self.parked_prompts.clear();
+                crate::cards::bot_exited(&self.hub, &self.cfg.id);
             }
             Some(Incoming::Notification { method, params }) => {
                 // Any session's, turn or not: the agent changed an option itself.
@@ -46,7 +51,8 @@ impl Actor {
             Some(Incoming::Request { id, method, params }) => {
                 let Some(conn) = &self.conn else { return };
                 let acp = conn.acp.clone();
-                if method == "session/request_permission" && self.turn.is_some() {
+                // Out of a turn too: a question nobody is waiting on is a card, not an error.
+                if method == "session/request_permission" {
                     self.on_permission(id, params).await;
                 } else {
                     let _ = acp.respond_error(id, -32601, &format!("{method} is not supported by Kith")).await;
@@ -200,6 +206,7 @@ impl Actor {
         });
         let mut data = data;
         let mut owner_label = None;
+        let approver_card = approver.unwrap_or("owner");
         if let (Some((person, agent)), Some(approver)) = (&whose, approver) {
             let name = self.hub.store.person(person).map(|p| p.name).filter(|n| !n.is_empty());
             data["cwd"] = Value::Null;
@@ -211,23 +218,82 @@ impl Actor {
                 owner_label = Some(crate::api::roles::owner_name(agent).await.unwrap_or_else(|| "the owner".into()));
             }
         }
-        let turn = self.turn.unwrap_or(0);
+        let in_turn = self.turn.is_some();
+        let turn = self.turn.unwrap_or_else(|| self.hub.store.max_turn(&self.lane.chat));
+        // The same question again joins the card that is open for it (A6), and a yes already given for it is used.
+        let Some((resource, shown)) = Self::card_resource(tool, &title) else {
+            // A secret or a login (A5): no card, the agent is told no.
+            let no = params["options"].as_array().and_then(|all| all.iter().find(|o| o["kind"] == "reject_once"));
+            let outcome = match no {
+                Some(o) => json!({"outcome": {"outcome": "selected", "optionId": o["optionId"]}}),
+                None => json!({"outcome": {"outcome": "cancelled"}}),
+            };
+            if let Some(conn) = &self.conn {
+                let _ = conn.acp.respond(rpc_id, outcome).await;
+            }
+            return;
+        };
+        let now = crate::store::now_ms();
+        let card = NewCard {
+            session: format!("acp:{}:{}", self.lane.chat, self.lane.thread.as_deref().unwrap_or_default()),
+            source: "acp",
+            bot_id: Some(self.cfg.id.clone()),
+            run_id: None,
+            person: whose.as_ref().map(|w| w.0.clone()).unwrap_or_default(),
+            agent: whose.as_ref().map(|w| w.1.clone()).or_else(|| self.cfg.hq_agent.clone()).unwrap_or_default(),
+            approver: approver_card,
+            tool: tool["_meta"]["claudeCode"]["toolName"].as_str().unwrap_or(&title).to_owned(),
+            input: raw.to_string(),
+            resource,
+            shown,
+            deadline: now.saturating_add(crate::cards::settings(&self.hub.store).expiry_ms),
+        };
+        let opened = self.hub.store.card_open(&card, now);
+        if let Ok(Opened::Granted(_)) = &opened
+            && let Some(o) = params["options"].as_array().and_then(|all| all.iter().find(|o| o["kind"] == "allow_once"))
+        {
+            if let Some(conn) = &self.conn {
+                let _ = conn
+                    .acp
+                    .respond(rpc_id, json!({"outcome": {"outcome": "selected", "optionId": o["optionId"]}}))
+                    .await;
+            }
+            return;
+        }
+        if let Ok(Opened::Joined(c)) = &opened
+            && let Some(entry_id) = c.entry_id.clone()
+            && let Some(mut e) = self.hub.store.entry(&entry_id)
+        {
+            e.data["status"] = "pending".into();
+            e.data["parked"] = false.into();
+            self.hub.set_entry(&entry_id, &e.data);
+            let _ = self.hub.store.card_live(&c.id, None, None);
+            self.perms.entry(entry_id).or_default().push(rpc_id);
+            return;
+        }
         self.close_seg();
         if let Some(e) = self.add(EntryKind::Permission, turn, data.clone()) {
+            if let Ok(Opened::New(c) | Opened::Joined(c)) = &opened {
+                let _ = self.hub.store.card_live(&c.id, Some(&e.id), None);
+            }
             // The owner may be a while: the slot goes back to the gate so other people's turns aren't stuck behind it.
-            if owner_label.is_some() {
+            if owner_label.is_some() && in_turn {
                 self.parked_prompts.insert(e.id.clone(), self.hub.gate.park(&self.rt));
             }
-            self.perms.insert(e.id, rpc_id);
-            self.hub.set_task_status(&self.lane, TaskState::NeedsYou);
+            self.perms.entry(e.id).or_default().push(rpc_id);
+            if in_turn {
+                self.hub.set_task_status(&self.lane, TaskState::NeedsYou);
+            }
         }
-        self.hub.set_runtime(&self.rt, |r| {
-            r.status = BotStatus::NeedsInput;
-            r.activity = match &owner_label {
-                Some(owner) => format!("Waiting for {owner}"),
-                None => format!("Needs approval: {title}"),
-            };
-        });
+        if in_turn {
+            self.hub.set_runtime(&self.rt, |r| {
+                r.status = BotStatus::NeedsInput;
+                r.activity = match &owner_label {
+                    Some(owner) => format!("Waiting for {owner}"),
+                    None => format!("Needs approval: {title}"),
+                };
+            });
+        }
         // Tapping it opens where the card is: the group, for a room turn.
         let mut target =
             self.hub.store.bot(&self.lane.chat).ok().flatten().map_or_else(|| self.cfg.clone(), |r| r.config);
@@ -240,6 +306,20 @@ impl Actor {
         push::notify(&self.hub, &target, Some(&self.cfg.id), &heading, &title, AlertKind::NeedsInput);
     }
 
+    /// The resource key and the text of what a bot's question is about: the real path for a file, else a digest of
+    /// its input. A secret or a login is not carded; the agent is told no (A5).
+    fn card_resource(tool: &Value, title: &str) -> Option<(String, String)> {
+        let name = tool["_meta"]["claudeCode"]["toolName"].as_str().unwrap_or(title);
+        let raw = &tool["rawInput"];
+        match crate::cards::resource::classify(name, raw, crate::cards::resource::roots()) {
+            crate::cards::resource::Classified::Card { key, shown } => Some((key, shown)),
+            crate::cards::resource::Classified::Never => None,
+            crate::cards::resource::Classified::Malformed(_) => {
+                Some((format!("{name}:{}", crate::cards::resource::digest(raw)), title.to_owned()))
+            }
+        }
+    }
+
     pub(super) async fn answer_permission(&mut self, entry_id: &str, option_id: Option<String>) {
         // In an invited person's chat only an option the card offered counts (see `once_only`): nothing a client
         // makes up can switch the session's mode or write a rule that outlives the run.
@@ -249,7 +329,7 @@ impl Actor {
             tracing::warn!(bot = %self.cfg.id, option = %o, "refused an answer the card didn't offer");
             return;
         }
-        let Some(rpc_id) = self.perms.remove(entry_id) else { return };
+        let Some(rpc_ids) = self.perms.remove(entry_id) else { return };
         // A prompt that waited for the owner gave its slot up; an answer takes it back before the agent goes on.
         if let Some(parked) = self.parked_prompts.remove(entry_id)
             && option_id.is_some()
@@ -261,8 +341,14 @@ impl Actor {
             None => json!({"outcome": {"outcome": "cancelled"}}),
         };
         if let Some(conn) = &self.conn {
-            let _ = conn.acp.respond(rpc_id, outcome).await;
+            for rpc_id in rpc_ids {
+                let _ = conn.acp.respond(rpc_id, outcome.clone()).await;
+            }
         }
+        // The yes was heard by the agent: the once grant is spent (C3), or the question is closed for good.
+        let allowed =
+            self.hub.store.entry(entry_id).is_some_and(|e| crate::cards::allows(&e.data, option_id.as_deref()));
+        crate::cards::delivered(&self.hub.store, entry_id, allowed);
         if let Some(mut e) = self.hub.store.entry(entry_id) {
             e.data["status"] = if option_id.is_some() { "answered" } else { "cancelled" }.into();
             e.data["selected"] = option_id.into();

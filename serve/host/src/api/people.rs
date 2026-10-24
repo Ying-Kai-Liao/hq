@@ -390,13 +390,18 @@ async fn stop_runs(hub: &Hub, person: &str, only_denied: bool) {
         }
         if only_denied {
             match bot.config.hq_agent.as_deref() {
-                Some(agent) if !roles::may_use(person, agent).await => {}
+                Some(agent) if !roles::may_use(person, agent).await => {
+                    crate::cards::withdraw_person(hub, person, Some(agent));
+                }
                 _ => continue,
             }
         }
         if let Err(e) = hub.send_cmd(&bot.config.id, Cmd::Stop) {
             tracing::warn!(error = format!("{e:#}"), person, "couldn't stop a turn");
         }
+    }
+    if !only_denied {
+        crate::cards::withdraw_person(hub, person, None);
     }
     crate::channels::stop_person_runs(person, only_denied).await;
 }

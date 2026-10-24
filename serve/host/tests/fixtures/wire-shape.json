@@ -85,6 +85,7 @@
     "event:entry(permission).entry.data.options[].kind": "string",
     "event:entry(permission).entry.data.options[].name": "string",
     "event:entry(permission).entry.data.options[].optionId": "string",
+    "event:entry(permission).entry.data.parked": "bool",
     "event:entry(permission).entry.data.selected": "string",
     "event:entry(permission).entry.data.status": "string",
     "event:entry(permission).entry.data.title": "string",

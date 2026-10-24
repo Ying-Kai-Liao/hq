@@ -425,7 +425,10 @@ impl Actor {
         // Cards nobody answered: an owner's gave up the turn's slot, which comes back with the dropped guard.
         self.parked_prompts.clear();
         for id in ids {
-            if let Some(mut e) = self.hub.store.entry(&id) {
+            crate::cards::withdraw_entry(&self.hub, &id);
+            if let Some(mut e) = self.hub.store.entry(&id)
+                && e.data["status"] == "pending"
+            {
                 e.data["status"] = "expired".into();
                 self.hub.set_entry(&id, &e.data);
             }
