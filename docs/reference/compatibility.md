@@ -5,7 +5,8 @@ release notes, tags, the Homebrew formula. No side compares product versions to 
 with the other. That is done with **protocol levels**, small integers that change only when the wire does.
 
 Kith's own version line starts at 0.1.0. The builds before it were numbered 2.x (the line Kith was forked
-from); they are called legacy hosts below.
+from). Nothing compares against that numbering: a host from before protocol levels sends no `protocol` in its
+`hello`, and that counts as level 0.
 
 ## The numbers
 
@@ -15,7 +16,6 @@ from); they are called legacy hosts below.
 | host `hello` | `minProtocol` | The oldest client level the host still serves. |
 | each client | `PROTOCOL` | The client's own level, checked against the host's `minProtocol`. |
 | each client | `MIN_HOST_PROTOCOL` | The oldest host level the client works with. |
-| each client | `LEGACY_MIN_HOST` | Toward a legacy host: the oldest 2.x version the client works with (2.12.0). |
 
 They live in `serve/host/src/compat.rs` (host, and the terminal client), `apps/desktop/src/shared/compat.ts`
 and `apps/ios/Kit/Sources/KithKit/Models/Compatibility.swift`. All three are at level 1.
@@ -24,27 +24,21 @@ and `apps/ios/Kit/Sources/KithKit/Models/Compatibility.swift`. All three are at 
 
 Every client asks `hello` on each (re)connect and decides:
 
-1. `protocol` present:
-   - client level below `minProtocol`: **update this app**;
-   - `protocol` below the client's `MIN_HOST_PROTOCOL`: **update Kith on the computer**;
-   - otherwise they work together.
-2. `protocol` absent: a legacy host.
-   - version below `LEGACY_MIN_HOST`: **update Kith on the computer**;
-   - otherwise they work together. The legacy `minApp` is not read: every client with a protocol level
-     is newer than any `minApp` a legacy host names.
+- `minProtocol` present and the client's level below it: **update this app**;
+- the host's `protocol` (absent counts as 0) below the client's `MIN_HOST_PROTOCOL`: **update Kith on the
+  computer**;
+- otherwise they work together. A missing `minProtocol` is no floor on the app.
 
-An unreadable or missing value never locks anyone out. A client that can't decode what the host sends asks
-for an app update only when the host is on a protocol level and its version is newer than the client's
-(both on Kith's own line); a legacy host's 2.x says nothing about a 0.x client.
+No `hello` yet means no verdict. A client that can't decode what the host sends asks for an app update
+only when the host's `protocol` is above the client's own level.
 
-The texts say which side to update and the host's version, never a minimum number.
+The texts say which side to update and never show a version number.
 
 ## Optional features
 
-A feature that only some hosts have hides its control instead of raising a floor. Features that legacy hosts
-got late (skills: 2.14.1) are on every host with a protocol level, so clients check
-`hostHas(hello, "2.14.1")` / `VersionMismatch.hostHas`: true when `protocol` is present, else by the legacy
-version. A feature added from now on raises `PROTOCOL` on the host, and clients gate on the level.
+A feature that only some hosts have hides its control instead of raising a floor, gated on the host's
+`protocol` level. Anything that was once version-gated on 2.x hosts (skills) is on every host that passes
+the check, so there is no gate for it.
 
 ## Changing the wire: the two-release rule
 
@@ -71,7 +65,8 @@ Account computers listed by the cloud have no `hello` yet, only the version the 
 `LabelFamily.forHost` (iOS) gives a 2.x version below 2.20.0 (and no version) the legacy relay labels and
 every other version, 0.x included, the `kith/*` ones. Hosts accept both families.
 
-## Apps built before 0.1.0
+## Apps built before the protocol-only check
 
-Desktop and iPhone builds from the 2.x line compare product versions: they ask to update the computer when
-it runs 0.1.0. Rebuild them from this version or later.
+Desktop and iPhone builds from the 2.x line, and 0.1.0 builds before this check, compare product versions
+against a built-in 2.x floor and ask to update the computer even when it runs 0.1.0. There is no host-side
+shim for them; rebuild them from this version or later.

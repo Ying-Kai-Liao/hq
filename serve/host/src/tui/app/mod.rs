@@ -406,8 +406,8 @@ pub fn mismatch_text(m: &crate::compat::Mismatch, host: &str) -> String {
     let host = if host.is_empty() { "the computer" } else { host };
     match m {
         crate::compat::Mismatch::UpdateApp => format!("Update this app: {host} needs a newer Kith here."),
-        crate::compat::Mismatch::UpdateHost { version } => {
-            format!("Update Kith on {host}: it runs {version}, this app needs a newer one. ^k → Check for updates.")
+        crate::compat::Mismatch::UpdateHost => {
+            format!("Update Kith on {host}: it needs a newer Kith to work with this app. ^k → Check for updates.")
         }
     }
 }

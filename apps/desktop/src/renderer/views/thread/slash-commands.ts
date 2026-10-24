@@ -4,9 +4,6 @@
 import { fastModeDetail, fastModeShown, fastModeState } from '../../../shared/fast-mode.ts'
 import type { Bot } from '../../../shared/models.ts'
 
-/** The first legacy host with `/skill` messages and skill details; older ones get the text as typed. */
-export const SKILLS_HOST = '2.14.1'
-
 export type SlashAction = { kind: 'fast' } | { kind: 'skill'; id: string }
 
 export interface SlashCommand {

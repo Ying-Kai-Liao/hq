@@ -11,16 +11,15 @@ export const updateNeededText = {
   title(m: VersionMismatch, host: string) {
     return m.kind === 'updateApp' ? 'Update this app' : `Update Kith on ${host}`
   },
-  detail(m: VersionMismatch, host: string, hostVersion: string | null | undefined, os: string | null | undefined, instructions = true) {
+  detail(m: VersionMismatch, host: string, os: string | null | undefined, instructions = true) {
     if (m.kind === 'updateApp') {
-      const runs = hostVersion ? `${host} runs Kith ${hostVersion} and` : host
-      return `${runs} needs a newer version of this app. Your chats are safe on the computer.`
+      return `${host} needs a newer version of this app. Your chats are safe on the computer.`
     }
     const how =
       os === 'macos' ? 'Open Kith on that Mac and choose Check for Updates.'
       : os === 'linux' ? 'Run kith-serve update there.'
       : 'Update Kith on that computer.'
-    const needs = `${host} runs Kith ${m.version}; this app needs a newer one.`
+    const needs = `${host} needs a newer Kith to work with this app.`
     return instructions ? `${needs} ${how}` : needs
   },
 }
@@ -49,7 +48,7 @@ export function UpdateNeededCard() {
       <VStack gap={6} grow>
         <Text as="div" size="subheadline" weight="semibold" tone="text">{updateNeededText.title(mismatch, store.hostName)}</Text>
         <Text as="div" size="footnote" tone="secondary">
-          {updateNeededText.detail(mismatch, store.hostName, store.hostVersion?.version, store.hello?.os, !updatesApp && !restartsHost)}
+          {updateNeededText.detail(mismatch, store.hostName, store.hello?.os, !updatesApp && !restartsHost)}
         </Text>
         {button ? <div className="update-needed-action">{button}</div> : null}
       </VStack>
