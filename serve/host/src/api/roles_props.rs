@@ -276,7 +276,7 @@ impl World {
                 2 => Some(json!(bots[(e.bot + 1) % bots.len()])),
                 _ => Some(json!(7)),
             };
-            let mut data = json!({"options": [{"optionId": "allow"}], "toolKind": "fetch"});   // not code: a member may answer
+            let mut data = json!({"options": [{"optionId": "allow"}], "toolKind": "fetch"}); // not code: a member may answer
             if let Some(a) = author {
                 data["author"] = a;
             }
@@ -672,8 +672,9 @@ fn kith_auth_answers_fail_closed() {
     all.extend((0..OTHER_PRESETS.len()).map(Ans::Other));
     for a in all {
         w.write_grants(&[[a.clone(), Ans::Fail], [Ans::Fail, Ans::Fail]]);
-        let (may, approves) =
-            w.rt.block_on(async { (roles::may_use("p1", "a1").await, roles::approves_own("p1", "a1", "Edit", "edit").await) });
+        let (may, approves) = w.rt.block_on(async {
+            (roles::may_use("p1", "a1").await, roles::approves_own("p1", "a1", "Edit", "edit").await)
+        });
         assert_eq!(may, a.allowed(), "may_use for {a:?}");
         assert_eq!(approves, a.member(), "approves_own for {a:?}");
         // An agent or person the table doesn't list is a failure of kith-auth: denied.

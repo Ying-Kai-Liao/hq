@@ -161,7 +161,11 @@ async fn approver_of(who: &RunIdentity, tool: &str) -> &'static str {
     if who.scope == TokenScope::OwnerAsk || who.person.is_empty() {
         return "owner";
     }
-    if crate::api::roles::approves_own(&who.person, &who.agent, tool, tool_kind(tool)).await { "member" } else { "owner" }
+    if crate::api::roles::approves_own(&who.person, &who.agent, tool, tool_kind(tool)).await {
+        "member"
+    } else {
+        "owner"
+    }
 }
 
 /// The host half of `--permission-prompt-tool` for a -p run (A5, A6, A9). Never panics, never blocks past the window.

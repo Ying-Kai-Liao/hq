@@ -167,7 +167,7 @@ pub fn offered(data: &Value, option: &str) -> bool {
 
 /// Whether a tool runs code (or something the host can't see into): its card goes to the owner whoever asked. A
 /// member's own run executes as the owner's macOS user, so they can't approve their own shell (F11). Shell tools of any
-/// harness (ACP kind `execute`) and every `mcp__*` tool count; BashOutput and KillShell only act on a shell that is
+/// harness (ACP kind `execute`) and every `mcp__*` tool count; `BashOutput` and `KillShell` only act on a shell that is
 /// already running, so a member may answer those.
 pub fn runs_code(tool: &str, kind: &str) -> bool {
     if matches!(tool, "BashOutput" | "KillShell") {
@@ -209,8 +209,7 @@ async fn stored_member_approver(hub: &Hub, entry: &crate::store::Entry, person: 
     let tool = hub
         .store
         .card_by_entry(&entry.id)
-        .map(|c| c.tool)
-        .unwrap_or_else(|| entry.data["title"].as_str().unwrap_or_default().to_owned());
+        .map_or_else(|| entry.data["title"].as_str().unwrap_or_default().to_owned(), |c| c.tool);
     approves_own(person, agent, &tool, kind_of(entry)).await
 }
 
@@ -266,7 +265,9 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
                     .store
                     .bot_guest_of_person(&card.person)
                     .is_some_and(|b| b.owner_person.as_deref() == Some(person));
-                return if entry.kind == "permission" && (theirs || their_bot) && !runs_code(&card.tool, kind_of(&entry))
+                return if entry.kind == "permission"
+                    && (theirs || their_bot)
+                    && !runs_code(&card.tool, kind_of(&entry))
                     && approves_own(person, &card.agent, &card.tool, kind_of(&entry)).await
                 {
                     Ok(())
