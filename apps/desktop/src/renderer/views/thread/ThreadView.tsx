@@ -28,6 +28,7 @@ import { CallView } from '../call/CallView'
 import { START_CALL_EVENT } from '../../lib/call-event'
 import { callBlockedReason } from '../call/call-availability'
 import { MacChatButton } from './MacChatButton'
+import { ShareAgentSheet, useCanShareAgent } from '../ShareAgentSheet'
 import './thread.css'
 import './composer.css'
 import './chat-controls.css'
@@ -53,6 +54,8 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     wasOpen.current = !!openThread
   }, [openThread, routes, botId, bot])
   const [editingGroup, setEditingGroup] = useState(false)
+  const [sharing, setSharing] = useState(false)
+  const canShare = useCanShareAgent(store, bot)
   const [templateDraft, setTemplateDraft] = useState<BotDraft | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [detailsTab, setDetailsTab] = useState<DetailsTab>('details')
@@ -195,6 +198,11 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
                   <Icon name="phone.fill" size={15} weight="medium" />
                 </button>
               ) : null}
+              {canShare ? (
+                <button className="top-pair-button" title="Share" aria-label="Share" onClick={() => setSharing(true)}>
+                  <Icon name="person.crop.circle.badge.plus" size={15} weight="medium" />
+                </button>
+              ) : null}
               {(!showSettings || !wide) && !compactDetails ? (
                 <button className="top-pair-button" title="Conversation details" aria-label="Conversation details" onClick={toggleDetails}>
                   <Icon name="ellipsis" size={15} weight="medium" />
@@ -264,6 +272,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
       <Sheet open={templateDraft !== null} onClose={() => setTemplateDraft(null)}>
         {templateDraft ? <BotTemplateView draft={templateDraft} /> : null}
       </Sheet>
+      {bot && canShare ? <ShareAgentSheet store={store} bot={bot} open={sharing} onClose={() => setSharing(false)} /> : null}
       <Sheet open={editingGroup} onClose={() => setEditingGroup(false)} width={420} height={560}>
         <GroupEditorView group={bot} />
       </Sheet>

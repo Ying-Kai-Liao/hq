@@ -222,7 +222,7 @@ function InviteSheet({ store, personId }: { store: BotStore; personId?: string }
 }
 
 /** The link, Copy and a QR code. The link is a secret for one person: it stays on screen only. */
-function InviteLinkCard({ invite }: { invite: CreatedInvite }) {
+export function InviteLinkCard({ invite }: { invite: CreatedInvite }) {
   const [qr, setQr] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   useEffect(() => {
