@@ -403,16 +403,21 @@ extension ThreadView {
                 }
                 .padding(.bottom, 4)
                 .background(alignment: .top) {
-                    // Rows scroll under the bar: the sky is opaque for its first ~95 pt, then fades into the ground.
-                    ZStack(alignment: .top) {
-                        // A ground layer under the sky hides what scrolls under the bar; it fades out just below it.
-                        Palette.background.ignoresSafeArea(edges: .top)
-                        SkyBackground(.header)
-                    }
-                    .overlay(alignment: .bottom) {
-                        LinearGradient(colors: [Palette.background, Palette.background.opacity(0)], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 16).offset(y: 16).allowsHitTesting(false)
-                    }
+                    // Rows scroll under the bar. The sky is cut to the bar's own height (its image is taller than the bar)
+                    // and fades out over the bottom of it, so messages stay visible right under the cloud.
+                    Palette.background.ignoresSafeArea(edges: .top)
+                        .overlay(alignment: .top) {
+                            SkyBackground(.header)
+                                .mask(alignment: .top) {
+                                    LinearGradient(stops: [.init(color: .black, location: 0.7), .init(color: .clear, location: 1)],
+                                                   startPoint: .top, endPoint: .bottom)
+                                }
+                        }
+                        .clipped()
+                        .overlay(alignment: .bottom) {
+                            LinearGradient(colors: [Palette.background, Palette.background.opacity(0)], startPoint: .top, endPoint: .bottom)
+                                .frame(height: 12).offset(y: 12).allowsHitTesting(false)
+                        }
                 }
             }
     }
@@ -420,10 +425,37 @@ extension ThreadView {
     /// Back, the bot's picture and name (they open the agent sheet), the phone and the ••• menu. Under the name: a
     /// chip when the computer isn't Live, or "using the computer" while the agent has the screen.
     private var topBar: some View {
-        HStack(spacing: 8) {
-            TopGlassButton("Back", systemImage: "chevron.left") { dismiss() }
+        // The name sits in the middle of the bar; the narrow layout (small phones, long names) gives the buttons room first.
+        ViewThatFits(in: .horizontal) {
+            ZStack {
+                HStack(spacing: 8) { backButton; Spacer(minLength: 0); callButton; menuButton }
+                titleButton.padding(.horizontal, 108)
+            }
+            HStack(spacing: 8) { backButton; titleButton.frame(maxWidth: .infinity); callButton; menuButton }
+        }
+        .padding(.horizontal, KithSpacing.gutter)
+        .padding(.top, 4)
+    }
+
+    private var backButton: some View { TopGlassButton("Back", systemImage: "chevron.left") { dismiss() } }
+
+    private var callButton: some View {
+        TopGlassButton("Call", systemImage: "phone.fill", action: startCall)
+            .disabled(callBlock != nil || calling)
+            .opacity(callBlock != nil ? 0.4 : 1)
+            .accessibilityHint(callBlock ?? "")
+            .help(callBlock ?? "Call \(bot?.name ?? "")")
+    }
+
+    private var menuButton: some View {
+        TopGlassMenu("\(bot?.name ?? "Conversation") actions", systemImage: "ellipsis") { menuContent }
+    }
+
+    /// The picture and name open the agent sheet; the status chip sits under them.
+    private var titleButton: some View {
+        VStack(spacing: 2) {
             Button(action: openDetails) {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     if let bot {
                         if bot.isGroup {
                             GroupAvatar(members: model.members(of: bot), size: KithSize.botAvatarTopBar)
@@ -442,18 +474,8 @@ extension ThreadView {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(bot?.name ?? "Conversation"), details")
-            .layoutPriority(1)
             statusLine
-            Spacer(minLength: 4)
-            TopGlassButton("Call", systemImage: "phone.fill", action: startCall)
-                .disabled(callBlock != nil || calling)
-                .opacity(callBlock != nil ? 0.4 : 1)
-                .accessibilityHint(callBlock ?? "")
-                .help(callBlock ?? "Call \(bot?.name ?? "")")
-            TopGlassMenu("\(bot?.name ?? "Conversation") actions", systemImage: "ellipsis") { menuContent }
         }
-        .padding(.horizontal, KithSpacing.gutter)
-        .padding(.top, 4)
     }
 
     /// Whether this bot is operating the computer's screen right now.
