@@ -424,16 +424,25 @@ pub async fn set_call_model(agent: &str, model: &str) -> Result<InfoRun> {
     Ok(refill(agent, true).await)
 }
 
-/// Runs kith for `agent`. A caller that finds a run in flight waits for it and takes its answer, `force` or not
-/// (a refresh asked for while one is running would only repeat it); otherwise a still-fresh answer is reused
-/// unless `force`.
+/// Runs kith for `agent`. A caller that finds a run in flight waits for it and takes its answer (a refresh asked
+/// for while one is running would only repeat it), except `force`, which runs again after it: that run may have
+/// read before the write being read back. Otherwise a still-fresh answer is reused unless `force`.
 async fn refill(agent: &str, force: bool) -> InfoRun {
+    refill_with(agent, force, || run_info(agent)).await
+}
+
+async fn refill_with<F, Fut>(agent: &str, force: bool, read: F) -> InfoRun
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<Value>>,
+{
     let slot = slot(agent);
     let _turn = if let Ok(turn) = slot.gate.try_lock() {
         turn
     } else {
         let turn = slot.gate.lock().await;
-        if let Some(last) = slot.last.locked().clone() {
+        // A forced refresh follows a write (a mode change); the run we waited for may have read before it.
+        if !force && let Some(last) = slot.last.locked().clone() {
             return last;
         }
         turn
@@ -444,7 +453,7 @@ async fn refill(agent: &str, force: bool) -> InfoRun {
     {
         return last;
     }
-    let info = run_info(agent).await.map_err(|e| format!("{e:#}"));
+    let info = read().await.map_err(|e| format!("{e:#}"));
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
@@ -793,6 +802,30 @@ mod tests {
         let home = Project { home: Some(here.clone()), paths: vec![], ..project.clone() };
         assert_eq!(home.folder(), Some(here));
         assert_eq!(Project { home: None, paths: vec!["/nowhere/a".into()], ..project }.folder(), None);
+    }
+
+    #[tokio::test]
+    async fn a_forced_refill_reads_again_after_the_run_it_waited_for() {
+        let mode = std::sync::Arc::new(std::sync::Mutex::new("ask".to_owned()));
+        let read_mode = |mode: std::sync::Arc<std::sync::Mutex<String>>, pause: u64| async move {
+            let seen = mode.lock().unwrap().clone();
+            tokio::time::sleep(Duration::from_millis(pause)).await;
+            Ok(json!({"permission": seen}))
+        };
+        // A refresh reads "ask" and is still running when the mode changes.
+        let slow = tokio::spawn(refill_with("refill-race", false, {
+            let mode = mode.clone();
+            move || read_mode(mode, 200)
+        }));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        *mode.lock().unwrap() = "auto".into();
+        let got = refill_with("refill-race", true, {
+            let mode = mode.clone();
+            move || read_mode(mode, 0)
+        })
+        .await;
+        assert_eq!(got.info.unwrap()["permission"], "auto", "not the value read before the change");
+        drop(slow.await);
     }
 
     #[test]

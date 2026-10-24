@@ -11,6 +11,8 @@ mod botguests_props;
 mod bots;
 mod calls;
 pub mod devices;
+#[cfg(test)]
+mod error_tests;
 mod events;
 mod files;
 mod folders;
@@ -91,8 +93,64 @@ fn actor_arg<'a>(b: &'a Value, bot: &'a str) -> &'a str {
     b["actor"].as_str().filter(|a| crate::agent::bot::bot_of(a) == bot).unwrap_or(bot)
 }
 
-/// Runs one API method for `caller` (permissions per spec §6.6).
-pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, mut b: Value) -> Result<Value> {
+/// What a guest sees instead of an internal error: the real chain (paths, command lines, kith-auth's stderr) goes to
+/// the host log under the same `id`.
+#[derive(Debug)]
+struct Hidden(String);
+
+impl std::fmt::Display for Hidden {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Something went wrong on the host. (ref {})", self.0)
+    }
+}
+
+impl std::error::Error for Hidden {}
+
+/// A refusal written for the person who reads it (a call that is gone or already settled): guests see its text (400).
+#[derive(Debug)]
+pub struct UserError(pub String);
+
+impl std::fmt::Display for UserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UserError {}
+
+/// Errors written for the person who sees them keep their text; everything else is internal.
+fn user_facing(e: &anyhow::Error) -> bool {
+    e.is::<UnknownMethod>()
+        || e.is::<UserError>()
+        || e.is::<Forbidden>()
+        || e.is::<NotAllowed>()
+        || e.is::<crate::remote::cloud::Conflict>()
+        || e.is::<crate::terminal::HeldByWriter>()
+        || e.is::<crate::terminal::TerminalBusy>()
+        || e.is::<botguests::BotError>()
+        || e.is::<crate::agent::hq::Refused>()
+        || e.is::<crate::agent::backups::NoAccount>()
+}
+
+/// Owner calls keep the full error text; anyone else gets only what `user_facing` allows.
+fn hide_internals(owner: bool, method: &str, r: Result<Value>) -> Result<Value> {
+    match r {
+        Err(e) if !owner && !user_facing(&e) => {
+            let id = uuid::Uuid::new_v4().simple().to_string()[..8].to_owned();
+            tracing::warn!(%id, method, "call failed for a guest: {e:#}");
+            Err(Hidden(id).into())
+        }
+        other => other,
+    }
+}
+
+/// Runs one API method for `caller` (permissions per spec §6.6); a guest's internal errors are replaced (`Hidden`).
+pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
+    let owner = matches!(devices::principal(&hub.store, caller), Principal::Owner);
+    hide_internals(owner, method, run_dispatch(hub, caller, method, b).await)
+}
+
+async fn run_dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, mut b: Value) -> Result<Value> {
     let permitted = devices::permit(caller, method);
     match devices::principal(&hub.store, caller) {
         Principal::Owner => {
