@@ -13,6 +13,15 @@ use std::time::{Duration, Instant};
 /// How often an idle bot looks for something to give back.
 const CHECK_EVERY: Duration = Duration::from_secs(60);
 
+/// How long an actor of a thread or group lane may sit with nothing to do before it ends (the chat's own never
+/// does). The next command for the place starts it again, loading its session like any other restart.
+pub(super) const RETIRE_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// [`RETIRE_AFTER`], unless the store's `host.retire_after_ms` says otherwise (tests use a short one).
+pub(super) fn retire_after(store: &crate::store::Store) -> Duration {
+    store.kv_get("host.retire_after_ms").and_then(|v| v.parse().ok()).map_or(RETIRE_AFTER, Duration::from_millis)
+}
+
 #[derive(Debug, PartialEq)]
 enum Release {
     Nothing,
@@ -100,6 +109,33 @@ impl Actor {
             conn.acp.kill().await;
         }
         true
+    }
+
+    /// Runs on the actor's tick. A non-main actor with nothing to do (no turn, queue, question, parked prompt, file
+    /// share, gate place or agent process, so nothing that would be lost) for [`RETIRE_AFTER`] asks the hub to
+    /// forget it. Whether it ended: the loop then stops, and the exit path closes what is left.
+    pub(super) fn retire_if_unused(&mut self) -> bool {
+        let unused = self.at_rest()
+            && self.conn.is_none()
+            && self.deferred.is_empty()
+            && self.compacting.is_none()
+            && self.parked_prompts.is_empty()
+            && self.files.is_idle()
+            && self.admission.is_none()
+            && self.permit.is_none();
+        if self.is_main() || !unused {
+            self.busy_at = Instant::now();
+            return false;
+        }
+        if self.busy_at.elapsed() < self.retire_after {
+            return false;
+        }
+        let (Some(own), Some(rx)) = (self.own_tx.upgrade(), self.cmd_rx.as_mut()) else { return false };
+        let retired = self.hub.retire_actor(&self.cfg.id, &self.home, &own, rx);
+        if retired {
+            tracing::info!(bot = %self.cfg.id, place = %self.rt, "retiring an unused actor");
+        }
+        retired
     }
 
     fn at_rest(&self) -> bool {
