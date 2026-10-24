@@ -3,6 +3,7 @@
 // or kept, so a changed store changes the Board. The sidebar only lays these values out.
 import type { GuestPrompt } from './mac-role.ts'
 import { isWorkingIn, type Bot, type Entry } from './models.ts'
+import { isBusyInTerminal } from './thread-writer.ts'
 import { isTask, taskLastAt, taskStatus, taskTitle } from './tasks.ts'
 
 /** A room on a computer: what a row opens. */
@@ -210,13 +211,13 @@ export function buildBoard(computers: BoardComputer[], now = Date.now()): BoardM
       let taskIsWorking = false
       for (const task of tasks) {
         const lastAt = taskLastAt(task)
-        const atWork = isWorkingIn(bot, bot.id, task.id)
+        const atWork = isWorkingIn(bot, bot.id, task.id) || isBusyInTerminal(task.data.thread)
         if (!atWork && lastAt < dayStart) continue
         const replies = entries.filter((e) => e.threadId === task.id)
         const status = taskStatus(bot, task, replies)
         if (status === 'working') {
           taskIsWorking = true
-          working.push({ id: `${computer.id}/${task.id}`, target, hostName: computer.hostName, bot, title: taskTitle(task), detail: activity(bot), at: lastAt, trouble })
+          working.push({ id: `${computer.id}/${task.id}`, target, hostName: computer.hostName, bot, title: taskTitle(task), detail: isBusyInTerminal(task.data.thread) ? 'Working in the terminal' : activity(bot), at: lastAt, trouble })
         } else if (status === 'needsYou') {
           // Its question is in Needs you.
           taskIsWorking = true

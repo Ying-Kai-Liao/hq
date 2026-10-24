@@ -71,3 +71,26 @@ private func bot(_ json: String) throws -> Bot {
     #expect(try !bot(#"{"id":"b","tasks":false}"#).usesTasks)
     #expect(try !bot(#"{"id":"g","kind":"group"}"#).usesTasks)
 }
+
+@Test func aTaskStillTalkingAfterTheChatsLastMessageMovesToTheEnd() throws {
+    func task(_ id: String, at: Int64, lastAt: Int64) throws -> Entry {
+        var e = entry(id, "user") { $0.task = true }
+        e.createdAt = at
+        e.data.thread = try JSONDecoder().decode(ThreadSummary.self, from: Data(#"{"count":3,"lastAt":\#(lastAt),"authors":[]}"#.utf8))
+        return e
+    }
+    var note = entry("n", "notice") { $0.text = "Voice chat" }
+    note.createdAt = 300
+    let old = try task("old", at: 10, lastAt: 500)
+    let quiet = try task("quiet", at: 20, lastAt: 25)
+    let placed = Tasks.place([old, quiet, note].map(BotExchangeGroup.Item.entry))
+    #expect(placed.slots.map(\.id) == ["quiet", "n", "old"])
+    #expect(placed.moved == ["old"])
+    // A chat whose only row is the task root, or one with later messages, keeps its order.
+    #expect(Tasks.place([.entry(old)]).slots.map(\.id) == ["old"])
+    var later = entry("m", "user") { $0.text = "hi" }
+    later.createdAt = 900
+    let settled = Tasks.place([old, later].map(BotExchangeGroup.Item.entry))
+    #expect(settled.slots.map(\.id) == ["old", "m"])
+    #expect(settled.moved.isEmpty)
+}

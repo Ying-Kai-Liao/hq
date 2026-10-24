@@ -94,6 +94,15 @@ private func board(_ computers: BoardComputer...) -> BoardModel { BoardModel(com
     #expect(model.needsYou.count == 1)
 }
 
+@Test func aSessionWorkingInATerminalIsOnTheBoardThoughNoHostLaneRunsIt() throws {
+    let json = #"{"count":4,"lastAt":1,"authors":[],"liveWriter":"terminal","liveBusy":true}"#
+    let live = task("t1", chat: "x", text: "Review the diff", at: nowMs - 3 * 86_400_000)
+    var busy = live
+    busy.data.thread = try JSONDecoder().decode(ThreadSummary.self, from: Data(json.utf8))
+    let model = board(computer(bots: [try bot("x")], entries: ["x": [busy]]))
+    #expect(model.working.map(\.title) == ["Review the diff"])
+}
+
 @Test func aBotAtWorkWithoutATaskIsOneRow() throws {
     let model = board(computer(bots: [try bot("x", name: "docs", working: [], activity: "writing")], entries: [:]))
     // Not working in its main chat (no lane): nothing. With a main-chat lane: one row by bot name.

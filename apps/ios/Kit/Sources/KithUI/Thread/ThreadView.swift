@@ -225,9 +225,13 @@ struct ChatItem: Identifiable {
         var out: [ChatItem] = []
         var lastDate: Date?
         var lastAuthor: String?
-        let slots = groupingExchanges ? BotExchangeGroup.collapse(entries) : entries.filter(\.isChat).map(BotExchangeGroup.Item.entry)
+        var slots = groupingExchanges ? BotExchangeGroup.collapse(entries) : entries.filter(\.isChat).map(BotExchangeGroup.Item.entry)
+        // A task still talking after the chat's last message sits at the end, not at its old root.
+        var moved: Set<String> = []
+        if groupingExchanges { (slots, moved) = Tasks.place(slots) }
         for slot in slots {
-            let date = slot.date
+            var date = slot.date
+            if case .entry(let e) = slot, moved.contains(e.id) { date = Date(timeIntervalSince1970: Double(Tasks.lastAt(e)) / 1000) }
             // Bot-originated messages carry an empty nonce. Their entry IDs
             // distinguish them; only real nonces identify optimistic echoes.
             let id = if case .entry(let e) = slot, e.kind == "user", let nonce = e.data.clientNonce, !nonce.isEmpty { "user-\(nonce)" } else { slot.id }
