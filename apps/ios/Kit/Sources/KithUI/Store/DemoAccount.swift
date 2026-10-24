@@ -154,6 +154,8 @@ extension AccountStore {
             entry("bg-a", 3, "agent", thread: root, ago: 3, data: ["text": "You have two things today: dentist at 3 and dinner at 7.", "final": true]),
         ].compactMap { $0 }
         store.entries[id] = list
+        // A real host would say there is nothing earlier; without this the chat shows its "load earlier" spinner for good.
+        store.historyComplete.insert(id)
     }
 
     /// Ada's question waits on every screen, so her row badge shows; the `board` demo adds the rest of the Board.
