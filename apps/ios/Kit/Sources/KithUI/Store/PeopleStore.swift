@@ -112,6 +112,10 @@ public final class PeopleStore {
         await write { try await $0.setPersonAccess(personId: personId, agents: agents, projects: projects) }
     }
 
+    func writeAccess(personId: String, agents: [String: InviteRole]) async -> Bool {
+        await write { try await $0.setPersonAccess(personId: personId, agents: agents, projects: nil) }
+    }
+
     /// Ends their access. Their chats and memory stay on the computer.
     public func remove(_ personId: String) async -> Bool {
         await write { try await $0.revokePerson(personId) }
@@ -131,5 +135,34 @@ public final class PeopleStore {
             note(error)
             return false
         }
+    }
+}
+
+/// What sharing one agent means: who has it, which invites offer it, and the bodies that touch only it.
+public enum AgentShare {
+    /// People who have the agent, with the role they have for it.
+    public static func sharedWith(_ agent: String, in people: [HostPerson]) -> [(person: HostPerson, role: InviteRole)] {
+        people.compactMap { person in person.agents[agent].map { (person, $0) } }
+    }
+
+    /// Invites still waiting that offer the agent.
+    public static func openInvites(for agent: String, in invites: [HostInvite], at now: Date = .now) -> [HostInvite] {
+        invites.filter { $0.isOpen(at: now) && $0.agents[agent] != nil }
+    }
+
+    /// The invite body: this agent only, never the person's other agents.
+    public static func inviteAgents(_ agent: String, role: InviteRole) -> [String: InviteRole] { [agent: role] }
+
+    /// The `setPersonAccess` agents for removing the agent: everything else they have, unchanged.
+    public static func agentsAfterRemoving(_ agent: String, from person: HostPerson) -> [String: InviteRole] {
+        person.agents.filter { $0.key != agent }
+    }
+}
+
+extension PeopleStore {
+    /// Takes this one agent away from the person. They stay listed, with whatever else they have; rooms are kept
+    /// (`projects` omitted).
+    public func removeAgent(_ agent: String, from person: HostPerson) async -> Bool {
+        await writeAccess(personId: person.personId, agents: AgentShare.agentsAfterRemoving(agent, from: person))
     }
 }
