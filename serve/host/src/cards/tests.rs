@@ -188,14 +188,14 @@ async fn a_no_and_an_expiry_and_a_withdrawal_never_give_access() {
 async fn secrets_and_logins_are_denied_with_no_card() {
     let r = Rig::new().await;
     r.owner_bot("house");
-    let secret = resource::roots()[0].join("secrets/env");
+    let secret = resource::roots().kith[0].join("secrets/env");
     let d = request_permission(&r.hub, &owner_run("s1"), "Read", &json!({"file_path": secret})).await;
     assert!(!d.allow && d.message.contains("secret or a login"), "{d:?}");
     let d = request_permission(
         &r.hub,
         &owner_run("s1"),
         "Edit",
-        &json!({"file_path": resource::roots()[0].join("auth.json")}),
+        &json!({"file_path": resource::roots().kith[0].join("auth.json")}),
     )
     .await;
     assert!(!d.allow);
@@ -338,4 +338,89 @@ async fn settings_default_to_a_minute_and_a_half_and_a_day_and_the_resume_is_off
     r.hub.store.kv_set(RESUME_KEY, "on").unwrap();
     let s = settings(&r.hub.store);
     assert_eq!((s.window, s.expiry_ms, s.resume), (Duration::from_secs(30), 48 * 3_600_000, true));
+}
+
+#[tokio::test]
+async fn a_yes_after_the_window_but_before_the_process_exits_is_not_lost() {
+    let r = Rig::new().await;
+    r.owner_bot("house");
+    window(&r.hub, 1);
+    assert!(!request_permission(&r.hub, &owner_run("s1"), "Bash", &ls()).await.allow);
+    // The run's wait ended but its process is still up: nobody is listening for the yes.
+    let card = shown(&r.hub).await;
+    assert_eq!(
+        answer(&r.hub, card.entry_id.as_ref().unwrap(), Some("allow"), "owner").unwrap(),
+        Outcome::Recorded { forward: false }
+    );
+    let kept = r.hub.store.card(&card.id).unwrap();
+    assert!(
+        kept.state == CardState::Approved && kept.answered_parked,
+        "recorded as an answer to a parked card: {kept:?}"
+    );
+    assert_eq!(r.hub.store.cards_awaiting_resume().len(), 1);
+    // And the session's next ask uses it, once.
+    assert!(request_permission(&r.hub, &owner_run("s1"), "Bash", &ls()).await.allow);
+}
+
+#[tokio::test]
+async fn a_parallel_ask_cannot_take_the_grant_a_live_asker_is_given() {
+    let r = Rig::new().await;
+    r.owner_bot("house");
+    window(&r.hub, 20);
+    let call = ask(&r.hub, owner_run("s1"), "Bash", ls());
+    let card = shown(&r.hub).await;
+    answer(&r.hub, card.entry_id.as_ref().unwrap(), Some("allow"), "owner").unwrap();
+    // The yes is spent at the answer: a parallel ask of the same session opens a card of its own, not a grant.
+    assert!(matches!(r.hub.store.card(&card.id).unwrap().state, CardState::Used));
+    let again = NewCard {
+        session: card.session.clone(),
+        source: "run",
+        bot_id: None,
+        run_id: None,
+        person: String::new(),
+        agent: "house".into(),
+        approver: "owner",
+        tool: card.tool.clone(),
+        input: card.input.clone(),
+        resource: card.resource.clone(),
+        shown: card.shown.clone(),
+        deadline: now_ms() + 60_000,
+    };
+    assert!(matches!(r.hub.store.card_open(&again, now_ms()).unwrap(), Opened::New(_)));
+    assert!(call.await.unwrap().allow);
+}
+
+#[tokio::test]
+async fn a_turn_that_ends_with_a_question_open_parks_it() {
+    let r = Rig::new().await;
+    let chat = r.owner_bot("house");
+    let entry = r
+        .hub
+        .add_entry(
+            &Lane::main(&chat),
+            EntryKind::Permission,
+            1,
+            &json!({"status": "pending", "options": [{"optionId": "allow", "kind": "allow_once"}]}),
+        )
+        .unwrap();
+    assert!(!park_entry(&r.hub, &entry.id), "an old entry has no card");
+    let new = NewCard {
+        session: "acp:x:".into(),
+        source: "acp",
+        bot_id: Some(chat.clone()),
+        run_id: None,
+        person: String::new(),
+        agent: "house".into(),
+        approver: "owner",
+        tool: "Bash".into(),
+        input: "{}".into(),
+        resource: "Bash:y".into(),
+        shown: "y".into(),
+        deadline: now_ms() + 60_000,
+    };
+    let Opened::New(card) = r.hub.store.card_open(&new, now_ms()).unwrap() else { panic!() };
+    r.hub.store.card_live(&card.id, Some(&entry.id), None).unwrap();
+    assert!(park_entry(&r.hub, &entry.id));
+    assert_eq!(r.hub.store.card(&card.id).unwrap().state, CardState::Parked);
+    assert_eq!(r.hub.store.entry(&entry.id).unwrap().data["status"], "pending", "still answerable");
 }

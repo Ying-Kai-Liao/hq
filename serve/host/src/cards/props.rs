@@ -16,7 +16,8 @@ const PEOPLE: [&str; 2] = ["sam", ""];
 #[derive(Debug, Clone)]
 enum Op {
     Ask { session: usize, resource: usize, person: usize },
-    Answer { pick: usize, allow: bool, late: bool },
+    Answer { pick: usize, allow: bool, late: bool, spend: bool },
+    Undeliver { pick: usize },
     ParkRun,
     Withdraw { person: usize },
     Sweep { far: bool },
@@ -26,7 +27,9 @@ enum Op {
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
         4 => (0..2usize, 0..2usize, 0..2usize).prop_map(|(session, resource, person)| Op::Ask { session, resource, person }),
-        4 => (0..16usize, any::<bool>(), any::<bool>()).prop_map(|(pick, allow, late)| Op::Answer { pick, allow, late }),
+        4 => (0..16usize, any::<bool>(), any::<bool>(), any::<bool>())
+            .prop_map(|(pick, allow, late, spend)| Op::Answer { pick, allow, late, spend }),
+        1 => (0..16usize).prop_map(|pick| Op::Undeliver { pick }),
         1 => Just(Op::ParkRun),
         1 => (0..2usize).prop_map(|person| Op::Withdraw { person }),
         1 => any::<bool>().prop_map(|far| Op::Sweep { far }),
@@ -67,6 +70,8 @@ fn legal(from: CardState, to: CardState) -> bool {
                 | (Live, Parked | Approved | Denied | Expired | Withdrawn)
                 | (Parked, Live | Approved | Denied | Expired | Withdrawn)
                 | (Approved, Used | Expired | Withdrawn)
+                | (Pending | Live, Used)
+                | (Used, Approved)
         )
 }
 
@@ -110,18 +115,18 @@ impl World {
                     }
                 }
             }
-            Op::Answer { pick, allow, late } => {
+            Op::Answer { pick, allow, late, spend } => {
                 let Some(id) = self.ids.get(pick % self.ids.len().max(1)).cloned() else { return };
                 let before = self.s.card(&id).unwrap();
                 let at = if *late { 5_000 } else { self.now };
-                let got = self.s.card_answer(&id, *allow, "x", "kai", at).unwrap();
+                let got = self.s.card_answer(&id, *allow, "x", "kai", at, *spend).unwrap();
                 match got {
                     Answered::Applied { card, .. } => {
                         assert!(
                             before.state.open() && at <= before.deadline,
                             "A1: only an open card before its deadline answers"
                         );
-                        if card.state == CardState::Approved {
+                        if matches!(card.state, CardState::Approved | CardState::Used) {
                             *self.yes.entry((card.session.clone(), card.resource.clone())).or_default() += 1;
                         }
                     }
@@ -132,6 +137,11 @@ impl World {
                             "A1"
                         );
                     }
+                }
+            }
+            Op::Undeliver { pick } => {
+                if let Some(id) = self.ids.get(pick % self.ids.len().max(1)) {
+                    self.s.card_undelivered(id).unwrap();
                 }
             }
             Op::ParkRun => {

@@ -213,7 +213,10 @@ impl Store {
         )?
         .pop();
         if let Some(mut g) = grant {
-            tx.execute("UPDATE cards SET state = 'used' WHERE id = ?1 AND state = 'approved'", [&g.id])?;
+            tx.execute(
+                "UPDATE cards SET state = 'used', used_by_ask = 1 WHERE id = ?1 AND state = 'approved'",
+                [&g.id],
+            )?;
             tx.commit()?;
             g.state = CardState::Used;
             return Ok(Opened::Granted(g));
@@ -281,8 +284,18 @@ impl Store {
     }
 
     /// An answer. Only an open card before its deadline takes one (A1); the first answer wins, so a second device
-    /// or a late retry finds it closed. An allow records the once grant in the same step.
-    pub fn card_answer(&self, id: &str, allow: bool, answer: &str, by: &str, now: i64) -> Result<Answered> {
+    /// or a late retry finds it closed. An allow records the once grant in the same step. With `spend`, a yes to a
+    /// card whose asker is up is spent in that same step (`used`): the caller is about to hand it to that asker, and
+    /// a parallel ask can't pick the grant up in between (A4, C3). If nobody hears it, [`Self::card_undelivered`].
+    pub fn card_answer(
+        &self,
+        id: &str,
+        allow: bool,
+        answer: &str,
+        by: &str,
+        now: i64,
+        spend: bool,
+    ) -> Result<Answered> {
         let c = self.db.locked();
         let tx = c.unchecked_transaction()?;
         let Some(card) = get(&tx, id)? else { return Ok(Answered::Nothing(None)) };
@@ -302,7 +315,13 @@ impl Store {
               WHERE id = ?1",
             params![
                 id,
-                if allow { "approved" } else { "denied" },
+                if !allow {
+                    "denied"
+                } else if spend && was_live {
+                    "used"
+                } else {
+                    "approved"
+                },
                 answer,
                 i64::from(allow),
                 by,
@@ -314,6 +333,35 @@ impl Store {
         let card = Box::new(get(&tx, id)?.ok_or_else(|| anyhow::anyhow!("card vanished"))?);
         tx.commit()?;
         Ok(Answered::Applied { card, was_live })
+    }
+
+    /// A yes spent for a live asker that did not hear it (it was gone, or its wait had ended): the grant is back, as an
+    /// answer to a parked card, so the next ask of the session (or the resume) finds it.
+    pub fn card_undelivered(&self, id: &str) -> Result<bool> {
+        Ok(self.db.locked().execute(
+            "UPDATE cards SET state = 'approved', answered_parked = 1 WHERE id = ?1 AND state = 'used' AND allowed = 1 AND used_by_ask = 0",
+            [id],
+        )? == 1)
+    }
+
+    /// One card's asker is gone with it open: it parks (C6).
+    pub fn card_park(&self, id: &str) -> Result<bool> {
+        Ok(self
+            .db
+            .locked()
+            .execute("UPDATE cards SET state = 'parked' WHERE id = ?1 AND state IN ('pending','live')", [id])?
+            == 1)
+    }
+
+    /// The agents `person` has open cards or unused grants for.
+    pub fn cards_agents(&self, person: &str) -> Vec<String> {
+        let c = self.db.locked();
+        super::logged(
+            "card agents",
+            c.prepare("SELECT DISTINCT agent FROM cards WHERE person = ?1 AND state IN ('pending','live','parked','approved')")
+                .and_then(|mut st| st.query_map([person], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()),
+        )
+        .unwrap_or_default()
     }
 
     /// The grant of an approved card was delivered through the live channel, or taken by the next ask: one use (A4).
@@ -335,7 +383,7 @@ impl Store {
         move_where(&c, "run_id = ?1 AND state IN ('pending','live')", params![run_id], CardState::Parked)
     }
 
-    /// A bot's ACP process is gone (or its turn ended with the question open): its live cards park.
+    /// A bot's ACP process is gone: its live cards park.
     pub fn cards_park_bot(&self, bot_id: &str) -> Result<Vec<Card>> {
         let c = self.db.locked();
         move_where(
@@ -453,18 +501,19 @@ mod tests {
         let s = temp_store();
         let a = new(&s, "s1", "Bash:ls");
         s.card_live(&a.id, Some("e1"), None).unwrap();
-        let Answered::Applied { card, was_live } = s.card_answer(&a.id, true, "allow", "kai", 200).unwrap() else {
+        let Answered::Applied { card, was_live } = s.card_answer(&a.id, true, "allow", "kai", 200, false).unwrap()
+        else {
             panic!("applied")
         };
         assert!(was_live && card.state == CardState::Approved && card.granted_at == Some(200) && !card.answered_parked);
         // A second device, a late retry, a flip to no: nothing (A1).
         for allow in [true, false] {
             assert_eq!(
-                s.card_answer(&a.id, allow, "x", "kai", 201).unwrap(),
+                s.card_answer(&a.id, allow, "x", "kai", 201, false).unwrap(),
                 Answered::Nothing(Some(CardState::Approved))
             );
         }
-        assert_eq!(s.card_answer("nope", true, "x", "kai", 201).unwrap(), Answered::Nothing(None));
+        assert_eq!(s.card_answer("nope", true, "x", "kai", 201, false).unwrap(), Answered::Nothing(None));
         assert_eq!(s.card(&a.id).unwrap().answered_by.as_deref(), Some("kai"));
     }
 
@@ -474,16 +523,16 @@ mod tests {
         let late = new(&s, "s1", "Bash:a");
         // Past the deadline the answer finds it expired and changes nothing else.
         assert_eq!(
-            s.card_answer(&late.id, true, "allow", "kai", 10_001).unwrap(),
+            s.card_answer(&late.id, true, "allow", "kai", 10_001, false).unwrap(),
             Answered::Nothing(Some(CardState::Expired))
         );
         assert_eq!(s.card(&late.id).unwrap().state, CardState::Expired);
         let denied = new(&s, "s1", "Bash:b");
-        s.card_answer(&denied.id, false, "deny", "kai", 200).unwrap();
+        s.card_answer(&denied.id, false, "deny", "kai", 200, false).unwrap();
         let withdrawn = new(&s, "s1", "Bash:c");
         assert!(s.card_withdraw(&withdrawn.id).unwrap() && !s.card_withdraw(&withdrawn.id).unwrap());
         for id in [&late.id, &denied.id, &withdrawn.id] {
-            assert!(matches!(s.card_answer(id, true, "allow", "kai", 300).unwrap(), Answered::Nothing(_)));
+            assert!(matches!(s.card_answer(id, true, "allow", "kai", 300, false).unwrap(), Answered::Nothing(_)));
             assert!(!s.card_use(id).unwrap(), "no grant to use");
         }
         for r in ["Bash:a", "Bash:b", "Bash:c"] {
@@ -499,7 +548,8 @@ mod tests {
         let s = temp_store();
         let a = new(&s, "s1", "Bash:ls");
         s.cards_park_run("r1").unwrap();
-        let Answered::Applied { card, was_live } = s.card_answer(&a.id, true, "allow", "kai", 200).unwrap() else {
+        let Answered::Applied { card, was_live } = s.card_answer(&a.id, true, "allow", "kai", 200, false).unwrap()
+        else {
             panic!("applied")
         };
         assert!(!was_live && card.answered_parked, "answered while the asker was gone: the grant waits");
@@ -518,7 +568,7 @@ mod tests {
         let parked = new(&s, "s1", "Bash:a");
         s.cards_park_run("r1").unwrap();
         let granted = new(&s, "s1", "Bash:b");
-        s.card_answer(&granted.id, true, "allow", "kai", 200).unwrap();
+        s.card_answer(&granted.id, true, "allow", "kai", 200, false).unwrap();
         let fresh = s.card_open(&NewCard { deadline: 99_999, ..ask("s1", "Bash:c") }, 300).unwrap();
         let Opened::New(fresh) = fresh else { panic!() };
         let swept: Vec<_> = s.cards_sweep(10_001).unwrap().into_iter().map(|c| c.id).collect();
@@ -536,9 +586,9 @@ mod tests {
         let s = temp_store();
         let a = new(&s, "s1", "Bash:a");
         let b = new(&s, "s1", "Bash:b");
-        s.card_answer(&b.id, true, "allow", "kai", 200).unwrap();
+        s.card_answer(&b.id, true, "allow", "kai", 200, false).unwrap();
         let used = new(&s, "s1", "Bash:c");
-        s.card_answer(&used.id, true, "allow", "kai", 200).unwrap();
+        s.card_answer(&used.id, true, "allow", "kai", 200, false).unwrap();
         s.card_use(&used.id).unwrap();
         let other = s.card_open(&NewCard { person: "eve".into(), ..ask("s9", "Bash:a") }, 100).unwrap();
         let Opened::New(other) = other else { panic!() };
@@ -547,7 +597,7 @@ mod tests {
         assert_eq!(s.card(&a.id).unwrap().state, CardState::Withdrawn);
         assert_eq!(s.card(&used.id).unwrap().state, CardState::Used, "history stays");
         assert_eq!(s.card(&other.id).unwrap().state, CardState::Pending, "someone else's is untouched");
-        assert!(matches!(s.card_answer(&a.id, true, "allow", "kai", 300).unwrap(), Answered::Nothing(_)));
+        assert!(matches!(s.card_answer(&a.id, true, "allow", "kai", 300, false).unwrap(), Answered::Nothing(_)));
         assert!(s.cards_withdraw_person("", None).is_err(), "never the owner's");
         // One agent only.
         let c = new(&s, "s3", "Bash:z");
@@ -562,7 +612,7 @@ mod tests {
         s.card_live(&live.id, Some("e1"), None).unwrap();
         let pending = new(&s, "s1", "Bash:b");
         let approved = new(&s, "s1", "Bash:c");
-        s.card_answer(&approved.id, true, "allow", "kai", 200).unwrap();
+        s.card_answer(&approved.id, true, "allow", "kai", 200, false).unwrap();
         let parked: Vec<_> = s.cards_restart(500).unwrap().into_iter().map(|c| c.id).collect();
         assert!(parked.contains(&live.id) && parked.contains(&pending.id) && !parked.contains(&approved.id));
         assert_eq!(s.card(&live.id).unwrap().state, CardState::Parked);
@@ -574,9 +624,43 @@ mod tests {
         s.cards_restart(600).unwrap();
         assert_eq!(s.card(&approved.id).unwrap().granted_at, Some(600));
         let denied = new(&s, "s1", "Bash:d");
-        s.card_answer(&denied.id, false, "deny", "kai", 200).unwrap();
+        s.card_answer(&denied.id, false, "deny", "kai", 200, false).unwrap();
         s.cards_restart(700).unwrap();
         assert_eq!(s.card(&denied.id).unwrap().granted_at, None);
+    }
+
+    #[test]
+    fn a_spent_yes_cannot_be_taken_twice_and_goes_back_if_nobody_heard_it() {
+        let s = temp_store();
+        let a = new(&s, "s1", "Bash:ls");
+        s.card_live(&a.id, Some("e"), None).unwrap();
+        let Answered::Applied { card, was_live } = s.card_answer(&a.id, true, "allow", "kai", 200, true).unwrap()
+        else {
+            panic!()
+        };
+        assert!(was_live && card.state == CardState::Used, "spent in the answer itself");
+        assert!(
+            matches!(s.card_open(&ask("s1", "Bash:ls"), 201).unwrap(), Opened::New(_)),
+            "a parallel ask finds no grant"
+        );
+        // Nobody heard it: the grant is back, as the answer to a parked card.
+        assert!(s.card_undelivered(&a.id).unwrap());
+        let back = s.card(&a.id).unwrap();
+        assert!(back.state == CardState::Approved && back.answered_parked);
+        // A grant taken by an ask is never given back.
+        let b = new(&s, "s2", "Bash:ls");
+        s.cards_park_run("r1").unwrap();
+        s.card_answer(&b.id, true, "allow", "kai", 202, false).unwrap();
+        assert!(matches!(s.card_open(&ask("s2", "Bash:ls"), 203).unwrap(), Opened::Granted(_)));
+        assert!(!s.card_undelivered(&b.id).unwrap());
+        // No spend for a parked card or a no.
+        let c = new(&s, "s3", "Bash:ls");
+        s.cards_park_run("r1").unwrap();
+        let Answered::Applied { card, .. } = s.card_answer(&c.id, true, "allow", "kai", 204, true).unwrap() else {
+            panic!()
+        };
+        assert_eq!(card.state, CardState::Approved);
+        assert_eq!(s.cards_agents("sam"), vec!["echo".to_owned()]);
     }
 
     #[test]

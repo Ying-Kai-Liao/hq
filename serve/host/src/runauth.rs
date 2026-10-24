@@ -155,18 +155,24 @@ impl TokenTable {
     }
 
     /// Drops API-issued tokens past their end or whose process is gone (`alive`); returns the run ids that lost one,
-    /// so their cards can park (C6). A run's own token ends with its [`RunGrant`] instead.
+    /// so their cards can park (C6). A run's own token ends with its [`RunGrant`] instead. `alive` may be slow (it
+    /// asks `ps`), so it runs on a snapshot of the pids with the table unlocked; call this off the async workers.
     pub fn reap(&self, alive: fn(u32) -> bool) -> Vec<String> {
         let now = Instant::now();
-        let mut gone = Vec::new();
-        self.entries.locked().retain(|_, e| {
-            let dead = e.expires.is_some_and(|t| t <= now || e.pid.is_some_and(|p| !alive(p)));
-            if dead {
-                gone.push(e.identity.run_id.clone());
-            }
-            !dead
-        });
-        gone
+        let snapshot: Vec<([u8; 32], String, Option<u32>, bool)> = self
+            .entries
+            .locked()
+            .iter()
+            .filter(|(_, e)| e.expires.is_some())
+            .map(|(k, e)| (*k, e.identity.run_id.clone(), e.pid, e.expires.is_some_and(|t| t <= now)))
+            .collect();
+        let dead: Vec<([u8; 32], String)> = snapshot
+            .into_iter()
+            .filter(|(_, _, pid, expired)| *expired || pid.is_some_and(|p| !alive(p)))
+            .map(|(k, run, _, _)| (k, run))
+            .collect();
+        let mut entries = self.entries.locked();
+        dead.into_iter().filter_map(|(k, run)| entries.remove(&k).map(|_| run)).collect()
     }
 
     #[cfg(test)]
@@ -262,7 +268,12 @@ pub fn table() -> &'static Arc<TokenTable> {
 
 /// A grant for a run of `person` (an invited person's or a bot guest's id) on `agent`, with the environment to give
 /// it. `None` when the socket isn't listening: such a run gets no token and no socket, and its recall reads nothing.
-pub fn grant_for(person: &str, agent: &str, room: Option<&str>) -> Option<(RunGrant, [(String, String); 2])> {
+pub fn grant_for(
+    person: &str,
+    agent: &str,
+    room: Option<&str>,
+    session: &str,
+) -> Option<(RunGrant, [(String, String); 2])> {
     let socket = SOCKET.get()?;
     let identity = RunIdentity {
         person: person.to_owned(),
@@ -270,7 +281,7 @@ pub fn grant_for(person: &str, agent: &str, room: Option<&str>) -> Option<(RunGr
         room: room.filter(|r| !r.is_empty()).map(str::to_owned),
         run_id: uuid::Uuid::new_v4().simple().to_string(),
         scope: TokenScope::Guest,
-        session: session_of(person, agent, room),
+        session: session_of(person, session),
     };
     match RunGrant::issue(table(), identity) {
         Ok(grant) => {
@@ -284,9 +295,11 @@ pub fn grant_for(person: &str, agent: &str, room: Option<&str>) -> Option<(RunGr
     }
 }
 
-/// The session a -p run's cards belong to: its room, else the person and agent.
-fn session_of(person: &str, agent: &str, room: Option<&str>) -> String {
-    format!("run:{}", room.filter(|r| !r.is_empty()).map_or_else(|| format!("{person}:{agent}"), str::to_owned))
+/// The session a guest -p run's cards belong to: the person and the conversation (thread or Claude session) it
+/// continues, so another thread of one chat can't use a once grant. The `run:g:` and `run:o:` prefixes (and `acp:`)
+/// can't overlap, whatever a person id or a session id looks like.
+fn session_of(person: &str, session: &str) -> String {
+    format!("run:g:{}:{person}:{session}", person.len())
 }
 
 /// The identity of an owner run of `agent` under `session` (cards only, see [`TokenScope::OwnerAsk`]).
@@ -297,24 +310,25 @@ pub fn ask_identity(agent: &str, session: &str) -> RunIdentity {
         room: None,
         run_id: uuid::Uuid::new_v4().simple().to_string(),
         scope: TokenScope::OwnerAsk,
-        session: format!("run:owner:{session}"),
+        session: format!("run:o:{session}"),
     }
 }
 
 /// For a run started from an environment list (channel runs): when it names a person, issues a grant and adds the
 /// token and socket to the list. The owner's list (no `KITH_PERSON`) gets an owner token (cards only) under its own
-/// names, keyed by `owner_session` (what the owner's run continues).
+/// names. `session` is the conversation the run continues (the work key of a channel thread): a card and a once
+/// grant belong to it.
 pub fn grant_for_env(
     env: &mut Vec<(std::ffi::OsString, std::ffi::OsString)>,
     agent: &str,
-    owner_session: &str,
+    session: &str,
 ) -> Option<RunGrant> {
     let get = |name: &str| env.iter().rev().find(|(k, _)| k == name).and_then(|(_, v)| v.to_str()).map(str::to_owned);
     let (grant, vars) = if let Some(person) = get("KITH_PERSON").filter(|p| !p.is_empty()) {
-        grant_for(&person, agent, get("KITH_ROOM").as_deref())?
+        grant_for(&person, agent, get("KITH_ROOM").as_deref(), session)?
     } else {
         let socket = SOCKET.get()?;
-        let grant = RunGrant::issue(table(), ask_identity(agent, owner_session)).ok()?;
+        let grant = RunGrant::issue(table(), ask_identity(agent, session)).ok()?;
         let vars = grant.env(socket);
         (grant, vars)
     };
@@ -801,6 +815,18 @@ mod tests {
         let g = RunGrant::issue(&t, owner).unwrap();
         let env = g.env(Path::new("/s"));
         assert_eq!((env[0].0.as_str(), env[1].0.as_str()), (ASK_TOKEN_ENV, ASK_SOCKET_ENV));
+    }
+
+    #[test]
+    fn sessions_are_per_conversation_and_their_prefixes_cannot_overlap() {
+        // Another thread of one chat is another session (C8).
+        assert_ne!(session_of("sam", "t1"), session_of("sam", "t2"));
+        // A person whose id is `owner`, or whose id ends like another's session starts, is not the owner's run or
+        // another person.
+        assert_ne!(session_of("owner", "x"), ask_identity("echo", "x").session);
+        assert_ne!(session_of("a", "b:c"), session_of("a:b", "c"));
+        assert!(ask_identity("echo", "g:1:sam:x").session.starts_with("run:o:"));
+        assert!(session_of("owner", "x").starts_with("run:g:"));
     }
 
     #[test]

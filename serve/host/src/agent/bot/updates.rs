@@ -311,7 +311,7 @@ impl Actor {
     fn card_resource(tool: &Value, title: &str) -> Option<(String, String)> {
         let name = tool["_meta"]["claudeCode"]["toolName"].as_str().unwrap_or(title);
         let raw = &tool["rawInput"];
-        match crate::cards::resource::classify(name, raw, crate::cards::resource::roots()) {
+        match crate::cards::resource::classify(name, raw, &crate::cards::resource::roots()) {
             crate::cards::resource::Classified::Card { key, shown } => Some((key, shown)),
             crate::cards::resource::Classified::Never => None,
             crate::cards::resource::Classified::Malformed(_) => {
@@ -329,7 +329,11 @@ impl Actor {
             tracing::warn!(bot = %self.cfg.id, option = %o, "refused an answer the card didn't offer");
             return;
         }
-        let Some(rpc_ids) = self.perms.remove(entry_id) else { return };
+        let Some(rpc_ids) = self.perms.remove(entry_id) else {
+            // Nothing here to answer (the process is gone): a yes spent for it goes back to the card.
+            crate::cards::undelivered(&self.hub.store, entry_id);
+            return;
+        };
         // A prompt that waited for the owner gave its slot up; an answer takes it back before the agent goes on.
         if let Some(parked) = self.parked_prompts.remove(entry_id)
             && option_id.is_some()
@@ -340,15 +344,26 @@ impl Actor {
             Some(o) => json!({"outcome": {"outcome": "selected", "optionId": o}}),
             None => json!({"outcome": {"outcome": "cancelled"}}),
         };
-        if let Some(conn) = &self.conn {
-            for rpc_id in rpc_ids {
-                let _ = conn.acp.respond(rpc_id, outcome.clone()).await;
-            }
-        }
-        // The yes was heard by the agent: the once grant is spent (C3), or the question is closed for good.
         let allowed =
             self.hub.store.entry(entry_id).is_some_and(|e| crate::cards::allows(&e.data, option_id.as_deref()));
-        crate::cards::delivered(&self.hub.store, entry_id, allowed);
+        if let Some(conn) = &self.conn {
+            // A yes is one use (A4): the first request that asked hears it, a repeat that joined is told no.
+            let no = self.hub.store.entry(entry_id).and_then(|e| {
+                e.data["options"].as_array()?.iter().find(|o| o["kind"] == "reject_once").map(|o| o["optionId"].clone())
+            });
+            for (i, rpc_id) in rpc_ids.into_iter().enumerate() {
+                let outcome = match (allowed && i > 0, &no) {
+                    (true, Some(no)) => json!({"outcome": {"outcome": "selected", "optionId": no}}),
+                    (true, None) => json!({"outcome": {"outcome": "cancelled"}}),
+                    _ => outcome.clone(),
+                };
+                let _ = conn.acp.respond(rpc_id, outcome).await;
+            }
+            // The yes was heard by the agent: the once grant stays spent (C3), or the question is closed for good.
+            crate::cards::delivered(&self.hub.store, entry_id, allowed);
+        } else {
+            crate::cards::undelivered(&self.hub.store, entry_id);
+        }
         if let Some(mut e) = self.hub.store.entry(entry_id) {
             e.data["status"] = if option_id.is_some() { "answered" } else { "cancelled" }.into();
             e.data["selected"] = option_id.into();

@@ -48,7 +48,8 @@ fn migrate_7(c: &Connection) -> Result<()> {
             resource TEXT NOT NULL, shown TEXT NOT NULL DEFAULT '', scope TEXT NOT NULL DEFAULT 'once',
             state TEXT NOT NULL CHECK (state IN ('pending','live','parked','approved','denied','expired','withdrawn','used')),
             created_at INTEGER NOT NULL, deadline INTEGER NOT NULL, answer TEXT, allowed INTEGER, answered_by TEXT,
-            answered_at INTEGER, answered_parked INTEGER NOT NULL DEFAULT 0, granted_at INTEGER, resumed_at INTEGER);
+            answered_at INTEGER, answered_parked INTEGER NOT NULL DEFAULT 0, granted_at INTEGER, resumed_at INTEGER,
+            used_by_ask INTEGER NOT NULL DEFAULT 0);
          CREATE UNIQUE INDEX IF NOT EXISTS cards_open ON cards(session, resource)
             WHERE state IN ('pending','live','parked');
          CREATE INDEX IF NOT EXISTS cards_entry ON cards(entry_id);

@@ -425,7 +425,10 @@ impl Actor {
         // Cards nobody answered: an owner's gave up the turn's slot, which comes back with the dropped guard.
         self.parked_prompts.clear();
         for id in ids {
-            crate::cards::withdraw_entry(&self.hub, &id);
+            // A question with a card parks with its asker; an old one can't be answered and shows as expired.
+            if crate::cards::park_entry(&self.hub, &id) {
+                continue;
+            }
             if let Some(mut e) = self.hub.store.entry(&id)
                 && e.data["status"] == "pending"
             {

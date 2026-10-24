@@ -169,7 +169,7 @@ pub async fn request_permission(hub: &Arc<Hub>, who: &RunIdentity, tool: &str, i
     if input.to_string().len() > MAX_INPUT {
         return deny("That request is too large to show for approval.");
     }
-    let (resource, shown) = match resource::classify(tool, input, resource::roots()) {
+    let (resource, shown) = match resource::classify(tool, input, &resource::roots()) {
         resource::Classified::Card { key, shown } => (key, shown),
         resource::Classified::Never => {
             return deny("That is a secret or a login. It can't be approved; don't try another way to reach it.");
@@ -215,7 +215,7 @@ async fn request_card(
     };
     // Listening comes first: an answer that lands the moment the card is shown must find this call.
     let (_waiting, rx) = Waiting::new(&card.id);
-    let Some(card) = show(hub, who, card) else {
+    let Some(card) = show(hub, who, &card) else {
         return deny("There is nowhere to ask about this: no chat with this agent on this computer.");
     };
     let label = approver_label(hub, &card).await;
@@ -238,7 +238,7 @@ async fn approver_label(hub: &Hub, card: &Card) -> String {
 }
 
 /// Makes the card live and puts its Permission entry where the approver sees it (a repeat reuses the entry it has).
-fn show(hub: &Arc<Hub>, who: &RunIdentity, card: Card) -> Option<Card> {
+fn show(hub: &Arc<Hub>, who: &RunIdentity, card: &Card) -> Option<Card> {
     if let Some(entry_id) = &card.entry_id
         && let Some(mut e) = hub.store.entry(entry_id)
     {
@@ -327,7 +327,7 @@ pub fn answer(hub: &Hub, entry_id: &str, option_id: Option<&str>, by: &str) -> a
     let Some(card) = hub.store.card_by_entry(entry_id) else { return Ok(Outcome::Closed) };
     let allow = allows(&entry.data, option_id);
     let Answered::Applied { card, was_live } =
-        hub.store.card_answer(&card.id, allow, option_id.unwrap_or("cancel"), by, now_ms())?
+        hub.store.card_answer(&card.id, allow, option_id.unwrap_or("cancel"), by, now_ms(), allow)?
     else {
         // An expired one shows as expired now, whatever the sweep was doing.
         if let Some(c) = hub.store.card(&card.id).filter(|c| c.state == CardState::Expired) {
@@ -339,8 +339,10 @@ pub fn answer(hub: &Hub, entry_id: &str, option_id: Option<&str>, by: &str) -> a
     let mut forward = false;
     if was_live && card.source == "run" {
         let verdict = if allow { Verdict::Allow } else { Verdict::Deny("The approver said no.".into()) };
-        if deliver(&card.id, &verdict) && allow {
-            hub.store.card_use(&card.id)?;
+        // A yes to a live asker was spent in the answer itself (no parallel ask can take it too); if nobody was
+        // there to hear it, it goes back as the answer to a parked card.
+        if !deliver(&card.id, &verdict) && allow && hub.store.card_undelivered(&card.id)? {
+            follow_up(hub, &card);
         }
     } else if was_live {
         forward = true;
@@ -356,8 +358,17 @@ pub fn answer(hub: &Hub, entry_id: &str, option_id: Option<&str>, by: &str) -> a
     Ok(Outcome::Recorded { forward })
 }
 
-/// The bot actor handed an answer to its agent (or cancelled the question itself): the once grant is spent (C3), or
-/// the open card is withdrawn.
+/// The bot actor could not hand a yes to its agent (it had no request to answer): the grant goes back.
+pub fn undelivered(store: &Store, entry_id: &str) {
+    if let Some(card) = store.card_by_entry(entry_id)
+        && let Err(error) = store.card_undelivered(&card.id)
+    {
+        tracing::warn!(error = format!("{error:#}"), "couldn't return a grant");
+    }
+}
+
+/// The bot actor handed an answer to its agent (or cancelled the question itself): the once grant stays spent (C3,
+/// at the answer), or the open card is withdrawn.
 pub fn delivered(store: &Store, entry_id: &str, allow: bool) {
     let Some(card) = store.card_by_entry(entry_id) else { return };
     let done = match card.state {
@@ -408,6 +419,16 @@ pub fn bot_exited(hub: &Hub, bot_id: &str) {
         Ok(parked) => mark_parked(hub, &parked),
         Err(error) => tracing::warn!(error = format!("{error:#}"), "couldn't park cards"),
     }
+}
+
+/// A turn ended with a question still open: its asker is gone, so the card parks (C6) and the entry stays
+/// answerable. False when the entry has no open card (an old one).
+pub fn park_entry(hub: &Hub, entry_id: &str) -> bool {
+    let Some(card) = hub.store.card_by_entry(entry_id).filter(|c| c.state.open()) else { return false };
+    if hub.store.card_park(&card.id).unwrap_or(false) {
+        mark_parked(hub, &[card]);
+    }
+    true
 }
 
 /// A failed attempt's question can never be answered usefully: withdrawn, shown as expired like before.
@@ -474,7 +495,10 @@ pub fn start(hub: &Arc<Hub>) {
             let Some(hub) = weak.upgrade() else { return };
             sweep(&hub);
             // An owner token handed out over the API ends with its process or its time.
-            for run in crate::runauth::table().reap(crate::runauth::pid_alive) {
+            let gone = tokio::task::spawn_blocking(|| crate::runauth::table().reap(crate::runauth::pid_alive))
+                .await
+                .unwrap_or_default();
+            for run in gone {
                 run_exited(&hub, &run);
             }
         }

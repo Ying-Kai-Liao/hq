@@ -390,9 +390,7 @@ async fn stop_runs(hub: &Hub, person: &str, only_denied: bool) {
         }
         if only_denied {
             match bot.config.hq_agent.as_deref() {
-                Some(agent) if !roles::may_use(person, agent).await => {
-                    crate::cards::withdraw_person(hub, person, Some(agent));
-                }
+                Some(agent) if !roles::may_use(person, agent).await => {}
                 _ => continue,
             }
         }
@@ -400,7 +398,14 @@ async fn stop_runs(hub: &Hub, person: &str, only_denied: bool) {
             tracing::warn!(error = format!("{e:#}"), person, "couldn't stop a turn");
         }
     }
-    if !only_denied {
+    // Their cards end with the access (A7): all of them, or those of every agent they lost, chat or no chat.
+    if only_denied {
+        for agent in hub.store.cards_agents(person) {
+            if !roles::may_use(person, &agent).await {
+                crate::cards::withdraw_person(hub, person, Some(&agent));
+            }
+        }
+    } else {
         crate::cards::withdraw_person(hub, person, None);
     }
     crate::channels::stop_person_runs(person, only_denied).await;
