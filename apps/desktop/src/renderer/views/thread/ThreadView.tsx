@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { draftOf, isGroup, isWorkingIn, type Bot, type BotDraft, type Entry } from '@shared/models'
 import { currentTask } from '@shared/tasks'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
-import { Spinner } from '../../components/Controls'
+import { DropdownMenu, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Sheet, usePresence } from '../../components/Overlay'
 import { HStack, IconSlot, Spacer } from '../../components/Stack'
@@ -198,12 +198,18 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
                   <Icon name="phone.fill" size={15} weight="medium" />
                 </button>
               ) : null}
-              {canShare ? (
-                <button className="top-pair-button" title="Share" aria-label="Share" onClick={() => setSharing(true)}>
-                  <Icon name="person.crop.circle.badge.plus" size={15} weight="medium" />
-                </button>
-              ) : null}
-              {(!showSettings || !wide) && !compactDetails ? (
+              {(!showSettings || !wide) && !compactDetails && canShare ? (
+                <DropdownMenu
+                  className="top-pair-button"
+                  title="More"
+                  items={() => [
+                    { title: 'Conversation details', icon: 'info.circle', action: toggleDetails },
+                    { title: 'Share access…', icon: 'person.crop.circle.badge.plus', action: () => setSharing(true) },
+                  ]}
+                >
+                  <Icon name="ellipsis" size={15} weight="medium" />
+                </DropdownMenu>
+              ) : (!showSettings || !wide) && !compactDetails ? (
                 <button className="top-pair-button" title="Conversation details" aria-label="Conversation details" onClick={toggleDetails}>
                   <Icon name="ellipsis" size={15} weight="medium" />
                 </button>

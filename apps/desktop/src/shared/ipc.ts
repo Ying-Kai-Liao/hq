@@ -44,6 +44,8 @@ export interface TraySummary {
   canPair: boolean
   bots: { ref: string; name: string; detail: string; working: boolean; avatar: string | null }[]
   approval: string | null
+  /** Whose bot from outside waits for an allow (the person, or the bot's own name); null when none does. */
+  botRequest: string | null
   usage: { name: string; icon: string | null; lines: { title: string; bar: string | null }[] }[]
   screen: {
     enabled: boolean
@@ -73,6 +75,8 @@ export type WindowCommand =
   | { kind: 'openBot'; ref: string }
   | { kind: 'stopBot'; ref: string }
   | { kind: 'reviewApprovals' }
+  /** Bring the window forward to the cards of bots waiting to be let in. */
+  | { kind: 'reviewBotRequests' }
   | { kind: 'confirmReset' }
   | { kind: 'setTextSize'; size: number }
   | { kind: 'stepTextSize'; up: boolean | null }

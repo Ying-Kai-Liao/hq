@@ -64,6 +64,9 @@ export function ChatWindow() {
             return setConfirmReset(true)
           case 'reviewApprovals':
             return app.reviewApprovals()
+          case 'reviewBotRequests':
+            // The cards sit at the top of the sidebar's Needs your OK; the window coming forward is enough.
+            return
           case 'setTextSize':
             return prefs.textSize.set(c.size)
           case 'stepTextSize':
@@ -273,7 +276,7 @@ function ChatSplitView() {
   const botActions = (bot: Bot, store: BotStore): MenuItem[] => store.isOwner ? [
     { title: bot.pinned ? 'Unpin' : 'Pin', icon: 'pin', action: () => store.setPinned(bot, !bot.pinned) },
     { title: 'Mark as Read', icon: 'bell.badge', action: () => store.markAllRead(bot.id) },
-    ...(canShareAgent(store, bot) ? [{ title: 'Share…', icon: 'person.crop.circle.badge.plus', action: () => setSharingBot({ bot, store }) }] : []),
+    ...(canShareAgent(store, bot) ? [{ title: 'Share access…', icon: 'person.crop.circle.badge.plus', action: () => setSharingBot({ bot, store }) }] : []),
     { title: 'Edit Profile…', icon: 'square.and.pencil', divider: true, action: () => setEditing({ id: crypto.randomUUID(), draft: draftOf(bot), store }) },
     { title: 'Copy conversation ID', icon: 'square.on.square', divider: true, action: () => window.kith.app.copy(bot.id) },
     { title: 'New session', icon: 'arrow.counterclockwise', action: () => setNewSessionBot({ bot, store }) },
@@ -355,10 +358,10 @@ function ChatSplitView() {
           <LiveBot face={{ kind: 'crew', name: 'coder' }} size={74} id="coder" mood="working" />
         </div>
         <p className="empty-detail-title">{connecting ? 'Connecting to your computers…' : 'Your coding agents, as teammates.'}</p>
-        <p className="empty-detail-message">{connecting ? 'Your bots will appear once connected. Manage computers to see connection progress.' : 'Pick someone on the left, or ask the crew below.'}</p>
+        <p className="empty-detail-message">{connecting ? 'Your crew will appear once connected. Manage computers to see connection progress.' : 'Pick someone on the left, or ask the crew below.'}</p>
         <button className="empty-detail-new" onClick={() => compose()} disabled={!onlineStores.length}>
           <Icon name="square.and.pencil" size={13} weight="medium" />
-          New bot
+          New agent
         </button>
       </div>
     )
@@ -431,7 +434,7 @@ function ChatSplitView() {
       />
       <Dialog
         open={confirmDelete !== null}
-        title={`Delete ${confirmDelete?.bot.name ?? 'bot'}?`}
+        title={`Delete ${confirmDelete?.bot.name ?? 'agent'}?`}
         message="Files it changed on your computer stay as they are."
         actions={confirmDelete ? [{ title: 'Delete bot and its conversation', destructive: true, action: () => confirmDelete.store.delete(confirmDelete.bot) }] : []}
         onClose={() => setConfirmDelete(null)}

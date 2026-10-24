@@ -188,7 +188,7 @@ struct MemoryCard: View {
     private func author(_ entry: MemoryEntry) -> String {
         switch entry.author {
         case "user": "You wrote it"
-        case "bot": "\(host.bots[entry.authorBot ?? ""]?.name ?? "A bot") remembered it"
+        case "bot": "\(host.bots[entry.authorBot ?? ""]?.name ?? "An agent") remembered it"
         case "tidy", "dream": "Tidying up"
         default: "Moved from the old memory"
         }

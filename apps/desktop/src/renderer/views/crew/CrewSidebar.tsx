@@ -13,6 +13,7 @@ import { callBlockedReason } from '../call/call-availability'
 import { useAccount } from '../../store/account'
 import { refKey, type BotRef, type RosterItem } from '../../store/app-model'
 import { useApp } from '../../store/context'
+import { botGuestsFor } from '../../store/bot-guests-store'
 import type { useComputerRoster } from '../../store/computer-roster'
 import { BotRoster } from '../BotRoster'
 import { useDictation } from '../thread/dictation'
@@ -61,6 +62,7 @@ export function CrewSidebar({ compact, roster, items, listRef, onListKey, onCont
     bots: store.roster,
     entries: store.entries,
     guestPrompts: store.guestPrompts,
+    botRequests: botGuestsFor(store).pending,
   })))
 
   // ⌥⌘1 / ⌥⌘2 (Ctrl+Alt elsewhere) switch between Crew and Board.
@@ -226,7 +228,7 @@ function SidebarProfile({ accountOpen, onAccount }: { accountOpen: boolean; onAc
 export function RosterEmpty({ online }: { online: boolean }) {
   return (
     <div className="roster-empty">
-      <Text as="div" size="body" weight="medium">{online ? 'No bots yet' : 'Waiting for a computer'}</Text>
+      <Text as="div" size="body" weight="medium">{online ? 'No agents yet' : 'Waiting for a computer'}</Text>
       {online ? <Text as="div" size="callout" tone="secondary">Use the new chat button to start one.</Text> : null}
     </div>
   )

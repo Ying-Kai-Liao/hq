@@ -631,7 +631,7 @@ reply is lost, and none is printed twice (entries are keyed by `id` and `seq`).
    after the host's `MAX_AGE`, close `4011`, the client reconnects).
 4. Presence `{"t":"presence","online":false}` means the host is offline.
 
-Reference implementations: `crypto.rs` (Rust), `apps/desktop/src/main/relay/{crypto,link}.ts` (TS). The Rust client reuses
+Reference implementations: `crypto.rs` (Rust), `apps/desktop/src/shared/relay-core/{crypto,link}.ts` (TS). The Rust client reuses
 `crypto.rs` through the shared crate (10.1) and is checked against `serve/docs/reference/fixtures/remote-relay-vectors.json`.
 
 ## 6. Conversations, threads and origin tagging

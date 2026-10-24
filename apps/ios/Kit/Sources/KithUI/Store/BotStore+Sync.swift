@@ -89,6 +89,8 @@ extension BotStore {
         guard !Task.isCancelled, !retired else { return }
         // hello first: whatever the version change shows (notices, reminders) reads it.
         hello = h
+        // Pending bots come back from the host on every connect, so a card survives a restart.
+        Task { [weak self] in await self?.botGuests.refresh() }
         noteHostVersion(HostVersion(version: h.version, protocolLevel: h.protocolLevel, minProtocol: h.minProtocol))
     }
 
@@ -186,6 +188,8 @@ extension BotStore {
             }
         case .resync:
             restartEvents()
+        case .botRequest, .botUpdated:
+            Task { [weak self] in await self?.botGuests.refresh() }
         case let .undecodable(type):
             // Never skip past data we couldn't read: rewind once and fetch everything again.
             log.error("undecodable \(type) event")

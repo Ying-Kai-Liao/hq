@@ -105,8 +105,12 @@ export class Tray {
           items.push({ label: `Review access request from ${s.approval}…`, click: () => send({ kind: 'reviewApprovals' }) })
           items.push({ type: 'separator' })
         }
+        if (s?.botRequest) {
+          items.push({ label: `Review bot request from ${s.botRequest}…`, click: () => send({ kind: 'reviewBotRequests' }) })
+          items.push({ type: 'separator' })
+        }
         if (!s || s.bots.length === 0) {
-          items.push({ label: 'No bots yet', enabled: false })
+          items.push({ label: 'No agents yet', enabled: false })
         } else {
           for (const bot of s.bots) {
             const submenu: Electron.MenuItemConstructorOptions[] = [

@@ -50,8 +50,14 @@ struct BoardView: View {
                     // The same call and the same pending state as the chat's card: a second tap while one is on its way
                     // does nothing, and the card goes when the host marks it answered, wherever that was.
                     let live = store(item.target.computerId)
-                    DecisionCard(item.card, tint: AgentTint.resolve(item.color), answering: live?.answering[item.entry.id]) {
-                        live?.respond(item.entry, option: $0)
+                    if let bot = item.botRequest {
+                        DecisionCard(item.card, answering: live?.botGuests.deciding[bot.botId]) { option in
+                            if let guests = live?.botGuests { Task { await guests.decide(bot, option: option) } }
+                        }
+                    } else if let entry = item.entry {
+                        DecisionCard(item.card, tint: AgentTint.resolve(item.color), answering: live?.answering[entry.id]) {
+                            live?.respond(entry, option: $0)
+                        }
                     }
                 }
                 .padding(.horizontal, KithSpacing.gutter)

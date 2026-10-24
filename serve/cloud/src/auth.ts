@@ -86,8 +86,8 @@ export async function sigCanonical(
  * Checks the header's signature and time window. Replay (the `(kid, nonce)` pair) is the caller's job:
  * D1 `sig_nonces` for HTTP, the DO's `nonces` table for relay sockets. `null` = reject.
  */
-export async function verifySig(req: Request, body: Uint8Array, now = Date.now()): Promise<SignedRequest | null> {
-  const header = req.headers.get("Kith-Sig") ?? req.headers.get(LEGACY_SIG_HEADER);
+export async function verifySig(req: Request, body: Uint8Array, now = Date.now(), headerValue?: string): Promise<SignedRequest | null> {
+  const header = headerValue ?? req.headers.get("Kith-Sig") ?? req.headers.get(LEGACY_SIG_HEADER);
   if (!header) return null;
   const f = new Map<string, string>();
   for (const part of header.split(",")) {
@@ -116,13 +116,21 @@ export async function verifySig(req: Request, body: Uint8Array, now = Date.now()
 export interface ClerkUser {
   userId: string;
   email: string | null;
+  /** The Clerk session this token belongs to. */
+  sid: string;
+  /** The `Origin` the token was minted for; Clerk omits it when the Origin was empty. */
+  azp: string | null;
 }
 
 /** `null` when the bearer token is missing or doesn't verify. */
 export async function verifyClerk(req: Request, env: Env): Promise<ClerkUser | null> {
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return null;
-  const token = auth.slice(7).trim();
+  return verifyClerkToken(auth.slice(7).trim(), env);
+}
+
+/** A bare session JWT (a browser socket carries it in a subprotocol, where there is no Authorization header). */
+export async function verifyClerkToken(token: string, env: Env): Promise<ClerkUser | null> {
   const authorizedParties = (env.CLERK_AUTHORIZED_PARTIES ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -135,8 +143,41 @@ export async function verifyClerk(req: Request, env: Env): Promise<ClerkUser | n
     });
     if (claims.iss !== env.CLERK_ISSUER || typeof claims.sub !== "string" || !claims.sub || !claims.sid) return null;
     const email = (claims as { email?: unknown }).email;
-    return { userId: claims.sub, email: typeof email === "string" && email ? email : null };
+    const azp = (claims as { azp?: unknown }).azp;
+    return {
+      userId: claims.sub,
+      email: typeof email === "string" && email ? email : null,
+      sid: claims.sid,
+      azp: typeof azp === "string" && azp ? azp : null,
+    };
   } catch {
     return null;
   }
 }
+
+/**
+ * Asks Clerk whether a session is still live (GET /v1/sessions/{id}, status "active"). A token's signature and `exp`
+ * only say it was valid a minute ago, not that the session hasn't ended since. Fails closed: no secret key, a network
+ * error, a 4xx/5xx (a 429 on a dev instance included) or any other status all mean "not live".
+ */
+export async function clerkSessionActive(sid: string, env: Env): Promise<boolean> {
+  if (!env.CLERK_SECRET_KEY || !/^[A-Za-z0-9_]{1,128}$/.test(sid)) return false;
+  try {
+    const res = await fetch(`https://api.clerk.com/v1/sessions/${sid}`, {
+      headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return false;
+    const body = (await res.json()) as { id?: unknown; status?: unknown };
+    return body.id === sid && body.status === "active";
+  } catch {
+    return false;
+  }
+}
+
+/** The origins allowed to host the web client (`WEB_ORIGINS`, comma list). Empty when unset. */
+export const webOrigins = (env: Env): string[] =>
+  (env.WEB_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);

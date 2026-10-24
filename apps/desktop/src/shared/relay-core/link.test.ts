@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import {
   CHUNK, FrameOpener, FrameSealer, b64url, boxKey, channelKeys, computerIdOf, hs1Input, signerFromSeed, transcriptHash, unb64url, verify,
 } from './crypto.ts'
-import { RelayLink, type LinkState, type Socket } from './link.ts'
+import { browserDial } from './dial.ts'
+import { RelayLink, type DialAuth, type LinkState, type Socket } from './link.ts'
 
 // A fake relay and a fake Mac: the Mac side is written from the protocol (§6.2) with the same primitives, so a
 // mismatch with the device side shows up here. Byte-for-byte conformance is crypto.test.ts's job.
@@ -12,6 +13,9 @@ const hostKey = signerFromSeed(Buffer.alloc(32, 1))
 const deviceKey = signerFromSeed(Buffer.alloc(32, 3))
 const cid = computerIdOf(hostKey.publicKey)
 
+// A real socket opens on a later turn than the dial call returns: the link sets its handlers only after awaiting the
+// dial, so a fake that fires from a microtask would open before anyone is listening.
+const soon = (f: () => void) => setTimeout(f, 0)
 const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms))
 async function until<T>(what: string, f: () => T | undefined | false): Promise<T> {
   for (let i = 0; i < 400; i++) {
@@ -30,13 +34,13 @@ class Conn {
   closedWith: number | null = null
   readonly socket: Socket
   readonly url: string
-  readonly headers: Record<string, string>
+  readonly auth: DialAuth
   private readonly relay: FakeRelay
 
-  constructor(relay: FakeRelay, url: string, headers: Record<string, string>) {
+  constructor(relay: FakeRelay, url: string, auth: DialAuth) {
     this.relay = relay
     this.url = url
-    this.headers = headers
+    this.auth = auth
     this.socket = {
       onopen: null,
       onmessage: null,
@@ -44,7 +48,7 @@ class Conn {
       send: (text) => this.fromDevice(text),
       close: (code) => {
         this.closedWith = code
-        queueMicrotask(() => this.socket.onclose?.(code))
+        soon(() => this.socket.onclose?.(code))
       },
     }
   }
@@ -65,11 +69,11 @@ class Conn {
   private fromDevice(text: string) {
     const m = JSON.parse(text) as Record<string, unknown>
     this.seen.push(m)
-    if (m.t === 'hello') return this.relay.onHello(this, m)
+    if (m.t === 'hello') return void this.relay.onHello(this, m)
     if (m.t === 'f' && this.codecs) {
       const whole = this.codecs.open.open(m.c as number, unb64url(m.d as string)!)
       if (whole) {
-        const inner = JSON.parse(whole.toString('utf8')) as Record<string, unknown>
+        const inner = JSON.parse(Buffer.from(whole).toString('utf8')) as Record<string, unknown>
         this.inner.push(inner)
         this.relay.onInner(this, inner)
       }
@@ -90,17 +94,17 @@ class FakeRelay {
   /** Which Mac answers the handshake; a different key plays an impostor. */
   autoOnline = true
 
-  dial = (url: string, headers: Record<string, string>): Socket => {
-    const c = new Conn(this, url, headers)
+  dial = (url: string, auth: DialAuth): Socket => {
+    const c = new Conn(this, url, auth)
     this.conns.push(c)
-    queueMicrotask(() => {
+    soon(() => {
       c.socket.onopen?.()
       if (this.autoOnline) c.presence(true)
     })
     return c.socket
   }
 
-  onHello(c: Conn, hello: Record<string, unknown>) {
+  async onHello(c: Conn, hello: Record<string, unknown>) {
     const dk = unb64url(hello.dk as string)!
     const ekD = unb64url(hello.ek as string)!
     const n = unb64url(hello.n as string)!
@@ -109,7 +113,7 @@ class FakeRelay {
     const th = transcriptHash(unb64url(cid)!, dk, ekD, n, eph.pub)
     const keys = channelKeys(eph.priv, ekD, th)
     c.codecs = { open: new FrameOpener(keys.d2h), seal: new FrameSealer(keys.h2d) }
-    c.toDevice({ t: 'welcome', v: 1, ek: b64url(eph.pub), sig: b64url(this.signer.sign(th)) })
+    c.toDevice({ t: 'welcome', v: 1, ek: b64url(eph.pub), sig: b64url(await this.signer.sign(th)) })
   }
 }
 
@@ -131,7 +135,7 @@ test('connects over the relay with a signed upgrade, handshakes and answers a ca
   assert.deepEqual(await l.call('hello', {}, 2000), { echoed: 'hello', b: {} })
   const c = relay.conns[0]
   assert.equal(c.url, `ws://cloud.test:8787/v1/relay/device/${cid}?v=1`)
-  const sig = c.headers['Kith-Sig']
+  const sig = c.auth.sig
   assert.match(sig, /^v=1,kid=[\w-]+,ts=\d+,nonce=[\w-]+,sig=[\w-]+$/)
   assert.equal(sig.split(',')[1], `kid=${b64url(deviceKey.publicKey)}`)
   assert.equal(l.state.kind, 'ready')
@@ -243,13 +247,13 @@ test('a plain drop reconnects with backoff and a fresh handshake', async () => {
 test('a socket that never opens is retried, not given up on', async () => {
   const relay = new FakeRelay()
   let n = 0
-  const dial = (url: string, headers: Record<string, string>): Socket => {
+  const dial = (url: string, auth: DialAuth): Socket => {
     if (n++ < 2) {
       const s: Socket = { send() {}, close() {}, onopen: null, onmessage: null, onclose: null }
-      queueMicrotask(() => s.onclose?.(1006))
+      soon(() => s.onclose?.(1006))
       return s
     }
-    return relay.dial(url, headers)
+    return relay.dial(url, auth)
   }
   const l = new RelayLink({ cloudURL: 'https://cloud.test', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, dial, probe: async () => null, delay: () => 5 })
   assert.equal(((await l.call('x', null, 3000)) as { echoed: string }).echoed, 'x')
@@ -264,7 +268,7 @@ for (const [status, message, code] of [
   test(`a refused upgrade the relay answers ${status} to is a final, specific refusal`, async () => {
     const dial = (): Socket => {
       const s: Socket = { send() {}, close() {}, onopen: null, onmessage: null, onclose: null }
-      queueMicrotask(() => s.onclose?.(1006))
+      soon(() => s.onclose?.(1006))
       return s
     }
     const l = new RelayLink({ cloudURL: 'https://cloud.test', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, dial, probe: async () => status, delay: () => 5 })
@@ -279,7 +283,7 @@ for (const [status, message, code] of [
 test('a refused upgrade the probe cannot explain stays unreachable and retries', async () => {
   const dial = (): Socket => {
     const s: Socket = { send() {}, close() {}, onopen: null, onmessage: null, onclose: null }
-    queueMicrotask(() => s.onclose?.(1006))
+    soon(() => s.onclose?.(1006))
     return s
   }
   const l = new RelayLink({ cloudURL: 'https://cloud.test', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, dial, probe: async () => 502, delay: () => 5 })
@@ -355,5 +359,150 @@ test('an old host (reject unsupportedVersion) is a final, plain refusal', async 
   c.toDevice({ t: 'reject', code: 'unsupportedVersion' })
   await until('failed', () => l.state.kind === 'failed')
   await assert.rejects(l.call('hello', {}, 100), (e: { status: number }) => e.status === 426)
+  l.close()
+})
+
+// ---- close codes a browser gets for a refused upgrade (design §4.6), and the browser dialer ----
+
+for (const [closeCode, kind, code, status] of [
+  [4404, 'failed', 'unknownComputer', 404],
+  [4426, 'failed', 'upgrade', 426],
+  [4401, 'failed', 'signedOut', 401],
+  [4403, 'unauthorized', undefined, 401],
+] as const) {
+  test(`close ${closeCode} is a final answer, not a redial`, async () => {
+    const relay = new FakeRelay()
+    const l = link(relay)
+    await l.call('hello', {}, 2000)
+    relay.conns[0].drop(closeCode)
+    await until('stopped', () => l.state.kind === kind)
+    if (kind === 'failed') assert.equal((l.state as { code: string }).code, code)
+    await assert.rejects(l.call('hello', {}, 100), (e: { status: number }) => e.status === status)
+    await tick(60)
+    assert.equal(relay.conns.length, 1)
+    l.close()
+  })
+}
+
+test('close 4100 dials again at once, with a new signature each time', async () => {
+  const relay = new FakeRelay()
+  const sigs: string[] = []
+  const l = new RelayLink({
+    cloudURL: 'http://cloud.test:8787', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, delay: () => 5,
+    dial: (url, auth) => {
+      sigs.push(auth.sig)
+      return relay.dial(url, auth)
+    },
+  })
+  await l.call('hello', {}, 2000)
+  relay.conns[0].drop(4100)
+  assert.equal(((await l.call('again', null, 2000)) as { echoed: string }).echoed, 'again')
+  assert.equal(relay.conns.length, 2)
+  assert.equal(new Set(sigs.map((s) => s.split('nonce=')[1])).size, 2, 'a new nonce per dial')
+  l.close()
+})
+
+/** A WebSocket-shaped object over a FakeRelay connection, remembering the subprotocols it was opened with. */
+function fakeWebSocket(relay: FakeRelay) {
+  return class {
+    constructor(url: string, protocols: string[]) {
+      const listeners: Record<string, ((e: never) => void)[]> = {}
+      const socket = relay.dial(url, { sig: 'browser' })
+      ;(relay.conns[relay.conns.length - 1] as unknown as { protocols: string[] }).protocols = protocols
+      socket.onopen = () => listeners.open?.forEach((f) => f(undefined as never))
+      socket.onmessage = (data) => listeners.message?.forEach((f) => f({ data } as never))
+      socket.onclose = (code) => listeners.close?.forEach((f) => f({ code } as never))
+      return {
+        send: (t: string) => socket.send(t),
+        close: (c?: number) => socket.close(c ?? 1000),
+        addEventListener: (type: string, cb: (e: never) => void) => (listeners[type] ??= []).push(cb),
+      } as never
+    }
+  } as never
+}
+
+test('a dial that says signed out stops the link until it is restarted', async () => {
+  const relay = new FakeRelay()
+  let signedIn = false
+  const l = new RelayLink({
+    cloudURL: 'http://cloud.test:8787', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, delay: () => 5,
+    dial: browserDial({
+      jwt: async () => (signedIn ? 'jwt.fresh.token' : null),
+      WebSocket: fakeWebSocket(relay),
+    }),
+  })
+  await assert.rejects(l.call('hello', {}, 500), (e: { code: string; status: number }) => e.code === 'signedOut' && e.status === 401)
+  assert.equal(relay.conns.length, 0)
+  signedIn = true
+  l.restart()
+  assert.equal(((await l.call('in', null, 2000)) as { echoed: string }).echoed, 'in')
+  l.close()
+})
+
+test('the browser dialer carries kith.v1, the signature and a fresh JWT as subprotocols', async () => {
+  const relay = new FakeRelay()
+  let n = 0
+  const l = new RelayLink({
+    cloudURL: 'http://cloud.test:8787', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, delay: () => 5,
+    dial: browserDial({ jwt: async () => `jwt.n${++n}.x`, WebSocket: fakeWebSocket(relay) }),
+  })
+  await l.call('hello', {}, 2000)
+  relay.conns[0].drop(4100)
+  await l.call('again', null, 2000)
+  const protos = relay.conns.map((c) => (c as unknown as { protocols: string[] }).protocols)
+  assert.equal(protos.length, 2)
+  for (const [i, p] of protos.entries()) {
+    assert.equal(p.length, 3)
+    assert.equal(p[0], 'kith.v1')
+    assert.match(p[1], /^kith-sig\.[\w-]+$/)
+    assert.equal(p[2], `kith-jwt.jwt.n${i + 1}.x`)
+    // The signature rides as the same Kith-Sig header value a desktop would send.
+    const header = Buffer.from(p[1].slice('kith-sig.'.length), 'base64url').toString()
+    assert.match(header, /^v=1,kid=[\w-]+,ts=\d+,nonce=[\w-]+,sig=[\w-]+$/)
+    assert.equal(header.split(',')[1], `kid=${b64url(deviceKey.publicKey)}`)
+  }
+  l.close()
+})
+
+test('a newer presence supersedes a hello still being signed: only the latest handshake is sent', async () => {
+  const relay = new FakeRelay()
+  relay.autoOnline = false
+  const pending: (() => void)[] = []
+  const slow = {
+    publicKey: deviceKey.publicKey,
+    sign: (m: Uint8Array) => new Promise<Uint8Array>((resolve) => pending.push(() => void deviceKey.sign(m).then(resolve))),
+  }
+  const l = new RelayLink({ cloudURL: 'http://cloud.test:8787', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: slow, dial: relay.dial, delay: () => 5 })
+  l.start()
+  // The upgrade itself is signed first.
+  await until('upgrade signing', () => pending.length)
+  pending.shift()!()
+  const c = await until('dialled', () => relay.conns[0])
+  await until('opened', () => c.socket.onmessage)
+  c.presence(true)
+  c.presence(true)
+  await until('both hellos signing', () => pending.length === 2)
+  for (const release of pending.splice(0)) release()
+  await tick(40)
+  assert.equal(c.seen.filter((m) => m.t === 'hello').length, 1, 'the stale hello was dropped')
+  await until('ready', () => l.state.kind === 'ready')
+  l.close()
+})
+
+test('a jwt callback that throws (a network blip) is retried, not read as signed out', async () => {
+  const relay = new FakeRelay()
+  let n = 0
+  const l = new RelayLink({
+    cloudURL: 'http://cloud.test:8787', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, delay: () => 5,
+    dial: browserDial({
+      jwt: async () => {
+        if (n++ < 2) throw new Error('offline')
+        return 'jwt.ok.x'
+      },
+      WebSocket: fakeWebSocket(relay),
+    }),
+  })
+  assert.equal(((await l.call('x', null, 3000)) as { echoed: string }).echoed, 'x')
+  assert.equal(n, 3)
   l.close()
 })

@@ -6,12 +6,13 @@
 // (`X-Kith-Internal: 1`), never a client's own request.
 
 import { DurableObject } from "cloudflare:workers";
-import { b64url, fromB64url, NONCE_TTL_MS, randomId, utf8, verifyEd25519 } from "./auth";
+import { b64url, fromB64url, NONCE_TTL_MS, randomId, utf8, verifyEd25519, webOrigins } from "./auth";
 import { authorized, deliveryId, forwarded, HOOK_ID, HOOK_MAX_BODY, parseHooks } from "./hooks";
 import type { Env } from "./index";
 
 const MAX_DEVICE_SOCKETS = 16;
 const MAX_PAIRING_SOCKETS = 2;
+const DEFAULT_WEB_SOCKET_MAX_AGE_S = 3600;
 const PAIRING_TTL_MS = 120_000;
 const PAIRING_MAX_MESSAGES = 16;
 const RATE_WINDOW_MS = 10_000;
@@ -59,6 +60,8 @@ interface DeviceAttachment {
   offer?: string;
   /** The ACL listed this device with `kind: "bot"` when it connected. Absent on sockets from before bots existed. */
   bot?: boolean;
+  /** Web sockets only: when the DO closes it (4100), whatever the login does meanwhile. */
+  webUntil?: number;
   at: number;
   msgs: number;
   retired?: Retired;
@@ -176,7 +179,11 @@ export class ComputerRelay extends DurableObject<Env> {
     }
     this.sql.exec("INSERT INTO nonces(kid, nonce, exp) VALUES (?, ?, ?)", key, nonce, now + NONCE_TTL_MS);
     if (role === "host") return this.acceptHost(key, h("X-Kith-Computer"), now);
-    if (role === "device") return this.acceptDevice(key, h("X-Kith-Pair"), now);
+    if (role === "device") {
+      // Sockets carrying a session JWT must come from a listed web origin (the Worker has already checked the login).
+      if (h("X-Kith-Web") && !webOrigins(this.env).includes(h("X-Kith-Origin"))) return errorResponse(403, "forbidden");
+      return this.acceptDevice(key, h("X-Kith-Pair"), now, !!h("X-Kith-Subproto"), !!h("X-Kith-Web"));
+    }
     return errorResponse(400, "badRequest");
   }
 
@@ -200,7 +207,7 @@ export class ComputerRelay extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  private async acceptDevice(dk: string, offer: string, now: number): Promise<Response> {
+  private async acceptDevice(dk: string, offer: string, now: number, subproto = false, web = false): Promise<Response> {
     const acl = this.acl();
     if (!acl) return errorResponse(404, "unknownComputer");
     // A pairing needs the host's one-time code, so the host decides; a block only stops ACL access.
@@ -231,11 +238,17 @@ export class ComputerRelay extends DurableObject<Env> {
     const a: DeviceAttachment = { role: "device", dk, link: randomId("", 12), pair: !!offer, at: now, msgs: 0 };
     if (offer) a.offer = offer;
     if (bot) a.bot = true;
+    if (web) {
+      const secs = Number(this.env.WEB_SOCKET_MAX_AGE);
+      a.webUntil = now + (Number.isFinite(secs) && secs > 0 ? secs : DEFAULT_WEB_SOCKET_MAX_AGE_S) * 1000;
+      deadline = Math.min(deadline, a.webUntil);
+    }
     server.serializeAttachment(a);
     send(server, JSON.stringify(this.presence()));
     send(this.readyHost(), JSON.stringify({ t: "open", link: a.link, dk, pair: a.pair }));
     await this.ensureAlarm(deadline);
-    return new Response(null, { status: 101, webSocket: client });
+    // A browser offered the subprotocol list; the handshake fails unless one of them is echoed back.
+    return new Response(null, { status: 101, webSocket: client, ...(subproto ? { headers: { "Sec-WebSocket-Protocol": "kith.v1" } } : {}) });
   }
 
   /** `POST /internal/block {"devices":[{dk, grantId}]}` (§3.4). */
@@ -653,6 +666,10 @@ export class ComputerRelay extends DurableObject<Env> {
     const acl = this.acl();
     let next = now + ALARM_MS;
     for (const [ws, d] of this.devices()) {
+      if (d.webUntil !== undefined) {
+        if (d.webUntil <= now) this.safeClose(ws, 4100, "maxAge");
+        else next = Math.min(next, d.webUntil);
+      }
       if (!d.pair) continue;
       const exp = Math.min(d.at + PAIRING_TTL_MS, acl?.offers.find((o) => o.id === d.offer)?.exp ?? 0);
       if (exp <= now) this.safeClose(ws, 4410, "pairingExpired");

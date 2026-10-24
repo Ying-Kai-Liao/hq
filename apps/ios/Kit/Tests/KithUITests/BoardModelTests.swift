@@ -58,8 +58,8 @@ private func board(_ computers: BoardComputer...) -> BoardModel { BoardModel(com
     let b = computer("b", bots: [try bot("y")], entries: ["y": [permission("p1", chat: "y", at: nowMs - 9000)]], guests: [guest])
     let model = board(a, b)
     #expect(model.waiting == 3)
-    #expect(model.needsYou.map(\.entry.id) == ["p1", "g1", "p2"])
-    #expect(model.needsYou.first { $0.entry.id == "g1" }?.target.botId == "guest-chat")
+    #expect(model.needsYou.map(\.entry?.id) == ["p1", "g1", "p2"])
+    #expect(model.needsYou.first { $0.entry?.id == "g1" }?.target.botId == "guest-chat")
 }
 
 @Test func aRowCountsOnlyPendingCardsWaitingOnThisAccount() {
@@ -71,7 +71,7 @@ private func board(_ computers: BoardComputer...) -> BoardModel { BoardModel(com
 
 @Test func anOwnersCardInAMembersChatIsNotTheMembersToAnswer() throws {
     let member = computer(bots: [try bot("x")], entries: ["x": [permission("o", chat: "x", approver: "owner"), permission("m", chat: "x", approver: "member")]])
-    #expect(board(member).needsYou.map(\.entry.id) == ["m"])
+    #expect(board(member).needsYou.map(\.entry?.id) == ["m"])
 }
 
 @Test func aDecisionCardOffersOnlyTheCardsOwnAnswersAndNamesTheTask() throws {
@@ -196,7 +196,7 @@ private func board(_ computers: BoardComputer...) -> BoardModel { BoardModel(com
     #expect(relay.needsYou.isEmpty)
     #expect(relay.top?.botId == "x")
     let run = model.filtered(by: "run")
-    #expect(run.needsYou.map(\.entry.id) == ["p"])
+    #expect(run.needsYou.map(\.entry?.id) == ["p"])
     #expect(run.working.isEmpty)
     #expect(model.filtered(by: "zzz").isEmpty)
     #expect(model.filtered(by: "zzz").top == nil)

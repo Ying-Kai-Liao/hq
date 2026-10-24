@@ -71,6 +71,8 @@ export class BotMirror extends Observable {
 
   onRosterChanged: (() => void) | null = null
   onComputerChanged: ((c: Computer) => void) | null = null
+  /** Bots from outside: read them again on every (re)connect (`connect`) and when the host says one changed (`event`). */
+  onBotGuests: ((why: 'connect' | 'event') => void) | null = null
 
   protected waiting = 0
   protected rev = 0
