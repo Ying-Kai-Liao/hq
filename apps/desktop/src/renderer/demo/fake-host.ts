@@ -183,7 +183,7 @@ export class FakeHost {
       case 'hello':
         return {
           hostId: this.hostId, computerId: story.COMPUTER_ID, signKey: '', boxKey: '', cloud: null, name: story.HOST_NAME,
-          version: this.version, minApp: this.version, os: 'macos', device: 'MacBookPro', home: '/Users/demo', rev: this.rev, analytics: this.analytics,
+          version: this.version, protocol: 1, minProtocol: 1, os: 'macos', device: 'MacBookPro', home: '/Users/demo', rev: this.rev, analytics: this.analytics,
           urls: [], backends: [
             { id: 'claude', name: 'Claude Code', available: true, installed: true, signedIn: true, command: 'claude', installHint: '' },
             { id: 'codex', name: 'Codex', available: true, installed: true, signedIn: true, command: 'codex', installHint: '' },

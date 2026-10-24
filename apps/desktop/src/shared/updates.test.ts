@@ -6,7 +6,7 @@ import { updateAction } from './update-action.ts'
 import { deferred, settle } from './test-support/main-module.ts'
 import { updaterFixture } from './test-support/updater.ts'
 
-const release = { version: '2.11.3' }
+const release = { version: '0.1.1' }
 
 for (const options of [{ packaged: false }, { main: false }]) {
   test(`development builds never check, download or install: ${JSON.stringify(options)}`, async () => {

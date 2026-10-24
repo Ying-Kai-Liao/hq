@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { isBelow } from '@shared/compat'
+import { hostHas } from '@shared/compat'
 import { isGroup, isWorkingIn, type Bot } from '@shared/models'
 import { defaultFolderOf } from '@shared/place-folders'
 import { currentTask } from '@shared/tasks'
@@ -130,7 +130,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
   }
 
   // Not in a group: each member has its own skills.
-  const skillsShown = !!bot && !isGroup(bot) && !isBelow(store.hello?.version ?? '', SKILLS_HOST)
+  const skillsShown = !!bot && !isGroup(bot) && hostHas(store.hello, SKILLS_HOST)
   const slash = slashQuery(draft)
   const commands = slash === null ? [] : slashCommands(bot, slash, skillsShown ? plugins.installedSkills : [])
 

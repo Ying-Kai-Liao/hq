@@ -415,7 +415,9 @@ export interface Hello {
   computerId?: string
   signKey?: string
   boxKey?: string
-  minApp?: string
+  /** Absent from a host before 0.1.0 (docs/reference/compatibility.md). */
+  protocol?: number
+  minProtocol?: number
   cloud?: string | null
   /** Product analytics on this computer: on unless its owner turned it off. */
   analytics?: boolean

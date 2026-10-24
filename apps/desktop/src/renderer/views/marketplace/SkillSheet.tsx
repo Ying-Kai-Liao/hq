@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { isBelow } from '@shared/compat'
+import { hostHas } from '@shared/compat'
 import { CardForm, CardSection, IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { ModalHeader, SheetPage } from '../../components/Overlay'
@@ -25,7 +25,7 @@ export function SkillSheet({ skill }: { skill: SkillRef }) {
   const source = skill.source ?? null
   const added = source === null || skill.installed === true || plugins.installedSkills.some((s) => s.id === source.toLowerCase())
   // Older hosts list skills but can't show what's in them.
-  const readable = !isBelow(store.hello?.version ?? '', SKILLS_HOST)
+  const readable = hostHas(store.hello, SKILLS_HOST)
 
   useEffect(() => {
     if (!readable) return

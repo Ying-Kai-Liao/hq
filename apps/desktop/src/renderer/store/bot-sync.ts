@@ -1,3 +1,4 @@
+import type { HostVersion } from '@shared/compat'
 import { mirrorStamp } from '@shared/mirror-stamp'
 import { sendOrRollback } from '@shared/optimistic'
 import { isChat, type AccessRequest, type CloudStatus, type Entry } from '@shared/models'
@@ -178,12 +179,12 @@ export class BotSync extends BotMirror {
     const h = await client.hello()
     if (this.retired) return
     this.hello = h
-    this.noteHostVersion({ version: h.version, minApp: h.minApp })
+    this.noteHostVersion({ version: h.version, protocol: h.protocol, minProtocol: h.minProtocol })
     if (this.isLoopback) this.updateComputer((c) => ({ ...c, name: h.name, device: h.device ?? c.device }))
     this.changed()
   }
 
-  private noteHostVersion(next: { version: string; minApp?: string | null }) {
+  private noteHostVersion(next: HostVersion) {
     const cached = this.cacheStamp !== null && this.cacheStamp !== mirrorStamp(this.appVersion, next.version)
     if (cached || (this.hostVersion && this.hostVersion.version !== next.version)) {
       // A different host version or app build: data may carry new fields, so fetch it all again.

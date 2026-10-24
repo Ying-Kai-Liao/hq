@@ -1,12 +1,21 @@
-// Phone/host compatibility: each side names the oldest version of the other it still works
-// with (docs/reference/compatibility.md). Mirrors host/src/compat.rs.
+// Phone/host compatibility: each side names the oldest protocol level of the other it still
+// works with (docs/reference/compatibility.md). Mirrors host/src/compat.rs.
 
-export type VersionMismatch =
-  | { kind: 'updateApp'; minimum: string }
-  | { kind: 'updateHost'; version: string; minimum: string }
+export type VersionMismatch = { kind: 'updateApp' } | { kind: 'updateHost'; version: string }
 
-/** The oldest host this app works with. */
-export const MIN_HOST = '2.12.0'
+/** This app's protocol level, sent nowhere: the host's `minProtocol` is checked against it. */
+export const PROTOCOL = 1
+/** The oldest host protocol level this app works with. */
+export const MIN_HOST_PROTOCOL = 1
+/** A host from before protocol levels (no `protocol` in its hello) works with this app from this version. */
+export const LEGACY_MIN_HOST = '2.12.0'
+
+/** What a host's hello says about compatibility; a host without `protocol` predates 0.1.0. */
+export interface HostVersion {
+  version: string
+  protocol?: number | null
+  minProtocol?: number | null
+}
 
 /** `major.minor.patch`, ignoring a leading `v` and any pre-release or build suffix. */
 export function parseVersion(version: string): number[] | null {
@@ -35,8 +44,25 @@ export function isBelow(version: string, minimum: string): boolean {
   return false
 }
 
-export function checkVersions(app: string, hostVersion: string, minApp: string | null | undefined): VersionMismatch | null {
-  if (minApp && isBelow(app, minApp)) return { kind: 'updateApp', minimum: minApp }
-  if (isBelow(hostVersion, MIN_HOST)) return { kind: 'updateHost', version: hostVersion, minimum: MIN_HOST }
+/**
+ * The side that must update. A legacy host is held to `LEGACY_MIN_HOST`; its `minApp` is not
+ * checked, since every app with a protocol level is newer than any it names.
+ */
+export function checkHost(host: HostVersion, client = PROTOCOL, minHost = MIN_HOST_PROTOCOL): VersionMismatch | null {
+  if (typeof host.protocol === 'number') {
+    if (typeof host.minProtocol === 'number' && client < host.minProtocol) return { kind: 'updateApp' }
+    if (host.protocol < minHost) return { kind: 'updateHost', version: host.version }
+    return null
+  }
+  if (isBelow(host.version, LEGACY_MIN_HOST)) return { kind: 'updateHost', version: host.version }
   return null
+}
+
+/**
+ * Whether a host has a feature that legacy hosts got in `legacyVersion`. Every host with a
+ * protocol level has all of them; an unknown host is given the benefit of the doubt.
+ */
+export function hostHas(host: { version?: string; protocol?: number | null } | null | undefined, legacyVersion: string): boolean {
+  if (!host || typeof host.protocol === 'number') return true
+  return !isBelow(host.version ?? '', legacyVersion)
 }
