@@ -433,21 +433,51 @@ impl Store {
         Ok(parked)
     }
 
-    /// Approved while the asker was gone, with a grant, and not resumed yet: what a resume would carry (C4's second
-    /// half). Nothing consumes these until that step ships.
-    pub fn cards_awaiting_resume(&self) -> Vec<Card> {
+    /// Owed resumes: answered yes while the asker was gone, with a grant, not resumed yet, before the deadline. A card
+    /// whose grant a later ask used first (`used_by_ask`) is still owed: its resume runs as a wake without the grant
+    /// (C7, A9). The record of an owed resume is this row, never a door's queue (C4, C5).
+    pub fn cards_awaiting_resume(&self, now: i64) -> Vec<Card> {
+        let c = self.db.locked();
+        super::logged("cards awaiting resume", list(&c, &format!("WHERE {OWED} ORDER BY answered_at"), params![now]))
+            .unwrap_or_default()
+    }
+
+    /// The owed resumes of one session: a single wake turn answers them all (L5).
+    pub fn cards_owed_in(&self, session: &str, now: i64) -> Vec<Card> {
         let c = self.db.locked();
         super::logged(
-            "cards awaiting resume",
-            list(
-                &c,
-                "WHERE state = 'approved' AND answered_parked = 1 AND granted_at IS NOT NULL AND resumed_at IS NULL",
-                [],
-            ),
+            "owed cards of a session",
+            list(&c, &format!("WHERE session = ?2 AND {OWED} ORDER BY answered_at"), params![now, session]),
         )
         .unwrap_or_default()
     }
+
+    /// Claims the resume of a card: a compare-and-set on `resumed_at`, so a door's copy and a restart's re-derive can't
+    /// both start a turn. True only for the caller that set it. Taken just before the turn is handed over; a refused
+    /// hand-over gives it back ([`Self::card_resume_release`]).
+    pub fn card_resume_claim(&self, id: &str, now: i64) -> Result<bool> {
+        let sql = format!("UPDATE cards SET resumed_at = ?1 WHERE id = ?2 AND {OWED}");
+        Ok(self.db.locked().execute(&sql, params![now, id])? == 1)
+    }
+
+    /// The hand-over was refused (the session is held, the actor is gone): the resume is owed again.
+    pub fn card_resume_release(&self, id: &str) -> Result<bool> {
+        let sql = "UPDATE cards SET resumed_at = NULL WHERE id = ?1 AND resumed_at IS NOT NULL";
+        Ok(self.db.locked().execute(sql, [id])? == 1)
+    }
+
+    /// An owed resume that can't happen (the person lost the agent, the session is gone): the card ends.
+    pub fn card_resume_drop(&self, id: &str) -> Result<bool> {
+        Ok(self.db.locked().execute(
+            "UPDATE cards SET state = 'withdrawn' WHERE id = ?1 AND resumed_at IS NULL AND state IN ('approved','used')",
+            [id],
+        )? == 1)
+    }
 }
+
+/// The owed-resume condition; `?1` is now.
+const OWED: &str = "answered_parked = 1 AND granted_at IS NOT NULL AND resumed_at IS NULL AND deadline >= ?1
+    AND (state = 'approved' OR (state = 'used' AND used_by_ask = 1))";
 
 #[cfg(test)]
 mod tests {
@@ -553,13 +583,21 @@ mod tests {
             panic!("applied")
         };
         assert!(!was_live && card.answered_parked, "answered while the asker was gone: the grant waits");
-        assert_eq!(s.cards_awaiting_resume().len(), 1);
+        assert_eq!(s.cards_awaiting_resume(0).len(), 1);
         // Another thread of the same person cannot use it (C8); the same session can, once (A4).
         assert!(matches!(s.card_open(&ask("s2", "Bash:ls"), 300).unwrap(), Opened::New(_)));
         assert!(matches!(s.card_open(&ask("s1", "Bash:ls"), 301).unwrap(), Opened::Granted(_)));
         assert!(matches!(s.card_open(&ask("s1", "Bash:ls"), 302).unwrap(), Opened::New(_)), "the grant is spent");
         assert_eq!(s.card(&a.id).unwrap().state, CardState::Used);
-        assert!(s.cards_awaiting_resume().is_empty(), "a used grant is not carried to a resume");
+        // Used by a later ask first: the resume is still owed, as a wake that carries no grant (C7, A9) ...
+        assert_eq!(s.cards_awaiting_resume(0).len(), 1);
+        assert!(s.card_resume_claim(&a.id, 400).unwrap());
+        assert!(!s.card_resume_claim(&a.id, 401).unwrap(), "one resume per card");
+        assert!(s.cards_awaiting_resume(0).is_empty());
+        // ... and a refused hand-over gives the claim back.
+        assert!(s.card_resume_release(&a.id).unwrap());
+        assert_eq!(s.cards_awaiting_resume(0).len(), 1);
+        assert!(s.cards_awaiting_resume(10_001).is_empty(), "past its deadline nothing is owed");
     }
 
     #[test]

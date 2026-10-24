@@ -10,11 +10,11 @@ use crate::remote::members::{self, Listed};
 use crate::runauth::{TokenScope, ask_identity};
 use std::time::Duration;
 
-fn owner_run(session: &str) -> RunIdentity {
+pub(super) fn owner_run(session: &str) -> RunIdentity {
     ask_identity("house", session)
 }
 
-fn guest_run(person: &str, room: &str) -> RunIdentity {
+pub(super) fn guest_run(person: &str, room: &str) -> RunIdentity {
     RunIdentity {
         person: person.into(),
         agent: "house".into(),
@@ -25,22 +25,22 @@ fn guest_run(person: &str, room: &str) -> RunIdentity {
     }
 }
 
-fn window(hub: &Hub, seconds: u64) {
+pub(super) fn window(hub: &Hub, seconds: u64) {
     hub.store.kv_set(WINDOW_KEY, &seconds.to_string()).unwrap();
 }
 
-fn ls() -> Value {
+pub(super) fn ls() -> Value {
     json!({"command": "ls /tmp"})
 }
 
 /// Starts `requestPermission` in the background, as the run socket would.
-fn ask(hub: &Arc<Hub>, who: RunIdentity, tool: &'static str, input: Value) -> tokio::task::JoinHandle<Decision> {
+pub(super) fn ask(hub: &Arc<Hub>, who: RunIdentity, tool: &'static str, input: Value) -> tokio::task::JoinHandle<Decision> {
     let hub = hub.clone();
     tokio::spawn(async move { request_permission(&hub, &who, tool, &input).await })
 }
 
 /// The open card once the call has made it live and shown it.
-async fn shown(hub: &Hub) -> Card {
+pub(super) async fn shown(hub: &Hub) -> Card {
     for _ in 0..200 {
         if let Some(c) = hub.store.cards_open(None).into_iter().find(|c| c.state == CardState::Live) {
             return c;
@@ -50,11 +50,11 @@ async fn shown(hub: &Hub) -> Card {
     panic!("no live card appeared");
 }
 
-fn entry_status(hub: &Hub, card: &Card) -> String {
+pub(super) fn entry_status(hub: &Hub, card: &Card) -> String {
     hub.store.entry(card.entry_id.as_ref().unwrap()).unwrap().data["status"].as_str().unwrap().to_owned()
 }
 
-async fn joined(r: &Rig, preset: &str) -> Caller {
+pub(super) async fn joined(r: &Rig, preset: &str) -> Caller {
     let made = dispatch(&r.hub, &Caller::Local, "createInvite", json!({"name": "Sam", "agents": {"house": preset}}))
         .await
         .unwrap();
@@ -88,7 +88,7 @@ async fn an_owner_run_gets_a_card_and_a_yes_in_the_window_continues_the_same_run
     assert_eq!(call.await.unwrap(), Decision { allow: true, message: "Approved.".into() });
     // C3: the live yes spent the grant; no resume, nothing left to use (A4).
     assert_eq!(r.hub.store.card(&card.id).unwrap().state, CardState::Used);
-    assert!(r.hub.store.cards_awaiting_resume().is_empty());
+    assert!(r.hub.store.cards_awaiting_resume(0).is_empty());
     assert_eq!(entry_status(&r.hub, &card), "answered");
     // A second device, a retry: nothing (A1).
     assert_eq!(answer(&r.hub, &entry.id, Some("deny"), "owner").unwrap(), Outcome::Closed);
@@ -117,7 +117,7 @@ async fn no_answer_in_the_window_tells_the_run_to_end_its_turn_and_a_later_yes_i
     let kept = r.hub.store.card(&card.id).unwrap();
     assert!(kept.state == CardState::Approved && kept.granted_at.is_some() && kept.answered_parked);
     assert_eq!(entry_status(&r.hub, &card), "answered", "no longer shown as waiting");
-    assert_eq!(r.hub.store.cards_awaiting_resume().len(), 1, "what the held resume will carry");
+    assert_eq!(r.hub.store.cards_awaiting_resume(0).len(), 1, "what the held resume will carry");
 
     // Another session of the same person can't use it (C8); its own next ask does, once (A4).
     window(&r.hub, 1);
@@ -329,15 +329,16 @@ async fn a_bot_chat_card_answered_after_its_process_is_gone_is_recorded() {
 }
 
 #[tokio::test]
-async fn settings_default_to_a_minute_and_a_half_and_a_day_and_the_resume_is_off() {
+async fn settings_default_to_a_minute_and_a_half_and_a_day_and_the_resume_is_on_with_a_kill_switch() {
     let r = Rig::new().await;
+    r.hub.store.kv_set(RESUME_KEY, "").unwrap(); // the rig switches it off; empty is "not set"
     let s = settings(&r.hub.store);
-    assert_eq!((s.window, s.expiry_ms, s.resume), (Duration::from_secs(90), 24 * 3_600_000, false));
+    assert_eq!((s.window, s.expiry_ms, s.resume), (Duration::from_secs(90), 24 * 3_600_000, true));
     r.hub.store.kv_set(WINDOW_KEY, "30").unwrap();
     r.hub.store.kv_set(EXPIRY_KEY, "48").unwrap();
-    r.hub.store.kv_set(RESUME_KEY, "on").unwrap();
+    r.hub.store.kv_set(RESUME_KEY, "off").unwrap();
     let s = settings(&r.hub.store);
-    assert_eq!((s.window, s.expiry_ms, s.resume), (Duration::from_secs(30), 48 * 3_600_000, true));
+    assert_eq!((s.window, s.expiry_ms, s.resume), (Duration::from_secs(30), 48 * 3_600_000, false));
 }
 
 #[tokio::test]
@@ -357,7 +358,7 @@ async fn a_yes_after_the_window_but_before_the_process_exits_is_not_lost() {
         kept.state == CardState::Approved && kept.answered_parked,
         "recorded as an answer to a parked card: {kept:?}"
     );
-    assert_eq!(r.hub.store.cards_awaiting_resume().len(), 1);
+    assert_eq!(r.hub.store.cards_awaiting_resume(0).len(), 1);
     // And the session's next ask uses it, once.
     assert!(request_permission(&r.hub, &owner_run("s1"), "Bash", &ls()).await.allow);
 }

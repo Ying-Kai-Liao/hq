@@ -18,8 +18,10 @@ use serde_json::{Value, json};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
-#[allow(clippy::unused_async, reason = "one of the method groups `route` awaits in turn")]
-pub(super) async fn call(_hub: &Arc<Hub>, method: &str, b: Value) -> Result<ControlFlow<Value, Value>> {
+/// How long a holder gets to end after SIGTERM before SIGKILL.
+const HOLDER_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+
+pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<ControlFlow<Value, Value>> {
     Ok(ControlFlow::Break(match method {
         "issueAskToken" => {
             let (agent, session) = (str_arg(&b, "agent")?, str_arg(&b, "session")?);
@@ -41,6 +43,26 @@ pub(super) async fn call(_hub: &Arc<Hub>, method: &str, b: Value) -> Result<Cont
                 },
                 "expiresInS": ttl.as_secs(),
             })
+        }
+        // L2: the owner's Stop for a session "held by an old run" (a card's resume waits behind it). Owner only: it is on
+        // neither the member nor the bot method list, so `roles::guard` refuses everyone else.
+        "stopHolder" => {
+            let session = str_arg(&b, "session")?.to_owned();
+            if !crate::terminal::claim::safe_session(&session) {
+                bail!("`session` must be a Claude session id");
+            }
+            let state = hub.terminal.env().state;
+            let result = tokio::task::spawn_blocking(move || {
+                crate::terminal::claim::stop_holder(&state, &session, HOLDER_GRACE)
+            })
+            .await?;
+            let shown = |c: &crate::terminal::claim::Claim| json!({"kind": c.kind, "pid": c.pid, "since": c.at});
+            use crate::terminal::claim::Stopped;
+            match result {
+                Stopped::Nobody => json!({"stopped": null}),
+                Stopped::OwnTurn(c) => json!({"stopped": null, "ownTurn": shown(&c)}),
+                Stopped::Ended(c) => json!({"stopped": shown(&c)}),
+            }
         }
         "revokeAskToken" => json!({"revoked": crate::runauth::table().revoke_token(str_arg(&b, "token")?)}),
         _ => return Ok(ControlFlow::Continue(b)),

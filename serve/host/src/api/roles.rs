@@ -112,6 +112,12 @@ pub async fn may_use(person: &str, agent: &str) -> bool {
     resolve(person, agent).await.is_some_and(|v| v["allowed"].as_bool() == Some(true))
 }
 
+/// [`may_use`], but `None` when kith-auth could not be asked (or named the owner): a caller that would drop work on a
+/// no (a card's owed resume) tries again instead of dropping it on a hiccup.
+pub async fn may_use_checked(person: &str, agent: &str) -> Option<bool> {
+    resolve(person, agent).await.map(|v| v["allowed"].as_bool() == Some(true))
+}
+
 /// What kith-auth says `person` gets of `agent` (see `kith-auth resolve`); None when it can't be asked or the person
 /// is the owner, who never comes through here.
 async fn resolve(person: &str, agent: &str) -> Option<Value> {

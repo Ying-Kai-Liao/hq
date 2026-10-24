@@ -405,7 +405,9 @@ impl Actor {
             // The kernel said no for this person (not a member any more, or over their budget): it says why.
             self.notice(&format!("Couldn't run this agent for you: {refused}"), NoticeStyle::Error);
         } else if e.is::<crate::terminal::HeldByWriter>() {
-            // `start_turn` already put the notice in the thread.
+            // `start_turn` already put the notice in the thread. A card's resume that was behind this turn is owed
+            // again (the claim was refused, so its marker goes back) and shows who holds the session.
+            crate::cards::resume::refused(&self.hub, &self.turn_entries, self.turn_session.as_deref());
         } else if !self.invite_sign_in(e) {
             // `{:#}` keeps the reason ("starting `npx …`: EACCES"), not just "agent process exited".
             self.notice(&format!("Couldn't start the agent: {e:#}"), NoticeStyle::Error);

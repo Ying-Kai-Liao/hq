@@ -107,6 +107,8 @@ pub struct Core {
     pub(super) inner: Mutex<Inner>,
     /// Connections whose live-agent outboxes are being posted.
     pub(super) pumps: Mutex<HashMap<String, JoinHandle<()>>>,
+    /// The running adapter of each connection (set when it resumes), so a card's wake can start a worker on it.
+    pub(super) ads: Mutex<HashMap<String, Arc<dyn Adapter>>>,
     hinted: Mutex<HashSet<String>>,
     /// What a run gets to ring its person with, given its agent and person (set by the host, see `calls::run_env`).
     pub(super) call_env: std::sync::OnceLock<CallEnv>,
@@ -127,6 +129,7 @@ impl Core {
             backups: deps.backups,
             inner: Mutex::new(Inner { st, path, busy: HashMap::new(), history: HashMap::new(), works: HashMap::new() }),
             pumps: Mutex::new(HashMap::new()),
+            ads: Mutex::new(HashMap::new()),
             hinted: Mutex::new(HashSet::new()),
             call_env: std::sync::OnceLock::new(),
         })
@@ -627,6 +630,7 @@ impl Core {
 
     /// Stops a connection's background work (its live pump) when its grant is revoked.
     pub fn forget(&self, conn: &str) {
+        self.ads.locked().remove(conn);
         if let Some(pump) = self.pumps.locked().remove(conn) {
             pump.abort();
         }

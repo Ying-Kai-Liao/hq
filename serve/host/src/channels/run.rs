@@ -37,7 +37,7 @@ fn run_room(agent: &str, person: Option<&str>, private: bool, chat: &str) -> Opt
     (!chat.is_empty()).then(|| crate::agent::hq::room_of(agent, person, Some(chat)))
 }
 
-fn inherited(name: &str) -> bool {
+pub(crate) fn inherited(name: &str) -> bool {
     let basic = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "TZ", "TERM"].contains(&name)
         || name.starts_with("LC_");
     // No bot tokens or keys, and this is no agent's helper.

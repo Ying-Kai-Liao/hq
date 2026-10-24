@@ -49,6 +49,8 @@ impl Rig {
         let fake = Arc::new(FakeCloud::default());
         let base = fake_cloud(fake.clone()).await;
         hub.store.kv_set("test_cloud_url", &base).unwrap();
+        // The resume half runs on its own tasks; the tests that count owed resumes switch it on themselves.
+        hub.store.kv_set("cards.resume", "off").unwrap();
         cloud::update_status(&hub, |s| s.owner = Some(Owner { user_id: "user_owner".into(), email: None }));
         let rig = Self { dir, bin, hub, fake, _guard: guard };
         rig.auth(&["person", "kai", "owner"]);
