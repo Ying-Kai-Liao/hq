@@ -17,9 +17,10 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { requestAccess } from '../src/main/relay/access.ts'
-import { b64url, signatureHeader, signerFromSeed, unb64url, type Signer } from '../src/main/relay/crypto.ts'
-import { RelayLink } from '../src/main/relay/link.ts'
+import { requestAccess } from '../src/shared/relay-core/access.ts'
+import { b64url, signatureHeader, signerFromSeed, unb64url, type Signer } from '../src/shared/relay-core/crypto.ts'
+import { RelayLink } from '../src/shared/relay-core/link.ts'
+import { dialWebSocket, probeUpgrade } from '../src/main/relay/dial.ts'
 import { parseInviteLink } from '../src/shared/invite.ts'
 import { runJoin, type JoinState } from '../src/shared/invite-join.ts'
 import { relayJoinDeps, type RelayApi } from '../src/shared/relay-access.ts'
@@ -100,7 +101,7 @@ async function cloud(method: string, path: string, o: { token?: string; signer?:
   const headers: Record<string, string> = {}
   if (o.token) headers.Authorization = `Bearer ${o.token}`
   if (o.body !== undefined) headers['Content-Type'] = 'application/json'
-  if (o.signer) headers['Kith-Sig'] = signatureHeader(o.signer, { method, authority: `127.0.0.1:${PORT}`, pathAndQuery: path, body: bytes })
+  if (o.signer) headers['Kith-Sig'] = await signatureHeader(o.signer, { method, authority: `127.0.0.1:${PORT}`, pathAndQuery: path, body: bytes })
   const res = await fetch(CLOUD + path, { method, headers, body: bytes.length ? bytes : undefined })
   return { status: res.status, body: (await res.json()) as any }
 }
@@ -192,7 +193,7 @@ async function main() {
   await waitFor('approved', async () => (await req('GET', `v1/access-requests/${requestId}`, undefined, false)).ok && ((await req('GET', `v1/access-requests/${requestId}`, undefined, false)) as any).value.status === 'approved')
 
   // Over the relay, end to end with the real host.
-  const link = new RelayLink({ cloudURL: CLOUD, computerId, hostSignKey: row.signKey, signer: desktop })
+  const link = new RelayLink({ cloudURL: CLOUD, computerId, hostSignKey: row.signKey, signer: desktop, dial: dialWebSocket, probe: probeUpgrade })
   const hello = (await link.call('hello', {}, 20_000)) as { computerId?: string; name?: string }
   check(hello.computerId === computerId, `hello over the relay names the real host (${hello.name})`)
   const people = (await link.call('people', {}, 20_000)) as { people?: unknown[] }
@@ -224,7 +225,7 @@ async function invitee(computerId: string, signKey: string) {
   check((await req('POST', 'v1/devices', { name: 'Invitee e2e', platform: 'macos' }, true)).ok, 'the invitee registered its device key')
   const links = new Map<string, RelayLink>()
   const linkOf = (id: string, key: string) => {
-    if (!links.has(id)) links.set(id, new RelayLink({ cloudURL: CLOUD, computerId: id, hostSignKey: key, signer: device }))
+    if (!links.has(id)) links.set(id, new RelayLink({ cloudURL: CLOUD, computerId: id, hostSignKey: key, signer: device, dial: dialWebSocket, probe: probeUpgrade }))
     return links.get(id)!
   }
   const api: RelayApi = {

@@ -1,6 +1,5 @@
-import { randomBytes } from 'node:crypto'
-import type { AccessTicket, CloudResult } from '../../shared/relay.ts'
-import { b64url, computerIdOf, sasCode, sasCommit, unb64url, type Signer } from './crypto.ts'
+import type { AccessTicket, CloudResult } from '../relay.ts'
+import { b64url, computerIdOf, randomBytes, sasCode, sasCommit, unb64url, type Signer } from './crypto.ts'
 
 /**
  * Asking a Mac for this device's access (§4.2 B, the commit-then-reveal SAS): commit to a device nonce, wait for the
@@ -35,7 +34,7 @@ export async function requestAccess(ask: AccessAsk): Promise<CloudResult<AccessT
   if (!made.ok) return made
   const { requestId, expiresAt } = made.value as { requestId: string; expiresAt: number }
   ask.created?.(requestId)
-  let hostNonce: Buffer | null = null
+  let hostNonce: Uint8Array | null = null
   while (!hostNonce) {
     if (ask.cancelled()) return failure(0, 'cancelled', 'The request was cancelled.')
     const status = await ask.request('GET', `v1/access-requests/${requestId}`, undefined, false)

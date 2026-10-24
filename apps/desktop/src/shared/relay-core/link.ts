@@ -1,14 +1,12 @@
-import http from 'node:http'
-import https from 'node:https'
-import { randomBytes } from 'node:crypto'
-import type { RelayState } from '../../shared/relay.ts'
-import { FrameOpener, FrameSealer, Handshake, TooLarge, computerIdOf, signatureHeader, unb64url, type Signer } from './crypto.ts'
+import type { RelayState } from '../relay.ts'
+import { FrameOpener, FrameSealer, Handshake, TooLarge, computerIdOf, fromText, signatureHeader, text as utf8, unb64url, type Signer } from './crypto.ts'
 
 /**
  * One device-to-Mac channel over the Kith cloud relay (docs/reference/remote-relay.md §7): the signed upgrade, the
  * hello/welcome handshake pinned to the computer's sign key, encrypted frames carrying inner RPC (§6.5), and the
  * reconnect loop. The iOS client (ChannelTransport) is the other implementation of this; the two behave alike.
- * No electron imports, so node's test runner loads it with a fake socket.
+ * Shared by the desktop main process and the web client: no node, electron or DOM imports. The socket is injected
+ * (`Dial`), so each side keeps its own way of authenticating the upgrade, and node's test runner loads it with a fake one.
  */
 
 /** Something went wrong reaching or talking to the Mac. `status` 0 means the link, not the request: retrying can work. */
@@ -29,8 +27,9 @@ const IDENTITY_CHANGED = "This computer's identity changed, so Kith won't connec
 const UPGRADE = 'This computer needs a newer Kith. Update it, then try again.'
 const UPDATE_APP = 'This version of Kith is too old to connect. Update Kith, then try again.'
 const UNKNOWN_COMPUTER = "This computer isn't on your account."
+const SIGNED_OUT = 'Sign in again to reach your computers.'
 
-const failedStatus = (code: string) => (code === 'upgrade' ? 426 : code === 'unknownComputer' ? 404 : 0)
+const failedStatus = (code: string) => (code === 'upgrade' ? 426 : code === 'unknownComputer' ? 404 : code === 'signedOut' ? 401 : 0)
 
 const unreachable = () => new RelayError(0, UNREACHABLE, 'unreachable')
 
@@ -45,54 +44,16 @@ export interface Socket {
   onclose: ((code: number) => void) | null
 }
 
-export type Dial = (url: string, headers: Record<string, string>) => Socket
-
-/** undici's WebSocket never says why an upgrade was refused; this repeats it as plain HTTP and returns the status (null: no answer). */
-export type Probe = (url: string, headers: Record<string, string>) => Promise<number | null>
-
-export const probeUpgrade: Probe = (url, headers) =>
-  new Promise((resolve) => {
-    const u = new URL(url)
-    const lib = u.protocol === 'http:' ? http : https
-    const req = lib.request(u, {
-      method: 'GET',
-      timeout: 5000,
-      headers: { ...headers, Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': randomBytes(16).toString('base64') },
-    })
-    req.on('response', (res) => {
-      res.resume()
-      resolve(res.statusCode ?? null)
-    })
-    req.on('upgrade', (_res, sock) => {
-      sock.destroy()
-      resolve(101)
-    })
-    req.on('timeout', () => req.destroy())
-    req.on('error', () => resolve(null))
-    req.end()
-  })
-
-export const dialWebSocket: Dial = (url, headers) => {
-  // Node's (undici) WebSocket takes the upgrade headers in its init object.
-  const ws = new WebSocket(url, { headers } as unknown as string[])
-  const socket: Socket = {
-    send: (text) => ws.send(text),
-    close: (code) => {
-      try {
-        // 1000 and 3000-4999 are the only codes a client may send.
-        ws.close(code === 1011 ? 1000 : code)
-      } catch {}
-    },
-    onopen: null,
-    onmessage: null,
-    onclose: null,
-  }
-  ws.addEventListener('open', () => socket.onopen?.())
-  ws.addEventListener('message', (e) => socket.onmessage?.(typeof e.data === 'string' ? e.data : ''))
-  ws.addEventListener('close', (e) => socket.onclose?.(e.code))
-  ws.addEventListener('error', () => {})
-  return socket
+/** What authenticates the upgrade: the `Kith-Sig` header value, which each dialer carries its own way. */
+export interface DialAuth {
+  sig: string
 }
+
+/** Opens the socket. Async so a browser dialer can fetch a fresh session token first. */
+export type Dial = (url: string, auth: DialAuth) => Socket | Promise<Socket>
+
+/** Repeats a refused upgrade as plain HTTP to learn the status (null: no answer). Only desktop can; a browser has no probe. */
+export type Probe = (url: string, auth: DialAuth) => Promise<number | null>
 
 type Outcome =
   | { kind: 'again' }
@@ -122,7 +83,7 @@ export interface LinkOptions {
   /** The computer's Ed25519 sign key, b64url: what the welcome must be signed by. */
   hostSignKey: string
   signer: Signer
-  dial?: Dial
+  dial: Dial
   probe?: Probe
   random?: () => number
   /** Ms between a failed attempt and the next; default `Backoff`. */
@@ -153,7 +114,7 @@ const PING = '{"t":"ping"}'
 
 export class RelayLink {
   private readonly o: LinkOptions
-  private readonly hostPub: Buffer | null
+  private readonly hostPub: Uint8Array | null
   private _state: LinkState = { kind: 'connecting' }
   private readonly listeners = new Set<(s: LinkState) => void>()
   private waiters = new Set<() => void>()
@@ -372,21 +333,23 @@ export class RelayLink {
   }
 
   /** `GET {cloud}/v1/relay/device/{computerId}?v=1`, signed with the device key. */
-  private upgrade(): { url: string; headers: Record<string, string> } {
+  private async upgrade(): Promise<{ url: string; auth: DialAuth }> {
     const base = new URL(this.o.cloudURL)
     const pathAndQuery = `/v1/relay/device/${this.o.computerId}?v=1`
-    const header = signatureHeader(this.o.signer, { method: 'GET', authority: base.host, pathAndQuery })
+    const sig = await signatureHeader(this.o.signer, { method: 'GET', authority: base.host, pathAndQuery })
     const ws = new URL(pathAndQuery, base)
     ws.protocol = base.protocol === 'http:' ? 'ws:' : 'wss:'
-    return { url: ws.toString(), headers: { 'Kith-Sig': header } }
+    return { url: ws.toString(), auth: { sig } }
   }
 
   private async attempt(): Promise<Outcome> {
     let socket: Socket
     try {
-      const { url, headers } = this.upgrade()
-      socket = (this.o.dial ?? dialWebSocket)(url, headers)
-    } catch {
+      const { url, auth } = await this.upgrade()
+      socket = await this.o.dial(url, auth)
+    } catch (e) {
+      // No live session to carry the upgrade (web): stop until the page signs in again and restarts the link.
+      if (e instanceof RelayError && e.code === 'signedOut') return { kind: 'stop', state: { kind: 'failed', message: e.message, code: 'signedOut', final: true } }
       return { kind: 'retry', message: UNREACHABLE }
     }
     return this.serve(socket)
@@ -441,20 +404,29 @@ export class RelayLink {
   /** Asks the relay again, in the open, why it refused; a failed probe changes nothing. */
   private async probeRefusal(): Promise<number | null> {
     try {
-      const { url, headers } = this.upgrade()
-      return await (this.o.probe ?? probeUpgrade)(url, headers)
+      if (!this.o.probe) return null
+      const { url, auth } = await this.upgrade()
+      return await this.o.probe(url, auth)
     } catch {
       return null
     }
   }
 
+  /** The one place a close code becomes a link outcome. The 44xx codes are what a browser gets for a refused upgrade (design §4.6). */
   private outcomeForClose(code: number): Outcome {
     switch (code) {
       case 4001:
       case 4003:
+      case 4403:
         return { kind: 'stop', state: { kind: 'unauthorized', message: REMOVED } }
       case 4400:
         return { kind: 'stop', state: { kind: 'failed', message: UPGRADE, code: 'upgrade', final: true } }
+      case 4426:
+        return { kind: 'stop', state: { kind: 'failed', message: UPDATE_APP, code: 'upgrade', final: true } }
+      case 4404:
+        return { kind: 'stop', state: { kind: 'failed', message: UNKNOWN_COMPUTER, code: 'unknownComputer', final: true } }
+      case 4401:
+        return { kind: 'stop', state: { kind: 'failed', message: SIGNED_OUT, code: 'signedOut', final: true } }
       case 4100:
       case 4011:
         return { kind: 'again' }
@@ -568,7 +540,14 @@ export class RelayLink {
     active.handshake = hs
     active.sealer = active.opener = null
     if (this._state.kind !== 'connecting') this.setState({ kind: 'connecting' })
-    active.socket.send(JSON.stringify(hs.hello()))
+    // Signing is async. A newer presence replaces `active.handshake` meanwhile, and then this hello is stale and dropped,
+    // so only the latest handshake's hello is ever sent on a socket.
+    void hs.hello().then(
+      (hello) => {
+        if (this.active === active && active.handshake === hs) active.socket.send(JSON.stringify(hello))
+      },
+      () => active.socket.close(1000),
+    )
     // No welcome within 10 s: give up on this socket.
     const timer = setTimeout(() => {
       if (this.active === active && active.handshake === hs) active.socket.close(1000)
@@ -578,10 +557,10 @@ export class RelayLink {
   }
 
   /** Inner RPC (§6.5): `ok`/`err` answer calls, `ev`/`end`/`err` feed streams. */
-  private handleInner(message: Buffer) {
+  private handleInner(message: Uint8Array) {
     let obj: Record<string, unknown>
     try {
-      obj = JSON.parse(message.toString('utf8')) as Record<string, unknown>
+      obj = JSON.parse(fromText(message)) as Record<string, unknown>
     } catch {
       return
     }
@@ -619,7 +598,7 @@ export class RelayLink {
   private sendInner(message: unknown) {
     const active = this.active
     if (!active?.sealer) throw unreachable()
-    const frames = active.sealer.seal(Buffer.from(JSON.stringify(message), 'utf8'))
+    const frames = active.sealer.seal(utf8(JSON.stringify(message)))
     // One synchronous burst, so a message's chunks never interleave with another's.
     for (const f of frames) active.socket.send(JSON.stringify({ t: 'f', c: f.c, d: f.d }))
     // Counters must never wrap: replace the channel (§3.5).
