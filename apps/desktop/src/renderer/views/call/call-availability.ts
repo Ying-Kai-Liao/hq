@@ -1,4 +1,5 @@
 import type { BotStore } from '../../store/bot-store'
+import { callBlock } from './call-block'
 import { onDeviceAvailable, onDeviceUnavailableReason, VoiceSettings } from './voice'
 
 /**
@@ -6,8 +7,10 @@ import { onDeviceAvailable, onDeviceUnavailableReason, VoiceSettings } from './v
  * known up front: a cloud voice's missing key or a voice still downloading show on the call screen.
  */
 export function callBlockedReason(store: BotStore): string | null {
-  if (store.isOffline) return "Can't call while the computer is offline."
-  if (store.mismatch) return 'Update Kith on the computer to call.'
-  if (!onDeviceAvailable() && !VoiceSettings.provider()) return `${onDeviceUnavailableReason()} Pick a cloud voice in call settings.`
-  return null
+  return callBlock({
+    offline: store.isOffline,
+    mismatch: !!store.mismatch,
+    voiceReady: onDeviceAvailable() || !!VoiceSettings.provider(),
+    unavailableReason: onDeviceUnavailableReason,
+  })
 }
