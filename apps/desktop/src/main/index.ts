@@ -9,6 +9,7 @@ import { registerFileSaves } from './file-saves'
 import { registerHostProxy } from './host-proxy'
 import { readClipboardFiles, readFiles } from './files'
 import { Tray } from './tray'
+import { applyAppearance, setAppearance } from './appearance'
 import { applyDockVisibility, setShowInDock, showInDock } from './dock'
 import { AccountService } from './account'
 import { Updates } from './updates'
@@ -224,6 +225,7 @@ function registerIPC(tray: Tray) {
     tray.hostChanged()
     return visible
   })
+  ipcMain.on('app:setAppearance', (_e, appearance: unknown) => setAppearance(appearance))
   ipcMain.handle('app:launchAtLogin', () => app.getLoginItemSettings().openAtLogin)
   ipcMain.handle('app:setLaunchAtLogin', (_e, on: boolean) => {
     app.setLoginItemSettings({ openAtLogin: on })
@@ -265,6 +267,7 @@ if (!app.requestSingleInstanceLock()) {
     // Packaged builds take the icon from the bundle (resources/AppIcon.icon); a development run
     // would otherwise show Electron's.
     if (isMac && !app.isPackaged) app.dock?.setIcon(join(__dirname, '../../resources/icon.png'))
+    applyAppearance() // before any window, so a Dark user never sees a light first paint
     applyDockVisibility()
     const island = new Island({ url: rendererURL('island'), preload: join(__dirname, '../preload/index.js'), send, openApp: openChat, changed: () => tray.hostChanged() })
     const tray = new Tray({ openChat, openPairing, send, host, updates, island })

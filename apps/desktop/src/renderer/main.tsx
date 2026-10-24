@@ -13,6 +13,7 @@ import { applyTextSize, prefs } from './lib/prefs'
 import { account } from './store/account'
 import { errorReport } from '@shared/error-report'
 import { migrateLegacyStorage } from '@shared/legacy-compat'
+import { parseAppearance } from '@shared/appearance'
 
 // Error tracking: this window's uncaught errors go to the host (shared/error-report.ts).
 const report = (error: unknown, mechanism: string) => window.kith.app.reportError(errorReport(error, 'desktop-renderer', mechanism))
@@ -26,6 +27,10 @@ document.title = window.kith.appName
 document.documentElement.dataset.platform = window.kith.platform
 document.documentElement.dataset.window = page
 applyTextSize(prefs.textSize.get())
+// The main process applies the choice to every window and keeps its own copy for the next launch.
+const sendAppearance = () => window.kith.app.setAppearance(parseAppearance(prefs.appearance.get()))
+sendAppearance()
+prefs.appearance.subscribe(sendAppearance)
 const root = createRoot(document.getElementById('root')!)
 
 if (page === 'island') {

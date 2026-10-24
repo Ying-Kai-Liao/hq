@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { islandLabel } from '@shared/island'
+import { parseAppearance } from '@shared/appearance'
 import { isSettingsPage, type SettingsPage } from '@shared/settings-pages'
 import { pagesFor, type ComputerRole } from '@shared/people'
 import { Button, CardSection, ChoicePicker, IconButton, ProgressBar, SegmentedChoice, Switch, ValueRow } from '../../components/Controls'
@@ -154,6 +155,7 @@ function AccountSettings() {
 function CrewSettings() {
   const [crewOrder, setCrewOrder] = usePref(prefs.crewOrder)
   const [textSize, setTextSize] = usePref(prefs.textSize)
+  const [appearance, setAppearance] = usePref(prefs.appearance)
   const [usageIconStyle, setUsageIconStyle] = usePref(prefs.usageIconStyle)
   const [compact, setCompact] = usePref(prefs.sidebarCompact)
   const [showInDock, setShowInDock] = useState(true)
@@ -185,6 +187,13 @@ function CrewSettings() {
             selection={textSize}
             options={TEXT_SIZES.map((s) => ({ id: s, label: s === DEFAULT_TEXT_SIZE ? `${s} pt (Default)` : `${s} pt` }))}
             onChange={setTextSize}
+          />
+        </ValueRow>
+        <ValueRow label="Appearance">
+          <ChoicePicker
+            selection={parseAppearance(appearance)}
+            options={[{ id: 'system', label: 'System (Default)' }, { id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }]}
+            onChange={setAppearance}
           />
         </ValueRow>
         <ValueRow label="Usage icons">

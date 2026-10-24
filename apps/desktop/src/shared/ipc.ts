@@ -279,6 +279,8 @@ export interface KithBridge {
     setLaunchAtLogin(on: boolean): Promise<boolean>
     showInDock(): Promise<boolean>
     setShowInDock(on: boolean): Promise<boolean>
+    /** Sets nativeTheme.themeSource for every window and remembers it for the next launch. */
+    setAppearance(appearance: 'system' | 'light' | 'dark'): void
     launchAtLogin(): Promise<boolean>
     openSettings(url: string): void
     /** Opens (or focuses) the Settings window, on `page` when given (a SettingsPage id). */
