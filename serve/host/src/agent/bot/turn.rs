@@ -376,6 +376,11 @@ impl Actor {
             Ok(Ok(())) => self.turn_claim = Some((sid.to_owned(), pid)),
             // A terminal got in between the start check and here: it keeps the session.
             Ok(Err(held)) if held.0.pid == pid => self.turn_claim = Some((sid.to_owned(), pid)),
+            // A main-lane claim only keeps a terminal out; it never stops the turn (bots of one room or team may
+            // hold the same session id, and a terminal can't attach to the main chat). Run without the claim.
+            Ok(Err(held)) if lane.thread.is_none() => {
+                tracing::warn!(holder = held.0.pid, "main-lane turn runs without its writer claim: another holds it");
+            }
             Ok(Err(_)) => {
                 let held =
                     crate::terminal::HeldByWriter { code: if bot { "heldByOtherWriter" } else { "liveInTerminal" } };
