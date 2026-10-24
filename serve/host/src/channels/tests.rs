@@ -929,7 +929,7 @@ async fn a_revoked_person_whose_run_waits_for_the_gate_never_starts_and_the_owne
     r.send(&Rig::msg("2", "@shop guest waits")).await;
     r.send(&Rig::msg("1", "@house owner waits")).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(r.calls("kith"), [] as [serde_json::Value; 0]);
+    assert_eq!(r.calls("kith"), [] as [Value; 0]);
     revoke_guest(&r);
     r.core.stop_person("guest", false).await;
     drop(permit);
