@@ -430,7 +430,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    fn hub_with_bot(retire_ms: &str) -> (std::sync::Arc<Hub>, String, std::path::PathBuf) {
+    fn hub_with_bot(retire_ms: &str) -> (Arc<Hub>, String, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("kith-actors-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();
@@ -452,7 +452,7 @@ mod tests {
             if done() {
                 return true;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
         done()
     }
@@ -478,7 +478,7 @@ mod tests {
     #[tokio::test]
     async fn the_bots_own_chat_never_retires() {
         let (hub, bot, dir) = hub_with_bot("20");
-        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        tokio::time::sleep(Duration::from_millis(1200)).await;
         assert!(hub.has_place(&bot, &Lane::main(&bot)));
         hub.shutdown().await;
         let _ = std::fs::remove_dir_all(&dir);
