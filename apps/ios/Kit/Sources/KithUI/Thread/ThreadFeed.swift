@@ -21,7 +21,7 @@ enum ThreadFeed {
                      yourTurn: Bool, summary: ThreadSummary? = nil, mac: String? = nil, now: Date = .now) -> ThreadChipModel {
         ThreadChipModel(face: face, replies: count, newReplies: max(0, unread ?? 0),
                         time: RelativeTime.day(Date(milliseconds: lastAt), now: now), place: self.place(place),
-                        yourTurn: yourTurn, tint: tint, origin: origin(summary), writer: writerChip(summary, mac: mac))
+                        yourTurn: yourTurn, tint: tint, origin: origin(summary), originLabel: summary?.runLabel, writer: writerChip(summary, mac: mac))
     }
 
     // MARK: terminal threads (continue anywhere)

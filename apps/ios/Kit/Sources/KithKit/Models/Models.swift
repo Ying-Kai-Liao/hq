@@ -204,6 +204,11 @@ public enum ThreadOrigin: Hashable, Sendable {
 public extension ThreadSummary {
     var threadOrigin: ThreadOrigin { ThreadOrigin(origin) }
     var isTerminalOrigin: Bool { origin == "terminal" }
+    /// Who started a one-shot the host mirrored into the room ("asked by architect", "scheduled: nightly"); nil for a real terminal.
+    var runLabel: String? {
+        guard isTerminalOrigin, let label = originLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else { return nil }
+        return label
+    }
     /// Someone other than the app holds the conversation, so the app shows it read-only. An unknown writer counts as held.
     var isHeldElsewhere: Bool { liveWriter.map { $0 != "app" } ?? false }
     /// A terminal is mid-turn here: work the host's own lanes don't show.

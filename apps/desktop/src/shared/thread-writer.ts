@@ -20,6 +20,10 @@ export function writerChange(data: { writerChange?: string } | undefined | null)
   return (CHANGES as readonly string[]).includes(c) ? (c as WriterChange) : { other: c }
 }
 
+/** Who started a one-shot the host mirrored into the room ("asked by architect", "scheduled: nightly"); undefined for a real terminal. */
+export const runLabel = (t: Pick<ThreadSummary, 'origin' | 'originLabel'> | undefined | null) =>
+  t?.origin === 'terminal' && t.originLabel?.trim() ? t.originLabel.trim() : undefined
+
 export const isTerminalOrigin = (t: Pick<ThreadSummary, 'origin'> | undefined | null) => t?.origin === 'terminal'
 
 /** Someone other than the app holds the thread, so the app shows it read-only. An unknown writer counts as held. */

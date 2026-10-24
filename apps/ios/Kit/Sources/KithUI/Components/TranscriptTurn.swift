@@ -34,12 +34,15 @@ public struct ThreadChipModel: Equatable, Sendable {
     public var tint: AgentTint
     /// Where the thread started, when not in the app: a small tag on the meta line.
     public var origin: OriginTag.Origin?
+    /// Who started a mirrored one-shot run; replaces the origin word.
+    public var originLabel: String?
     /// A terminal holds the thread: the writer chip on the meta line.
     public var writer: StatusChip.Kind?
 
     public init(face: CrewFace, replies: Int, newReplies: Int = 0, time: String, place: Place? = nil, yourTurn: Bool = false, tint: AgentTint = .neutral,
-                origin: OriginTag.Origin? = nil, writer: StatusChip.Kind? = nil) {
+                origin: OriginTag.Origin? = nil, originLabel: String? = nil, writer: StatusChip.Kind? = nil) {
         self.origin = origin
+        self.originLabel = originLabel
         self.writer = writer
         self.face = face
         self.replies = replies
@@ -130,7 +133,7 @@ public struct ThreadChipView: View {
 
     public var body: some View {
         HStack(spacing: 8) {
-            if let origin = t.origin { OriginTag(origin) }
+            if let origin = t.origin { OriginTag(origin, label: t.originLabel) }
             if let writer = t.writer { StatusChip(writer, tint: t.tint) }
             if let place = t.place {
                 Label { Text(place.text).lineLimit(1) } icon: { Image(systemName: place.symbol) }
