@@ -106,9 +106,22 @@ impl std::fmt::Display for Hidden {
 
 impl std::error::Error for Hidden {}
 
+/// A refusal written for the person who reads it (a call that is gone or already settled): guests see its text (400).
+#[derive(Debug)]
+pub struct UserError(pub String);
+
+impl std::fmt::Display for UserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UserError {}
+
 /// Errors written for the person who sees them keep their text; everything else is internal.
 fn user_facing(e: &anyhow::Error) -> bool {
     e.is::<UnknownMethod>()
+        || e.is::<UserError>()
         || e.is::<Forbidden>()
         || e.is::<NotAllowed>()
         || e.is::<crate::remote::cloud::Conflict>()
