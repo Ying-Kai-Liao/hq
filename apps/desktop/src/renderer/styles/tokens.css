@@ -168,15 +168,29 @@
   background-size: 100% auto;
   background-color: var(--kith-ground);
   /* Day only: a touch more colour so the blue and clouds read against the white page. Matches iOS. */
-  filter: saturate(1.35) contrast(1.1);
+  filter: saturate(1.6) contrast(1.1);
 }
 /* Home: fills the top and is gone into the ground by mid-height. */
 .kith-sky-home {
   /* Sized from the width, so the image is never squeezed; the parent clips it. */
   aspect-ratio: 1179 / 1160;
   background-image: url('../assets/sky/sky-home-day.webp');
-  -webkit-mask-image: linear-gradient(#000 0, #000 35%, transparent 50%);
-  mask-image: linear-gradient(#000 0, #000 35%, transparent 50%);
+  /* Day: the fade runs later so more of the sky shows (iOS: 0.3 / 0.7 of the screen). */
+  -webkit-mask-image: linear-gradient(#000 0, #000 70%, transparent 100%);
+  mask-image: linear-gradient(#000 0, #000 70%, transparent 100%);
+}
+/* Day only: a soft sky-blue wash over the artwork (multiply keeps the clouds), as on iOS. */
+.kith-sky-home::before,
+.kith-sky-header::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 84%;
+  background: linear-gradient(rgb(184 219 255), transparent);
+  mix-blend-mode: multiply;
+}
+.kith-sky-header::before {
+  height: 100%;
 }
 /* Agent chat: a short strip behind the top bar, gone by --kith-sky-header-fade. */
 .kith-sky-header {
@@ -188,15 +202,27 @@
 @media (prefers-color-scheme: dark) {
   .kith-sky-home:not(.kith-sky-day) {
     filter: none;
+    -webkit-mask-image: linear-gradient(#000 0, #000 35%, transparent 50%);
+    mask-image: linear-gradient(#000 0, #000 35%, transparent 50%);
     background-image: url('../assets/sky/sky-home-night.webp');
   }
   .kith-sky-header:not(.kith-sky-day) {
     filter: none;
     background-image: url('../assets/sky/sky-header-night.webp');
   }
+  .kith-sky-home:not(.kith-sky-day)::before,
+  .kith-sky-header:not(.kith-sky-day)::before {
+    display: none;
+  }
+}
+.kith-sky-home.kith-sky-night::before,
+.kith-sky-header.kith-sky-night::before {
+  display: none;
 }
 .kith-sky-home.kith-sky-night {
   filter: none;
+  -webkit-mask-image: linear-gradient(#000 0, #000 35%, transparent 50%);
+  mask-image: linear-gradient(#000 0, #000 35%, transparent 50%);
   background-image: url('../assets/sky/sky-home-night.webp');
 }
 .kith-sky-header.kith-sky-night {
