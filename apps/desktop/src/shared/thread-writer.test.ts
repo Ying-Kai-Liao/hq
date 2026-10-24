@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { normalizeBot, type Entry, type ThreadSummary } from './models.ts'
 import { taskStatus } from './tasks.ts'
 import {
-  isHeldByTerminal, isHeldElsewhere, isTerminalOrigin, resumeCommand, threadOrigin, threadWriterCode, threadWriterMessage, writerChange,
+  isHeldByTerminal, isHeldElsewhere, isTerminalOrigin, resumeCommand, runLabel, threadOrigin, threadWriterCode, threadWriterMessage, writerChange,
 } from './thread-writer.ts'
 
 const base: ThreadSummary = { count: 2, lastAt: 5, authors: ['b'] }
@@ -66,4 +66,12 @@ test('a prompt in a held thread does not need you', () => {
   const prompt = entry('p', 'permission', { status: 'pending' }, 't')
   assert.equal(taskStatus(bot, entry('t', 'user', { thread: base }), [prompt]), 'needsYou')
   assert.equal(taskStatus(bot, entry('t', 'user', { thread: { ...base, liveWriter: 'terminal' } }), [prompt]), 'working')
+})
+
+test('a mirrored one-shot says who started it; a real terminal and other origins say nothing', () => {
+  assert.equal(runLabel({ origin: 'terminal', originLabel: ' asked by architect ' }), 'asked by architect')
+  assert.equal(runLabel({ origin: 'terminal' }), undefined)
+  assert.equal(runLabel({ origin: 'terminal', originLabel: '  ' }), undefined)
+  assert.equal(runLabel({ origin: 'discord', originLabel: "Sam's server" }), undefined)
+  assert.equal(runLabel(undefined), undefined)
 })

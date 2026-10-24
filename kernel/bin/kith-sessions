@@ -26,8 +26,12 @@ session, before the registry file exists and with the host down. Stale (pid gone
 `--resume` claims BEFORE it asks whether the host is busy; a fresh run needs no claim: its session id is new, nobody else can name it
 until the SessionStart hook has written the registry file.
 Live = the pid runs and ~/.claude/sessions/<pid>.json names the same sessionId (the host decides; resolve reuses it).
-Listable = interactive, the owner's, started in a terminal by `kith <agent>`: the launcher sets KITH_TERMINAL_SESSION=1 for
-exactly that run, so -p one-shots and helpers inherit nothing.
+Listable = the owner's own run of one of these kinds (the file's "kind", with "label" saying who started a one-shot and
+"procStart" the claude process' start, for the host's liveness when claude keeps no session file):
+  terminal  interactive, started in a terminal by `kith <agent>`: the launcher sets KITH_TERMINAL_SESSION=1 for exactly that run
+  ask | schedule | helper   a one-shot: bin/kith sets KITH_RUN_KIND for exactly that run from what its launcher passed
+            (kith-ask, kith-sched: KITH_LAUNCH_KIND) or, started by another run of the owner's, `helper`.
+Never listed: KITH_PERSON runs, the host's own runs (KITH_VIA=serve, channels, tidying), KITH_HIDE_SESSION, agent worktrees.
 """
 import datetime as dt, fcntl, json, os, signal, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
@@ -46,9 +50,34 @@ def claude_dir():
     return Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
 
 
+def run_kind(env=os.environ):
+    """What kind of listable run this is, else None: `terminal` (interactive `kith <agent>`), or a one-shot of the owner's that
+    bin/kith labelled for this run (KITH_RUN_KIND: ask | schedule | helper). The host's own runs (serve, channels, tidying) and
+    anyone else's (KITH_PERSON) are never listed: the apps show those themselves or the person's room does."""
+    if env.get('KITH_PERSON') or env.get('KITH_HIDE_SESSION') == '1' or not env.get('KITH_AGENT'):
+        return None
+    if env.get('KITH_TERMINAL_SESSION') == '1':
+        return 'terminal' if env.get('KITH_VIA', 'terminal') == 'terminal' else None
+    return env.get('KITH_RUN_KIND') if env.get('KITH_RUN_KIND') in ONE_SHOTS else None
+
+
+ONE_SHOTS = ('ask', 'schedule', 'helper')
+
+
+def run_label(kind, env=os.environ):
+    """How the room says who started a one-shot; None for a terminal."""
+    who = (env.get('KITH_RUN_LABEL') or '').strip()[:60]
+    if kind == 'ask':
+        return 'asked by %s' % who if who else 'asked from a terminal'
+    if kind == 'schedule':
+        return 'scheduled: %s' % who if who else 'scheduled'
+    if kind == 'helper':
+        return 'helper of %s' % who if who else 'helper'
+    return None
+
+
 def listable(cwd, env=os.environ):
-    return (env.get('KITH_TERMINAL_SESSION') == '1' and not env.get('KITH_PERSON') and env.get('KITH_VIA', 'terminal') == 'terminal'
-            and env.get('KITH_HIDE_SESSION') != '1' and bool(env.get('KITH_AGENT')) and '/.claude/worktrees/' not in cwd + '/')
+    return run_kind(env) is not None and '/.claude/worktrees/' not in cwd + '/'
 
 
 def ps_row(pid):
@@ -96,10 +125,14 @@ def record():
                 started = json.loads(path.read_text()).get('startedAt', started)
             except (OSError, ValueError):
                 pass
+        kind = run_kind()
+        pid = claude_pid(sid)
+        resumed = env.get('KITH_RESUMED_FROM') or None
         write_atomic(path, {
             'v': 1, 'sessionId': sid, 'agent': env['KITH_AGENT'], 'cwd': cwd, 'transcriptPath': hook.get('transcript_path'),
-            'pid': claude_pid(sid), 'project': env.get('KITH_PROJECT') or None, 'source': hook.get('source') or 'startup',
-            'resumedFrom': env.get('KITH_RESUMED_FROM') or None, 'startedAt': started})
+            'pid': pid, 'project': env.get('KITH_PROJECT') or None, 'source': hook.get('source') or 'startup',
+            'resumedFrom': resumed, 'startedAt': started,
+            'kind': kind, 'label': run_label(kind), 'procStart': proc_start(pid) if pid and kind != 'terminal' else None})
     except Exception as e:  # noqa: BLE001 — listing must never block a session
         print(f'kith-sessions record: {e}', file=sys.stderr)
 

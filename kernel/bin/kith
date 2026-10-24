@@ -418,6 +418,19 @@ sys.exit(0 if ok else 1)' || { echo "kith: session $resume is not one of ${KITH_
 fi
 # These two belong to one run (listing a terminal session, and where it was resumed from): a helper this agent starts must not inherit them.
 unset KITH_TERMINAL_SESSION KITH_RESUMED_FROM
+# What kind of one-shot this is, for the apps' rooms (bin/kith-sessions record lists it): kith-ask and kith-sched pass
+# KITH_LAUNCH_KIND to the run they start; a run another run of the owner's started (from a terminal, an ask or a job) is
+# a helper. The host's own runs (KITH_VIA=serve, channels) are not listed here. Neither name is inherited further.
+run_kind=${KITH_LAUNCH_KIND:-} run_label=${KITH_LAUNCH_LABEL:-}
+unset KITH_LAUNCH_KIND KITH_LAUNCH_LABEL KITH_RUN_KIND KITH_RUN_LABEL HQ_LAUNCH_KIND HQ_LAUNCH_LABEL HQ_RUN_KIND HQ_RUN_LABEL   # (HQ_ twins: kith_env_sync fills the KITH_ names back from them)
+if [[ -z $run_kind && $nested -eq 1 ]]; then
+  case ${KITH_VIA:-terminal} in terminal|ask|schedule) run_kind=helper run_label=$caller ;; esac
+fi
+if [[ $p_owner == 1 && -z ${KITH_PERSON:-} && -n $run_kind ]]; then
+  export KITH_RUN_KIND=$run_kind KITH_RUN_LABEL=$run_label
+  # `kith ask -c` continues a session: the card joins the thread of the one it resumes (the registry's resumedFrom).
+  [[ -n $resume && $resume != *:* && -z $r_sid ]] && export KITH_RESUMED_FROM=$resume
+fi
 # An ask token (the owner's approval cards, KITH_ASK_*) belongs to one run: a helper this run starts, or any run for a person
 # who isn't the owner, never inherits it. A helper of the owner's asks the host for its own below.
 [[ $nested -eq 1 || $p_owner == 0 ]] && unset KITH_ASK_TOKEN KITH_ASK_SOCKET HQ_ASK_TOKEN HQ_ASK_SOCKET   # (kith_env_sync would fill the KITH_ names back from the HQ_ ones)

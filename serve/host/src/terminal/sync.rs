@@ -388,7 +388,10 @@ fn create_thread(hub: &Hub, env: &Env, reg: &Registry, bot: &BotConfig) -> Resul
     if live {
         hub.store.kv_set(&stale_key(&thread), "1")?;
     }
-    writer_notice(hub, &thread, "startedInTerminal", "Started in the terminal", at);
+    // A one-shot says who asked in the card's label, not in a divider about a terminal nobody sat in.
+    if !reg.one_shot() {
+        writer_notice(hub, &thread, "startedInTerminal", "Started in the terminal", at);
+    }
     let mut items = read.items;
     let mut dropped = read.dropped > 0;
     if first_index >= read.dropped {
@@ -401,19 +404,24 @@ fn create_thread(hub: &Hub, env: &Env, reg: &Registry, bot: &BotConfig) -> Resul
     }
     apply(hub, &thread, &items, live);
     save_cursor(hub, &thread, read.end, reg.transcript());
-    done_importing(hub, &thread);
+    done_importing(hub, &thread, reg);
     Ok(Some(thread))
 }
 
 /// The root's `data.thread` of a new terminal thread.
 fn thread_value(reg: &Registry, origin: &str, live: bool, busy: bool) -> Value {
-    json!({
+    // One-shots keep `origin: terminal`: the apps already read such a card as read-only, continued from the terminal.
+    let mut value = json!({
         "count": 0, "lastAt": 0, "authors": [], "unread": 0,
         "origin": origin,
         "liveWriter": if live { json!("terminal") } else { Value::Null },
         "liveBusy": busy,
         "terminal": {"sessionId": reg.session_id, "cwd": reg.cwd},
-    })
+    });
+    if let Some(label) = reg.label.as_deref().filter(|_| reg.one_shot()) {
+        value["originLabel"] = label.into();
+    }
+    value
 }
 
 /// Imports what the transcript gained since the cursor. A thread that has none yet (an app thread a terminal
@@ -444,7 +452,7 @@ fn import_locked(hub: &Hub, t: &Thread, reg: &Registry) -> Result<()> {
     }
     apply(hub, t, &read.items, live);
     save_cursor(hub, t, read.end, reg.transcript());
-    done_importing(hub, t);
+    done_importing(hub, t, reg);
     // A terminal that ran and closed between two scans was never seen live: the session still changed under the cache.
     if !read.items.is_empty() {
         forget_loaded(hub, t);
@@ -458,9 +466,12 @@ fn newest_at(hub: &Hub, t: &Thread) -> i64 {
     last.or_else(|| hub.store.entry(&t.root).map(|e| e.created_at)).unwrap_or(0)
 }
 
-fn done_importing(hub: &Hub, t: &Thread) {
+fn done_importing(hub: &Hub, t: &Thread, reg: &Registry) {
     hub.refresh_thread_summary(&t.bot, &t.root);
-    // Read in the terminal already.
+    // A one-shot nobody watched is new to the room: it stays unread. A terminal was read where it ran.
+    if reg.one_shot() {
+        return;
+    }
     if let Err(error) = hub.mark_read(&t.bot, ReadScope::Thread(&t.root)) {
         tracing::warn!(%error, "couldn't mark a terminal thread read");
     }
@@ -612,7 +623,8 @@ fn update_state(hub: &Hub, env: &Env, t: &Thread, reg: Option<&Registry>) {
     let live = reg.as_ref().map_or(Live::Closed, |r| registry::liveness(r, env.sessions.as_deref()));
     let was_live = hub.store.kv_get(&live_key(t)).as_deref() == Some("1");
     if live.is_live() != was_live {
-        if hub.store.kv_set(&live_key(t), if live.is_live() { "1" } else { "0" }).is_ok() {
+        let quiet = reg.as_ref().is_some_and(Registry::one_shot);
+        if hub.store.kv_set(&live_key(t), if live.is_live() { "1" } else { "0" }).is_ok() && !quiet {
             let (change, text) = if live.is_live() {
                 ("openedInTerminal", "Opened in the terminal")
             } else {

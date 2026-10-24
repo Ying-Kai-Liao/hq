@@ -22,7 +22,7 @@ import { AnsweredBy } from './AnsweredBy'
 import { contextLabel } from './context-hint'
 import { callLineSuffix } from './call-line'
 import { ThreadChip as KithThreadChip, pairOf, type Origin, type Place } from '../../components/kith'
-import { threadOrigin } from '@shared/thread-writer'
+import { runLabel, threadOrigin } from '@shared/thread-writer'
 import { avatarImage } from '@shared/crew'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
@@ -146,6 +146,7 @@ export function ThreadChip({ summary, open, isOpen = false, chat }: { summary: T
           pair: pairOf(author?.avatarColor),
           place,
           origin: tag,
+          originLabel: runLabel(summary),
           onToggle: open,
           onOpen: open,
         }}

@@ -102,3 +102,10 @@ private actor Canned: HostTransport {
     #expect(Tasks.status(of: try root("{\(base)}"), bot: bot, replies: [prompt]) == .needsYou)
     #expect(Tasks.status(of: try root(#"{\#(base),"liveWriter":"terminal"}"#), bot: bot, replies: [prompt]) == .working)
 }
+
+@Test func aMirroredOneShotSaysWhoStartedItAndOtherThreadsSayNothing() throws {
+    #expect(try summary(#"{\#(base),"origin":"terminal","originLabel":" asked by architect "}"#).runLabel == "asked by architect")
+    #expect(try summary(#"{\#(base),"origin":"terminal"}"#).runLabel == nil)
+    #expect(try summary(#"{\#(base),"origin":"terminal","originLabel":"  "}"#).runLabel == nil)
+    #expect(try summary(#"{\#(base),"origin":"discord","originLabel":"Sam's server"}"#).runLabel == nil)
+}

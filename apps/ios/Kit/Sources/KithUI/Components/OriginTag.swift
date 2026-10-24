@@ -20,16 +20,18 @@ public struct OriginTag: View {
     }
 
     let origin: Origin
-    public init(_ origin: Origin) { self.origin = origin }
+    /// Replaces the word: who started a mirrored one-shot ("asked by architect").
+    let label: String?
+    public init(_ origin: Origin, label: String? = nil) { self.origin = origin; self.label = label }
 
     public var body: some View {
         HStack(spacing: 4) {
             Image(systemName: origin.symbol).font(.system(size: 10, weight: .medium))
-            Text(origin.word).kithText(.label).lineLimit(1).fixedSize()
+            Text(label ?? origin.word).kithText(.label).lineLimit(1).fixedSize()
         }
         .foregroundStyle(Palette.muted)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Started in \(origin.word)"))
+        .accessibilityLabel(Text(label ?? "Started in \(origin.word)"))
     }
 }
 
