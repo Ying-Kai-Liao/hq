@@ -756,6 +756,8 @@ while IFS= read -r base; do
     allowed+=("Bash($base/bin/$c)" "Bash(\"$base/bin/$name\"$rest)")
   done
 done < <(printf '%s\n' "$KITH" "$kith_real" "$KITH_HOME/kernel" | awk '!seen[$0]++')
+# The way out of the guest sandbox is a request, not a prompt: asking is always allowed (the host makes the card, F11 2b).
+[[ $p_owner == 0 ]] && allowed+=("mcp__kithpermit__request_access")
 # Each agent carries only its own tools: the shared services it needs and is granted (kith-auth), its own mcp.json
 # for servers no one else uses, and no global skills unless capabilities.yaml says global_skills: true. Its own
 # skills are files it reads on demand. A broken auth.json costs the agent its services, not the run.
@@ -913,6 +915,12 @@ if [[ $# -gt 0 ]]; then
     if [[ -n ${KITH_RUN_TOKEN:-} && -n ${KITH_RUN_SOCKET:-} ]] || [[ -n ${KITH_ASK_TOKEN:-} && -n ${KITH_ASK_SOCKET:-} ]]; then
       args+=(--mcp-config "{\"mcpServers\":{\"kithpermit\":{\"command\":\"$KITH/bin/kith-permit\",\"args\":[]}}}"
              --permission-prompt-tool mcp__kithpermit__approve)
+    fi
+    # F11 step 2b: what this session was given beyond the box (a yes on an escape card, an "always") goes into the settings
+    # file now, after the claim above and before exec: a once grant is consumed by the one run that is about to start, never
+    # by a profile built earlier (a read made before the claim could be spent twice). Nothing from the host, no access.
+    if [[ $p_owner == 0 && -n ${KITH_RUN_TOKEN:-} && -n ${KITH_RUN_SOCKET:-} ]]; then
+      python3 "$KITH/bin/kith-permit" apply "$runs/$$.settings.json" || true
     fi
   fi
   exec claude "${args[@]}" -p "$*"

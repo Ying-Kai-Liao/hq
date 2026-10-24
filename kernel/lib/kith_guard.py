@@ -9,6 +9,7 @@ outside the sandbox later runs, loads as settings, or loads as instructions. Eve
 a link is involved, by both spellings.
 """
 import os
+import re
 
 # Under the Kith state folder and the machine folder: whole folders that hold logins, tokens and every audience's index.
 SECRET_DIRS = ("secrets", "serve", "browsers", "bridge", "index", "room-ledger")
@@ -67,3 +68,96 @@ def rule_w(home, folders, trees=(), files=()):
 def edit_rules(trees, files):
     """Edit deny rules (which cover every tool that writes a file) for a rule W list."""
     return ["Edit(/%s/**)" % t for t in trees] + ["Edit(/%s)" % f for f in files]
+
+
+# ---- access grants (F11 step 2b)
+# What a yes on an escape card adds to the next run's profile. The host decides what is granted (cards, kith-auth); this is
+# the build-time half, and it checks again: a grant is never added when it resolves into the secrets or rule W, however
+# it got here.
+DOMAIN = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def valid_domain(d):
+    """A plain host name (no wildcard, no address, no port)."""
+    return isinstance(d, str) and DOMAIN.match(d) is not None
+
+
+def covers(entry, path):
+    """Whether a deny entry (a path, `dir/**` for a tree, `dir/**/name` at any depth) holds `path`. Case-folded on macOS."""
+    if os.uname().sysname == "Darwin":
+        entry, path = entry.lower(), path.lower()
+    e = entry[:-3] if entry.endswith("/**") else entry
+    rx = re.escape(e).replace("/\\*\\*/", "/(?:.*/)?")
+    return re.fullmatch(rx + "(?:/.*)?", path) is not None
+
+
+def is_rule_w(home, path, trees=(), files=()):
+    """Whether `path` is, or is below, a place rule W closes: the in-folder names at any depth, the home and PATH folders,
+    and the extra `trees` / `files`."""
+    t, f = rule_w(home, [], trees, files)
+    t += ["/**/" + n for n in IN_FOLDER_TREES]
+    f += ["/**/" + n for n in IN_FOLDER_FILES]
+    return any(covers(x, path) for x in t) or any(covers(x, path) for x in f)
+
+
+def apply_grants(s, grants, home, secrets):
+    """Adds `grants` ({"read": [...], "write": [...], "domains": [...]}) to the guest settings `s` (a dict, in place).
+
+    `secrets` is the list of absolute secret folders (`secret_paths`). Returns the (kind, value) pairs that went in; the
+    rest are dropped: not an absolute real path (a link on the way now leads elsewhere, so the grant is for something
+    else), inside a secret or a denied place, inside rule W for a write, or a bad domain name."""
+    fs = s["sandbox"]["filesystem"]
+    perms = s.setdefault("permissions", {})
+    deny = perms.setdefault("deny", [])
+    allow = perms.setdefault("allow", [])
+    add_dirs = perms.setdefault("additionalDirectories", [])
+    # Named denies (other agents, other people, the owner's user.md) and the secrets stay on top of everything below. The
+    # Kith folder and agents folder are denied whole with a way back in, so a grant inside them is judged by the named ones.
+    whole = {p for r in ("KITH_HOME", "KITH_AGENTS") if os.environ.get(r) for p in both(os.path.abspath(os.environ[r]))}
+    never_read = [d for d in fs.get("denyRead", []) if d != "/" and d not in whole] + list(secrets)
+    never_write = list(fs.get("denyWrite", [])) + list(secrets)
+    done = []
+
+    def put(lst, x):
+        if x not in lst:
+            lst.append(x)
+
+    def real(p):
+        return p if isinstance(p, str) and os.path.isabs(p) and os.path.realpath(p) == p else None
+
+    writes = {p for p in grants.get("write", []) if real(p)}
+    for kind in ("read", "write"):
+        for p in dict.fromkeys(grants.get(kind, [])):
+            p = real(p)
+            if not p or any(covers(d, p) for d in never_read):
+                continue
+            if kind == "write":
+                if any(covers(d, p) for d in never_write):
+                    continue
+                if is_rule_w(home, p):
+                    continue
+                trees, files = rule_w(home, [p])
+                for t in trees:
+                    put(fs.setdefault("denyWrite", []), t)
+                    if "**" in t:
+                        put(fs["denyWrite"], t + "/**")
+                for f in files:
+                    put(fs.setdefault("denyWrite", []), f)
+                for r in edit_rules(trees, files):
+                    put(deny, r)
+                put(fs.setdefault("allowWrite", []), p)
+                put(allow, "Edit(/%s/**)" % p if os.path.isdir(p) else "Edit(/%s)" % p)
+            elif p not in writes:
+                # read only: the file tools may not write there, whatever the permission mode would allow
+                put(deny, "Edit(/%s/**)" % p if os.path.isdir(p) else "Edit(/%s)" % p)
+            put(fs.setdefault("allowRead", []), p)
+            if os.path.isdir(p):
+                put(add_dirs, p)
+            else:
+                put(allow, "Read(/%s)" % p)
+            done.append((kind, p))
+    for d in dict.fromkeys(grants.get("domains", [])):
+        if valid_domain(d):
+            put(s["sandbox"].setdefault("network", {}).setdefault("allowedDomains", []), d)
+            done.append(("domain", d))
+    return done

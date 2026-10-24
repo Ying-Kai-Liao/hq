@@ -168,6 +168,7 @@ updated: YYYY-MM-DD   by: <agent>
   right before editing and change only your sections.
 - `ID.md` and session files are yours alone.
 - **A refused action in a one-shot run is a card, not a no:** a permission prompt in a `claude -p` run goes to the person who can approve it (`--permission-prompt-tool`, `bin/kith-permit`). When the answer says someone is being asked, end your turn and say what you were waiting for; don't retry or work around it. Secrets and logins are never carded.
+- **The sandbox of a guest run is a door with a knock, not a wall:** when a command fails with "Operation not permitted" (or the network is refused) for a file, folder or website you were asked to use, call the `request_access` tool (`path` or `domain`, and `reason`; `write: true` only if you must change it) and end your turn. The owner gets a card; a yes applies the next time you run, not during this turn, and you are resumed when it is answered. Don't retry, don't look for another way in, and don't ask for secrets, logins or startup files (they are refused outright).
 - Stay in your lane: work that belongs to another specialist goes to it as above, not done by you. Code
   changes in a repo are coder's (when it is installed): unless the user asked you to make them yourself, send it a
   bounded request (what to change, where, acceptance criteria) with `{{KITH}}/bin/kith ask --bg coder -p <ID> "…"`, which

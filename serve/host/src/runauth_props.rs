@@ -423,8 +423,10 @@ pub fn prop_only_recall_is_authorized() -> Result<(), String> {
                         "recal",
                         "exec",
                         "send",
-                        // The one other method: refused without a tool, and checked on its own in runauth.rs.
-                        "requestPermission"
+                        // The other methods: refused without their fields (a tool; a kind, target and reason), and checked
+                        // on their own in runauth.rs and cards/access_tests.rs (`consumeAccess` takes none, so it isn't here).
+                        "requestPermission",
+                        "requestAccess"
                     ][..]
                 )
                 .prop_map(|m| json!(m)),

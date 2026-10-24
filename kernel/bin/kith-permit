@@ -3,6 +3,14 @@
 
   kith-permit                          stdio MCP server with one tool, approve(tool_name, input, tool_use_id)
   kith-permit issue AGENT SESSION PID  ask the host for an owner ask token bound to PID; prints export lines for sh
+  kith-permit apply SETTINGS_FILE      a guest run's launch, after its session claim: ask the host for the access this session
+                                       was given (a yes on an escape card, an "always") and add it to the settings file
+
+A second tool, request_access(path|domain, reason), is the way out of the guest sandbox (F11 step 2b): after an EPERM the run
+asks for the place instead of working around it, and ends its turn. The host gets
+  {"token", "method": "requestAccess", "kind": "path"|"domain", "target", "reason"}
+refuses secrets and rule W, and otherwise makes a card for whoever may answer. A yes cannot widen a process that is already
+running, so it is applied at the next activation of the session: `apply` above, which asks `consumeAccess` once per run.
 
 When Claude Code reaches a permission prompt in a run nobody is watching (an "ask" rule, a tool the mode doesn't allow),
 it calls approve instead of refusing. The tool sends the host one line over the run socket,
@@ -73,6 +81,86 @@ def tool_def():
                             'required': ['tool_name', 'input']}}
 
 
+ACCESS = 'request_access'
+
+
+def access_def():
+    return {'name': ACCESS,
+            'description': 'Ask the owner for a folder, file or website your sandbox blocks (a command failed with "Operation '
+                           'not permitted", or the network was refused). Give the absolute path, or the host name, and why. '
+                           'The answer comes at your next turn: after this call, end your turn and say what you are waiting for.',
+            'inputSchema': {'type': 'object',
+                            'properties': {'path': {'type': 'string', 'description': 'absolute path of the file or folder'},
+                                           'domain': {'type': 'string', 'description': 'host name, e.g. pypi.org'},
+                                           'reason': {'type': 'string'},
+                                           'write': {'type': 'boolean', 'description': 'also write there (default: read only)'}},
+                            'required': ['reason']}}
+
+
+def call_host(method, body, env=os.environ, timeout=30):
+    """One request to the host over the run socket: the reply dict, or None when there is no token, no socket or no answer."""
+    token, path = credentials(env)
+    if not token:
+        return None
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect(path)
+            s.sendall(json.dumps(dict(body, token=token, method=method)).encode() + b'\n')
+            buf = b''
+            while not buf.endswith(b'\n'):
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+        reply = json.loads(buf.decode())
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    return reply if isinstance(reply, dict) else None
+
+
+def request_access(a, env=os.environ):
+    """The text the agent is told for one request_access call."""
+    path, domain = a.get('path'), a.get('domain')
+    if bool(path) == bool(domain) or not all(isinstance(x, str) for x in (path or domain, a.get('reason'))):
+        return 'Give either an absolute path or a domain, and a reason.'
+    kind, target = ('path', path) if path else ('domain', domain)
+    body = {'kind': kind, 'target': target, 'reason': a['reason'], 'write': a.get('write') is True}
+    reply = call_host('requestAccess', body, env)
+    if reply is None:
+        return 'No approval channel for this run: access was not requested. Say what you needed and carry on without it.'
+    msg = reply.get('message') or reply.get('error')
+    return msg if isinstance(msg, str) and msg else 'The approval service gave no clear answer; nothing was requested.'
+
+
+def apply(settings_file, env=os.environ):
+    """Adds the access this session was given to a guest run's settings file. Never fails the run: no answer is no access."""
+    import tempfile
+    reply = call_host('consumeAccess', {}, env, timeout=10)
+    grants = reply.get('grants') if reply and reply.get('ok') is True else None
+    if not isinstance(grants, dict) or not any(grants.get(k) for k in ('read', 'write', 'domains')):
+        return 0
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+        import kith_guard
+        from kith_paths import paths
+        p = paths()
+        s = json.load(open(settings_file))
+        done = kith_guard.apply_grants(
+            s, {k: [x for x in grants.get(k, []) if isinstance(x, str)] for k in ('read', 'write', 'domains')},
+            os.path.expanduser('~'), kith_guard.secret_paths([str(p['KITH_STATE']), str(p['KITH_MACHINE'])],
+                                                             str(p['KITH_SECRETS']), str(p['KITH_MACHINE'])))
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(settings_file))
+        with os.fdopen(fd, 'w') as f:
+            json.dump(s, f, indent=1)
+        os.replace(tmp, settings_file)
+        for kind, v in done:
+            print('kith: access given: %s %s' % (kind, v), file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print('kith: could not add the granted access (%s); the run goes on without it' % e, file=sys.stderr)
+    return 0
+
+
 def handle(msg, env=os.environ):
     """One JSON-RPC message in, the reply out (None for a notification)."""
     method, mid = msg.get('method'), msg.get('id')
@@ -82,17 +170,20 @@ def handle(msg, env=os.environ):
         ver = (msg.get('params') or {}).get('protocolVersion') or '2024-11-05'
         result = {'protocolVersion': ver, 'capabilities': {'tools': {}}, 'serverInfo': {'name': SERVER, 'version': '1'}}
     elif method == 'tools/list':
-        result = {'tools': [tool_def()]}
+        result = {'tools': [tool_def(), access_def()]}
     elif method == 'ping':
         result = {}
     elif method == 'tools/call':
         p = msg.get('params') or {}
         a = p.get('arguments') or {}
-        if p.get('name') != TOOL or not isinstance(a.get('tool_name'), str) or not isinstance(a.get('input'), dict):
-            d = deny('Malformed permission request.')
+        if p.get('name') == ACCESS:
+            result = {'content': [{'type': 'text', 'text': request_access(a, env)}]}
         else:
-            d = decide(a['tool_name'], a['input'], env)
-        result = {'content': [{'type': 'text', 'text': json.dumps(d)}]}
+            if p.get('name') != TOOL or not isinstance(a.get('tool_name'), str) or not isinstance(a.get('input'), dict):
+                d = deny('Malformed permission request.')
+            else:
+                d = decide(a['tool_name'], a['input'], env)
+            result = {'content': [{'type': 'text', 'text': json.dumps(d)}]}
     else:
         return {'jsonrpc': '2.0', 'id': mid, 'error': {'code': -32601, 'message': 'method not found'}}
     return {'jsonrpc': '2.0', 'id': mid, 'result': result}
@@ -149,4 +240,6 @@ def issue(agent, session, pid):
 if __name__ == '__main__':
     if len(sys.argv) == 5 and sys.argv[1] == 'issue':
         sys.exit(issue(*sys.argv[2:]))
+    if len(sys.argv) == 3 and sys.argv[1] == 'apply':
+        sys.exit(apply(sys.argv[2]))
     sys.exit(serve())
