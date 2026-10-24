@@ -67,6 +67,9 @@ struct RootView: View {
                     }
                 } decline: {
                     store.declineCall(call)
+                } reply: {
+                    store.declineCall(call)
+                    accounts.selection = BotReference(accountId: nil, computerId: store.computer.id, botId: call.botId)
                 }
                 .id(call.id)
             }

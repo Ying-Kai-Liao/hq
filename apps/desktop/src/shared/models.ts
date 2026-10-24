@@ -180,6 +180,8 @@ export interface ThreadSummary {
   /** The writer is mid-turn. */
   liveBusy?: boolean
   terminal?: { sessionId?: string; cwd?: string }
+  /** A task's status as the host says it (`tasks.rs`): working, needsYou, stopped, failed, done. Absent from an older host and from a terminal's thread. */
+  status?: string
 }
 
 export interface Attachment {

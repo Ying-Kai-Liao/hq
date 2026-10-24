@@ -47,6 +47,8 @@ modes=(
   "demo-agent|-kithDemoScreens agent"
   "demo-agent-memory|-kithDemoScreens agent-memory"
   "demo-agent-settings|-kithDemoScreens agent-settings"
+  "demo-call|-kithDemoScreens call"
+  "demo-incoming-call|-kithDemoScreens incoming-call"
 )
 
 for appearance in light dark; do
