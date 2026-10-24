@@ -11,7 +11,7 @@ import { detectBrowser, type Unsupported } from './detect.ts'
 import { takeInviteFromHash } from './hash.ts'
 import { indexedDbKv, KeyStore, requestPersistence } from './keystore.ts'
 import { WebRelay } from './relay.ts'
-import { KeyRefusal } from './refusal.ts'
+import { refusingKeys } from './refusal.ts'
 import { provideWebSession } from './session.ts'
 import { signOutInOrder } from './signout.ts'
 
@@ -55,15 +55,12 @@ const account = new WebAccount({
 const currentUser = () => account.state.user?.userId ?? null
 
 /** Set when the cloud refused this user's key: no new key is made in this page, only after an explicit reload. */
-const refusal = new KeyRefusal()
+const refusing = refusingKeys(keys, currentUser)
 
 const cloud = new WebCloud({
   cloudURL: webConfig.cloudURL,
   token: () => account.token(),
-  signer: async () => {
-    const user = currentUser()
-    return user ? keys.identity(user, refusal.mayCreate(user)) : null
-  },
+  signer: refusing.cloudSigner,
 })
 
 const relay = new WebRelay({
@@ -71,14 +68,8 @@ const relay = new WebRelay({
   cloudURL: webConfig.cloudURL,
   session: () => account.session(),
   jwt: () => account.freshToken(),
-  signer: async (create) => {
-    const user = currentUser()
-    return user ? keys.identity(user, create && refusal.mayCreate(user)) : null
-  },
-  keyRefused: async (userId) => {
-    refusal.refuse(userId)
-    await keys.dropKey(userId)
-  },
+  signer: refusing.relaySigner,
+  keyRefused: refusing.refused,
   deviceName: 'Kith web',
 })
 

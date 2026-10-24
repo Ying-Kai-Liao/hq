@@ -5,6 +5,7 @@ import { ModalHeader, Sheet, SheetPage } from '../../components/Overlay'
 import { HStack, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { useStoreRef } from '../../store/context'
+import { attachmentBlob } from './attachment-blob'
 import './attachments.css'
 
 /** The symbol for a file by its extension. */
@@ -74,7 +75,7 @@ function AttachmentImage({ file, botId, fit }: { file: Attachment; botId: string
     void store.attachmentData(file.id, botId).then((data) => {
       if (!data || revoked) return
       // Never a type the browser would render as a document ("open image in new tab" on a blob: URL runs on this origin).
-      made = URL.createObjectURL(new Blob([data as BlobPart], { type: 'application/octet-stream' }))
+      made = URL.createObjectURL(attachmentBlob(data))
       setUrl(made)
     })
     return () => {

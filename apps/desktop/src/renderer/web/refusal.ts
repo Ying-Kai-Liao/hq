@@ -15,3 +15,26 @@ export class KeyRefusal {
     return this.user !== userId
   }
 }
+
+
+/**
+ * The key lookups the cloud client and the relay use, both behind one KeyRefusal, so neither can make and register a new
+ * key for a user the cloud just refused. `refused` is what the relay calls on a 403: it remembers, then drops the key.
+ */
+export function refusingKeys<S>(store: { identity(userId: string, create: boolean): Promise<S | null>; dropKey(userId: string): Promise<void> }, currentUser: () => string | null) {
+  const refusal = new KeyRefusal()
+  return {
+    cloudSigner: async (): Promise<S | null> => {
+      const user = currentUser()
+      return user ? store.identity(user, refusal.mayCreate(user)) : null
+    },
+    relaySigner: async (create: boolean): Promise<S | null> => {
+      const user = currentUser()
+      return user ? store.identity(user, create && refusal.mayCreate(user)) : null
+    },
+    refused: async (userId: string) => {
+      refusal.refuse(userId)
+      await store.dropKey(userId)
+    },
+  }
+}
