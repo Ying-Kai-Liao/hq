@@ -5,7 +5,9 @@ import {
   computerIdFor,
   fromB64url,
   NONCE_TTL_MS,
+  clerkSessionActive,
   verifyClerk,
+  webOrigins,
   verifySig,
   type SignedRequest,
 } from "../auth";
@@ -102,6 +104,9 @@ interface User {
   userId: string;
   email: string | null;
   createdAt: number;
+  /** The Clerk session and the origin its token was minted for (web devices bind to them). */
+  sid: string;
+  azp: string | null;
 }
 
 export async function user(c: Ctx): Promise<User> {
@@ -115,7 +120,15 @@ export async function user(c: Ctx): Promise<User> {
     .bind(clerk.userId, clerk.email, c.now)
     .first<{ status: string; email: string | null; created_at: number }>();
   if (!row || row.status === "deleted") throw new ApiError("accountDeleted");
-  return { userId: clerk.userId, email: row.email, createdAt: row.created_at };
+  return { userId: clerk.userId, email: row.email, createdAt: row.created_at, sid: clerk.sid, azp: clerk.azp };
+}
+
+/**
+ * A web device is only as good as its Clerk session: the token must have been minted for one of WEB_ORIGINS and Clerk must
+ * say the session is live right now (the signature and `exp` alone don't). Fails closed.
+ */
+export async function webSessionLive(env: Env, clerk: { sid: string; azp: string | null }): Promise<boolean> {
+  return !!clerk.azp && webOrigins(env).includes(clerk.azp) && (await clerkSessionActive(clerk.sid, env));
 }
 
 /** Kith-Sig with D1 replay protection (§5). */

@@ -3,6 +3,7 @@
 // metadata; the host stays the sole authority on which devices may decrypt (docs/reference/remote-relay.md).
 
 import * as api from "./api";
+import { webOrigins } from "./auth";
 import { ApiError, type Ctx } from "./api";
 import * as legacy from "./legacy-compat";
 import type { ComputerRelay } from "./relay";
@@ -28,6 +29,10 @@ export interface Env {
   CLERK_JWT_KEY?: string;
   CLERK_AUTHORIZED_PARTIES?: string;
   CLERK_WEBHOOK_SECRET?: string;
+  /** Comma list of origins that host the web client: the only ones that get CORS, and the only ones a web socket may come from. */
+  WEB_ORIGINS?: string;
+  /** Seconds a web socket stays open before the DO closes it with 4100 (default 3600). */
+  WEB_SOCKET_MAX_AGE?: string;
 }
 
 type Handler = (c: Ctx, params: string[]) => Promise<unknown>;
@@ -45,6 +50,7 @@ const routes: [string, RegExp, Handler][] = [
   ["GET", /^\/v1\/me$/, api.me],
   ["POST", /^\/v1\/devices$/, api.registerDevice],
   ["GET", /^\/v1\/devices$/, api.listDevices],
+  ["POST", /^\/v1\/devices\/retire$/, api.retireDevice],
   ["DELETE", new RegExp(`^/v1/devices/${ID}$`), api.revokeDevice],
   ["POST", /^\/v1\/claims$/, api.createClaim],
   ["POST", new RegExp(`^/v1/claims/${ID}/complete$`), api.completeClaim],
@@ -79,27 +85,59 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", new RegExp(`^/v1/hooks/${ID}/${ID}$`), api.routineHook],
 ];
 
+/** Only an origin listed in WEB_ORIGINS gets CORS; never a wildcard, and none at all when the var is unset. */
+const allowedOrigin = (req: Request, env: Env): string | null => {
+  const origin = req.headers.get("Origin");
+  return origin && webOrigins(env).includes(origin) ? origin : null;
+};
+
+function withCors(res: Response, origin: string | null): Response {
+  // A WebSocket upgrade has no CORS and its response can't be rebuilt.
+  if (!origin || res.status === 101) return res;
+  const out = new Response(res.body, res);
+  out.headers.set("Access-Control-Allow-Origin", origin);
+  out.headers.append("Vary", "Origin");
+  return out;
+}
+
+async function handle(req: Request, env: Env, exec: ExecutionContext): Promise<Response> {
+  const requestId = req.headers.get("cf-ray") ?? crypto.randomUUID();
+  try {
+    const url = new URL(req.url);
+    for (const [method, pattern, handler] of routes) {
+      const m = pattern.exec(url.pathname);
+      if (!m || req.method !== method) continue;
+      // Every route takes small bodies; refuse a big one before reading it.
+      if (Number(req.headers.get("content-length") ?? 0) > MAX_REQUEST) throw new ApiError("tooLarge");
+      const raw = new Uint8Array(await req.arrayBuffer());
+      if (raw.length > MAX_REQUEST) throw new ApiError("tooLarge");
+      const out = await handler({ req, env, exec, url, raw, now: Date.now() }, m.slice(1));
+      return out instanceof Response ? out : Response.json(out);
+    }
+    throw new ApiError("notFound");
+  } catch (e) {
+    const err = e instanceof ApiError ? e : new ApiError("internal");
+    if (!(e instanceof ApiError)) console.error("unhandled", { requestId, error: e instanceof Error ? e.stack : String(e) });
+    return Response.json({ error: { code: err.code, message: err.message }, requestId }, { status: err.status });
+  }
+}
+
 export default {
   async fetch(req: Request, env: Env, exec: ExecutionContext): Promise<Response> {
-    const requestId = req.headers.get("cf-ray") ?? crypto.randomUUID();
-    try {
-      const url = new URL(req.url);
-      for (const [method, pattern, handler] of routes) {
-        const m = pattern.exec(url.pathname);
-        if (!m || req.method !== method) continue;
-        // Every route takes small bodies; refuse a big one before reading it.
-        if (Number(req.headers.get("content-length") ?? 0) > MAX_REQUEST) throw new ApiError("tooLarge");
-        const raw = new Uint8Array(await req.arrayBuffer());
-        if (raw.length > MAX_REQUEST) throw new ApiError("tooLarge");
-        const out = await handler({ req, env, exec, url, raw, now: Date.now() }, m.slice(1));
-        return out instanceof Response ? out : Response.json(out);
-      }
-      throw new ApiError("notFound");
-    } catch (e) {
-      const err = e instanceof ApiError ? e : new ApiError("internal");
-      if (!(e instanceof ApiError)) console.error("unhandled", { requestId, error: e instanceof Error ? e.stack : String(e) });
-      return Response.json({ error: { code: err.code, message: err.message }, requestId }, { status: err.status });
+    const origin = allowedOrigin(req, env);
+    if (req.method === "OPTIONS" && origin && req.headers.has("Access-Control-Request-Method")) {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": origin,
+          "Access-Control-Allow-Methods": "GET, POST, DELETE, PATCH, OPTIONS",
+          "Access-Control-Allow-Headers": "Authorization, Content-Type, Kith-Sig",
+          "Access-Control-Max-Age": "600",
+          Vary: "Origin",
+        },
+      });
     }
+    return withCors(await handle(req, env, exec), origin);
   },
 
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {

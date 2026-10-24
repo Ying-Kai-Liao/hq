@@ -81,7 +81,7 @@ triggers = { crons = ["*/15 * * * *"] }
 name = "kith-cloud-dev"
 routes = []
 workers_dev = true
-vars = { CLERK_ISSUER = "https://adjusted-starfish-4735.clerk.accounts.dev" }
+vars = { CLERK_ISSUER = "https://adjusted-starfish-4735.clerk.accounts.dev", WEB_ORIGINS = "https://kith-web-dev.lykevin890919.workers.dev" }
 d1_databases = [{ binding = "DB", database_name = "kith-dev", database_id = "f8912768-50ee-45b0-a2b0-320ab8468afe", migrations_dir = "migrations" }]
 durable_objects.bindings = [{ name = "RELAY", class_name = "ComputerRelay" }]
 ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "2002", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "2012", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "2022", simple = { limit = 60, period = 60 } }, { name = "BOT_JOIN_LIMITER", namespace_id = "2032", simple = { limit = 10, period = 60 } }]

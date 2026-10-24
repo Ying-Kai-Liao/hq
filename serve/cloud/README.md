@@ -52,6 +52,8 @@ Deploys go through the `kith-dev` and `kith` environments (see Kith below). The 
 | `CLERK_WEBHOOK_SECRET` | secret | Svix signature on `/v1/webhooks/clerk` (`user.deleted`, `user.updated` for banned or locked users) |
 | `CLERK_ISSUER` | var | Clerk Frontend API URL; tokens must carry this `iss` |
 | `CLERK_AUTHORIZED_PARTIES` | var, optional | comma-separated; a token with `azp` must match |
+| `WEB_ORIGINS` | var, optional | comma-separated origins that host the web client. Only these get CORS (`Authorization`, `Content-Type`, `Kith-Sig`) and may open a browser socket. Unset = no CORS, no web sockets |
+| `WEB_SOCKET_MAX_AGE` | var, optional | seconds before the relay closes a web socket with 4100 (default 3600) |
 | `CLERK_JWT_KEY` | var, dev/e2e only | public key for networkless verification |
 
 ### Kith
@@ -125,6 +127,17 @@ New computers are limited to 10 per IP per minute with the Workers Rate Limiting
 `REGISTER_LIMITER` (`[[ratelimits]]`; each environment needs its own `namespace_id`).
 Public routine webhook deliveries are limited to 60 per sender IP and hook per minute with
 `HOOK_LIMITER` (same binding kind, its own `namespace_id` per environment).
+
+## Web devices
+
+A browser holds a non-extractable Ed25519 key and registers it as `platform: "web"` (`POST /v1/devices`). A web device is tied to a live Clerk login; native devices are unchanged.
+
+- Register stores the JWT's `sid` in `devices.clerk_sid`; a newer sign-in with the same key re-binds it. A web key never becomes native or the reverse (409), and a revoked or retired key stays refused.
+- Register and every relay upgrade need: a JWT that verifies and was minted for an origin in `WEB_ORIGINS` (`azp`), `sub` = the row's owner, `sid` = `clerk_sid`, the row not revoked, and Clerk answering `GET /v1/sessions/{sid}` with `status: "active"`. Any Clerk error fails closed. **`CLERK_SECRET_KEY` must be set on the worker for this** (kith-dev included): without it web devices cannot register or connect. Clerk dev instances allow 100 Backend API requests per 10 s; this is one call per web register or upgrade.
+- `CLERK_AUTHORIZED_PARTIES` stays unset on kith-dev (native tokens); the `azp` check above is separate and always on for web devices.
+- Browsers can't send `Kith-Sig`, so the socket offers `Sec-WebSocket-Protocol: kith.v1, kith-sig.<b64url(Kith-Sig value)>, kith-jwt.<JWT>`. The signature input is the usual one (`/v1/relay/device/<id>?v=1`). The answer is `Sec-WebSocket-Protocol: kith.v1`. A refusal is accept-then-close: 4404 unknown computer, 4426 needs update, 4401 no or expired session, 4403 forbidden. A web key that connects without a JWT is refused.
+- The relay closes every web socket after `WEB_SOCKET_MAX_AGE` with 4100 (the client reconnects with a fresh JWT).
+- `POST /v1/devices/retire`, signed by the device key alone (sign-out): revokes the key's rows, closes their sockets and writes `retired_keys`, so a later register is refused, even for a key never seen.
 
 ## Invites and memberships
 

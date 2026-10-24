@@ -18,6 +18,9 @@ export default defineConfig(async () => ({
           TEST_MIGRATIONS: await readD1Migrations("./migrations"),
           CLERK_JWT_KEY: publicKey.export({ type: "spki", format: "pem" }).toString(),
           TEST_CLERK_PRIVATE_JWK: JSON.stringify(privateKey.export({ format: "jwk" })),
+          // The web-device tests mock Clerk's Backend API; the key only has to be present.
+          CLERK_SECRET_KEY: "sk_test_unit",
+          WEB_ORIGINS: "https://web.test,https://web2.test",
           CLERK_WEBHOOK_SECRET: `whsec_${randomBytes(24).toString("base64")}`,
         },
       },
