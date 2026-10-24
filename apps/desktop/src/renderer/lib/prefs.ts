@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import type { Appearance } from '@shared/appearance'
 import type { StarAsk } from './star-ask'
 
 /** A per-window preference in localStorage (kit's `@AppStorage`), observable by views. */
@@ -54,6 +55,8 @@ export function stepTextSize(size: number, up: boolean) {
 
 export const prefs = {
   textSize: pref('conversationFontSize', DEFAULT_TEXT_SIZE),
+  /** Settings > Display. The main process applies it to every window (nativeTheme) and keeps its own copy for launch. */
+  appearance: pref<Appearance>('appearance', 'system'),
   sidebarCompact: pref('sidebarCompact', false),
   sidebarWidth: pref('desktopSidebarWidth', 266),
   detailsPanelWidth: pref('detailsPanelWidth', 310),

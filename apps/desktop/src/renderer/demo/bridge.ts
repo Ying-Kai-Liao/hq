@@ -124,6 +124,7 @@ const bridge: KithBridge = {
     setLaunchAtLogin: async () => false,
     showInDock: async () => true,
     setShowInDock: async () => true,
+    setAppearance: () => {},
     launchAtLogin: async () => false,
     openSettings() {},
     openSettingsWindow() {},

@@ -170,6 +170,7 @@ const bridge: KithBridge = {
     setLaunchAtLogin: (on) => ipcRenderer.invoke('app:setLaunchAtLogin', on),
     showInDock: () => ipcRenderer.invoke('app:showInDock'),
     setShowInDock: (on) => ipcRenderer.invoke('app:setShowInDock', on),
+    setAppearance: (appearance) => ipcRenderer.send('app:setAppearance', appearance),
     launchAtLogin: () => ipcRenderer.invoke('app:launchAtLogin'),
     openSettings: (url) => ipcRenderer.send('app:openSettings', url),
     openSettingsWindow: (page) => ipcRenderer.send('app:openSettingsWindow', page ?? null),
