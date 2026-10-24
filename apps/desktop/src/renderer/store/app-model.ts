@@ -1,8 +1,10 @@
+import type { BotGuest } from '@shared/bot-guests'
 import type { HostSnapshot } from '@shared/ipc'
 import type { AccessRequest, Bot, Computer } from '@shared/models'
 import { LoopbackTransport } from '../client/host-client'
 import { Observable } from '../lib/observable'
 import { account } from './account'
+import { botGuestsFor } from './bot-guests-store'
 import { BotStore } from './bot-store'
 import { CloudModel } from './cloud'
 import { DeviceComputerOrder } from './computer-order'
@@ -118,6 +120,9 @@ export class AppModel extends Observable {
       this.changed()
     }
     store.onRosterChanged = () => this.changed()
+    const guests = botGuestsFor(store)
+    guests.onChange = () => this.changed()
+    store.onBotGuests = () => void guests.load()
     // Kit views select a new bot on their own store; that becomes the window's selection.
     this.storeSubscriptions.set(computer.id, store.subscribe(() => {
       if (store.selection) {
@@ -196,8 +201,13 @@ export class AppModel extends Observable {
     await client.call('decideAccessRequest', { requestId: a.request.requestId, approve }, 30_000)
   }
 
+  /** Bots from outside waiting for this account's allow, on every computer it owns. */
+  get botRequests(): { id: string; store: BotStore; bot: BotGuest }[] {
+    return [...this.stores.values()].flatMap((store) => botGuestsFor(store).pending.map((bot) => ({ id: `${store.computer.id}/${bot.botId}`, store, bot })))
+  }
+
   get needsAttention() {
-    return this.roster.some((i) => i.bot.status === 'needsInput') || this.approvals.length > 0
+    return this.roster.some((i) => i.bot.status === 'needsInput') || this.approvals.length > 0 || this.botRequests.length > 0
   }
 
   get working() {

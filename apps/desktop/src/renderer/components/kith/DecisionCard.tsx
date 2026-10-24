@@ -10,6 +10,8 @@ export interface DecisionOption {
 }
 
 interface Common {
+  /** A muted label above the title: whose it is ("Sam's bot · Grok"). */
+  heading?: string
   /** The agent's colour pair: the question buttons tint with it at low strength. */
   pair: Pair
   /** The card's headline: the question, or what the agent wants ("Wants to run a command"). */
@@ -32,11 +34,11 @@ interface Common {
 
 export type DecisionCardProps =
   | (Common & { kind: 'question'; options: DecisionOption[]; onChoose: (id: string) => void })
-  | (Common & { kind: 'permission'; onAllow: () => void; onDeny: () => void; onAlways?: () => void })
+  | (Common & { kind: 'permission'; onAllow: () => void; onDeny: () => void; onAlways?: () => void; /** The always button's words ("Always" by default). */ alwaysLabel?: string })
 
 /** A question waiting on you, or a permission prompt. Buttons are tinted with the agent's pair; no amber. */
 export function DecisionCard(props: DecisionCardProps) {
-  const { pair, title, subject, place, details, outcome, held, waiting, pending = null } = props
+  const { pair, heading, title, subject, place, details, outcome, held, waiting, pending = null } = props
   const busy = pending !== null && pending !== false
   const buttons =
     props.kind === 'question'
@@ -44,10 +46,11 @@ export function DecisionCard(props: DecisionCardProps) {
       : [
           { id: 'allow', label: 'Allow', tone: 'ink' as const, run: props.onAllow },
           { id: 'deny', label: 'Deny', tone: 'plain' as const, run: props.onDeny },
-          ...(props.onAlways ? [{ id: 'always', label: 'Always', tone: 'plain' as const, run: props.onAlways }] : []),
+          ...(props.onAlways ? [{ id: 'always', label: props.alwaysLabel ?? 'Always', tone: 'plain' as const, run: props.onAlways }] : []),
         ]
   return (
     <section className={`kc-decision ${props.kind}`} style={pairStyle(pair)} aria-label={title}>
+      {heading ? <div className="kc-decision-heading kith-text-secondary">{heading}</div> : null}
       <div className="kc-decision-title kith-text-body">{title}</div>
       {subject ? <div className="kc-decision-subject kith-text-code">{subject}</div> : null}
       {place ? (

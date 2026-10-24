@@ -98,7 +98,9 @@ export function useTraySummary(app: AppModel) {
       const roster = app.roster.filter((i) => !isGroup(i.bot))
       const status = app.approvals.length
         ? 'A device asks for access'
-        : app.needsAttention
+        : app.botRequests.length
+          ? 'A bot asks to join'
+          : app.needsAttention
           ? 'A bot needs you'
           : app.working > 0
             ? `${app.working} bot${app.working === 1 ? '' : 's'} working`
@@ -108,6 +110,7 @@ export function useTraySummary(app: AppModel) {
         status,
         canPair: !!local,
         approval: app.approvals[0]?.request.deviceName ?? null,
+        botRequest: app.botRequests[0] ? (app.botRequests[0].bot.ownerName ?? app.botRequests[0].bot.name) : null,
         bots: roster.map((i) => ({
           ref: `${i.ref.computerId}/${i.ref.botId}`,
           name: app.computers.length > 1 ? `${i.bot.name} · ${i.computer.name}` : i.bot.name,

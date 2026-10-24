@@ -2,6 +2,7 @@ import { parseCall, type IncomingCall } from '@shared/incoming-call'
 import type { CallError } from '@shared/ipc'
 import type { RelayCallError } from '@shared/relay'
 import { parseBackups, type Backups } from '@shared/backups'
+import { parseBotGuest, parseBotGuests, parseBotRequest, parseCreatedBotInvite, type BotGuest, type BotProvider, type CreatedBotInvite } from '@shared/bot-guests'
 import type { StopHolderResult } from '@shared/held-run'
 import {
   parseDiff, parseHistory, parseMemoryList, parseRead, parseSave, parseTidyUps, parseUndo,
@@ -138,6 +139,10 @@ export type HostEvent =
   | { type: 'accessRequests'; requests: AccessRequest[] }
   | { type: 'cloud'; cloud: CloudStatus }
   | { type: 'resync' }
+  /** A bot from outside asks the owner to let it in; only a trigger to read `bots` again. */
+  | { type: 'botRequest'; bot: BotGuest }
+  /** A bot guest changed state (owner of the computer and the bot's owner get it). */
+  | { type: 'botUpdated'; bot: BotGuest }
   /** An agent is calling (ringing), or a call stopped ringing (answered, declined, missed). */
   | { type: 'call'; call: IncomingCall; ringing: boolean }
   /** An event this app version couldn't read (host newer/older than the app). */
@@ -183,6 +188,14 @@ export function parseEvent(line: string): HostEvent | null {
       return raw.cloud ? { type, cloud: raw.cloud as CloudStatus } : null
     case 'resync':
       return { type }
+    case 'botRequest': {
+      const bot = parseBotRequest(raw.bot)
+      return bot ? { type, bot } : null
+    }
+    case 'botUpdated': {
+      const bot = parseBotGuest(raw.bot)
+      return bot ? { type, bot } : null
+    }
     case 'call': {
       const parsed = parseCall(raw)
       return parsed ? { type, ...parsed } : null
@@ -383,6 +396,35 @@ export class HostClient {
   /** An invited person's own chat with a granted agent. */
   startChat(agent: string) {
     return this.call<{ bot: Bot }>('startChat', { agent }, 60_000)
+  }
+
+  // Bots from outside (serve/host/src/api/botguests.rs). A host before them answers "unknown method".
+  /** Makes a bot and its invite; `botId` makes a fresh invite for a bot you already have. `share` is secret: show it, never keep it. */
+  async createBotInvite(input: { name: string; provider: BotProvider; agents: string[]; botId?: string }): Promise<CreatedBotInvite> {
+    return parseCreatedBotInvite(await this.call('createBotInvite', input, 60_000))
+  }
+
+  /** Every bot, with its conversations. The computer's owner only. */
+  async bots(): Promise<BotGuest[]> {
+    return parseBotGuests(await this.call('bots'))
+  }
+
+  /** The caller's own bots, ended ones too. */
+  async myBots(): Promise<BotGuest[]> {
+    return parseBotGuests(await this.call('myBots'))
+  }
+
+  /** The computer's owner only. `alwaysForOwner` also lets this person's later bots in without asking. */
+  decideBot(botId: string, decision: 'allow' | 'deny', alwaysForOwner = false) {
+    return this.call('decideBot', { botId, decision, ...(alwaysForOwner ? { alwaysForOwner: true } : {}) })
+  }
+
+  setAutoAllowBots(personId: string, on: boolean) {
+    return this.call('setAutoAllowBots', { personId, on })
+  }
+
+  revokeBot(botId: string) {
+    return this.call('revokeBot', { botId })
   }
 
   async recentFolders() {

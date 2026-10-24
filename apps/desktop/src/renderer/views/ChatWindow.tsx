@@ -64,6 +64,9 @@ export function ChatWindow() {
             return setConfirmReset(true)
           case 'reviewApprovals':
             return app.reviewApprovals()
+          case 'reviewBotRequests':
+            // The cards sit at the top of the sidebar's Needs your OK; the window coming forward is enough.
+            return
           case 'setTextSize':
             return prefs.textSize.set(c.size)
           case 'stepTextSize':
@@ -273,7 +276,7 @@ function ChatSplitView() {
   const botActions = (bot: Bot, store: BotStore): MenuItem[] => store.isOwner ? [
     { title: bot.pinned ? 'Unpin' : 'Pin', icon: 'pin', action: () => store.setPinned(bot, !bot.pinned) },
     { title: 'Mark as Read', icon: 'bell.badge', action: () => store.markAllRead(bot.id) },
-    ...(canShareAgent(store, bot) ? [{ title: 'Share…', icon: 'person.crop.circle.badge.plus', action: () => setSharingBot({ bot, store }) }] : []),
+    ...(canShareAgent(store, bot) ? [{ title: 'Share access…', icon: 'person.crop.circle.badge.plus', action: () => setSharingBot({ bot, store }) }] : []),
     { title: 'Edit Profile…', icon: 'square.and.pencil', divider: true, action: () => setEditing({ id: crypto.randomUUID(), draft: draftOf(bot), store }) },
     { title: 'Copy conversation ID', icon: 'square.on.square', divider: true, action: () => window.kith.app.copy(bot.id) },
     { title: 'New session', icon: 'arrow.counterclockwise', action: () => setNewSessionBot({ bot, store }) },

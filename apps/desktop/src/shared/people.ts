@@ -20,6 +20,8 @@ export interface Person {
   joined: boolean
   openInvites: number
   devices: PersonDevice[]
+  /** Bots this person invites start without waiting for the owner. */
+  autoBots: boolean
 }
 
 export interface PendingInvite {
@@ -69,6 +71,7 @@ export function parsePeople(raw: unknown): Person[] {
       projects: list(r.projects).map(str),
       joined: r.joined === true,
       openInvites: num(r.openInvites) ?? 0,
+      autoBots: r.autoBots === true,
       devices: list(r.devices).map((d) => {
         const x = rec(d)
         return { key: str(x.key), name: str(x.name) || null, platform: str(x.platform) || null, lastSeenAt: num(x.lastSeenAt), connected: x.connected === true }

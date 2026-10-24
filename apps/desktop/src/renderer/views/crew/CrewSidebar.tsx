@@ -13,6 +13,7 @@ import { callBlockedReason } from '../call/call-availability'
 import { useAccount } from '../../store/account'
 import { refKey, type BotRef, type RosterItem } from '../../store/app-model'
 import { useApp } from '../../store/context'
+import { botGuestsFor } from '../../store/bot-guests-store'
 import type { useComputerRoster } from '../../store/computer-roster'
 import { BotRoster } from '../BotRoster'
 import { useDictation } from '../thread/dictation'
@@ -61,6 +62,7 @@ export function CrewSidebar({ compact, roster, items, listRef, onListKey, onCont
     bots: store.roster,
     entries: store.entries,
     guestPrompts: store.guestPrompts,
+    botRequests: botGuestsFor(store).pending,
   })))
 
   // ⌥⌘1 / ⌥⌘2 (Ctrl+Alt elsewhere) switch between Crew and Board.

@@ -283,3 +283,38 @@
 .settings-activity-time {
   min-width: 96px;
 }
+
+/* Bots from outside: a row is a small glyph, the name over a quiet line, and what it can do. */
+.settings-bot-indent {
+  padding-left: 20px;
+}
+.settings-bot-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--code-background);
+}
+.settings-bot-waiting::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--text);
+  vertical-align: middle;
+}
+/* The host's share text, verbatim: about eight lines, then it scrolls. */
+.settings-bot-share {
+  margin: 0;
+  padding: 8px;
+  max-height: calc(8 * 1.45em + 16px);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

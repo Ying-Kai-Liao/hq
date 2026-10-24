@@ -9,7 +9,9 @@ import { HStack, Spacer, VStack } from '../components/Stack'
 import { Text } from '../components/Text'
 import { useModel } from '../lib/observable'
 import type { BotStore } from '../store/bot-store'
+import { botGuestsFor } from '../store/bot-guests-store'
 import { peopleFor } from '../store/people-store'
+import { InviteBotSheet } from './settings/BotGuestsView'
 import { InviteLinkCard } from './settings/PeopleView'
 import './settings/settings.css'
 
@@ -54,10 +56,14 @@ function ShareAgentBody({ store, agent, name }: { store: BotStore; agent: string
   const [role, setRole] = useState<Role>('guest')
   const [made, setMade] = useState<CreatedInvite | null>(null)
   const [removing, setRemoving] = useState<Person | null>(null)
+  const [invitingBot, setInvitingBot] = useState(false)
+  const guests = botGuestsFor(store)
+  useModel(guests)
   useEffect(() => {
     people.notice = null
     void people.load()
-  }, [people])
+    void guests.load()
+  }, [people, guests])
 
   const now = Date.now()
   const holders = sharedWith(people.people, agent)
@@ -74,10 +80,13 @@ function ShareAgentBody({ store, agent, name }: { store: BotStore; agent: string
     if (result) setMade(result)
   }
 
+  // The form with this agent ticked; Done comes back here.
+  if (invitingBot) return <InviteBotSheet store={store} preset={[agent]} onDone={() => setInvitingBot(false)} />
+
   if (made) {
     return (
       <SheetPage>
-        <ModalHeader title={`Share ${name}`} subtitle="Invite ready" />
+        <ModalHeader title={`Share access to ${name}`} subtitle="Invite ready" />
         <InviteLinkCard invite={made} />
         <HStack className="settings-invite-body">
           <Spacer />
@@ -89,7 +98,7 @@ function ShareAgentBody({ store, agent, name }: { store: BotStore; agent: string
 
   return (
     <SheetPage>
-      <ModalHeader title={`Share ${name}`} />
+      <ModalHeader title={`Share access to ${name}`} />
       <VStack gap={14} className="settings-invite-body">
         <VStack gap={6}>
         <Text size="caption" tone="secondary">Shared with</Text>
@@ -137,6 +146,15 @@ function ShareAgentBody({ store, agent, name }: { store: BotStore; agent: string
           </HStack>
           <Text size="footnote" tone="secondary">A member can do more with an agent than a guest. Guest is the safer start. They get {name} only.</Text>
         </VStack>
+        {guests.supported === true ? (
+          <VStack gap={8}>
+            <Text size="caption" tone="secondary">Bots</Text>
+            <HStack>
+              <Button kind="secondary" onClick={() => setInvitingBot(true)}>Invite a bot…</Button>
+            </HStack>
+            <Text size="footnote" tone="secondary">{`A bot from Grok or another app can ask ${name} for you. It never acts as you.`}</Text>
+          </VStack>
+        ) : null}
         {people.error ? <Text size="footnote" tone="danger">{people.error}</Text> : null}
         {people.notice ? <Text size="footnote" tone="secondary">{people.notice}</Text> : null}
       </VStack>

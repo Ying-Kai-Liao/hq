@@ -1,6 +1,7 @@
 // The Board beside Crew: what is waiting on you, what is going on, and where things were left, derived from the
 // stores the app already has. A port of apps/ios/Kit/Sources/KithUI/Store/BoardModel.swift; nothing here is fetched
 // or kept, so a changed store changes the Board. The sidebar only lays these values out.
+import { cardHeading, cardQuestion, type BotGuest } from './bot-guests.ts'
 import type { GuestPrompt } from './mac-role.ts'
 import { isWorkingIn, type Bot, type Entry } from './models.ts'
 import { isBusyInTerminal } from './thread-writer.ts'
@@ -25,6 +26,8 @@ export interface BoardComputer {
   entries: ReadonlyMap<string, Entry[]>
   /** Guests' requests for this account's answer (owned computers only). */
   guestPrompts?: GuestPrompt[]
+  /** Bots from outside waiting for this account's allow (owned computers only). */
+  botRequests?: BotGuest[]
 }
 
 /** A question or permission waiting on you. */
@@ -151,6 +154,21 @@ export function buildBoard(computers: BoardComputer[], now = Date.now()): BoardM
 
   for (const computer of computers) {
     const trouble = computer.trouble ?? null
+    for (const bot of computer.botRequests ?? []) {
+      decisions.push({
+        id: `${computer.id}/bot/${bot.botId}`,
+        target: { computerId: computer.id, botId: bot.botId },
+        hostName: computer.hostName,
+        botName: cardHeading(bot),
+        thread: null,
+        threadTitle: null,
+        question: cardQuestion(bot),
+        detail: cardQuestion(bot),
+        at: bot.createdAt,
+        trouble,
+        guest: true,
+      })
+    }
     for (const prompt of computer.guestPrompts ?? []) {
       decisions.push({
         id: `${computer.id}/${prompt.entryId}`,

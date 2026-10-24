@@ -50,6 +50,7 @@ export class BotSync extends BotMirror {
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.onRosterChanged = null
     this.onComputerChanged = null
+    this.onBotGuests = null
     this.client = null
     this.selection = null
   }
@@ -134,6 +135,8 @@ export class BotSync extends BotMirror {
           } catch {}
           this.changed()
         }
+        // After the hello the role is known, so the model knows which half to read; a pending bot survives a restart this way.
+        this.onBotGuests?.('connect')
         if (!alive()) return
         await new Promise<void>((resolve, reject) => {
           this.requestedSince = this.rev
@@ -240,6 +243,10 @@ export class BotSync extends BotMirror {
         break
       case 'cloud':
         this.cloud = event.cloud
+        break
+      case 'botRequest':
+      case 'botUpdated':
+        this.onBotGuests?.('event')
         break
       case 'call':
         if (event.ringing && callPresence.active > 0) this.perform((c) => c.callDecline(event.call.id))

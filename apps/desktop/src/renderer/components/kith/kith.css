@@ -387,6 +387,10 @@
   background: var(--kith-panel);
   box-shadow: inset 0 0 0 1px var(--kith-line);
 }
+.kc-decision-heading {
+  color: var(--kith-muted);
+  overflow-wrap: anywhere;
+}
 .kc-decision-title {
   font-weight: 600;
   overflow-wrap: anywhere;
