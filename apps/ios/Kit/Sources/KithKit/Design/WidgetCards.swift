@@ -334,10 +334,10 @@ public struct BotsWidgetCard: View {
     private var working: Int { bots.filter { $0.isWorking && !$0.needsInput }.count }
     private var doneToday: Int { bots.filter(\.isDoneToday).count }
     private var count: Int { needs > 0 ? needs : working > 0 ? working : bots.count }
-    private var label: String { needs > 0 ? (needs == 1 ? "needs you" : "need you") : working > 0 ? "working" : bots.isEmpty ? "No bots yet" : "All quiet" }
-    /// "6 bots · 2 working"
+    private var label: String { needs > 0 ? (needs == 1 ? "needs you" : "need you") : working > 0 ? "working" : bots.isEmpty ? "No agents yet" : "All quiet" }
+    /// "6 agents · 2 working"
     private var totals: String {
-        let total = "\(bots.count) \(bots.count == 1 ? "bot" : "bots")"
+        let total = "\(bots.count) \(bots.count == 1 ? "agent" : "agents")"
         return busy > 0 ? "\(total) · \(busy) working" : total
     }
 
@@ -394,7 +394,7 @@ public struct BotsWidgetCard: View {
     }
 
     private var title: some View {
-        Text("Bots").font(WidgetStyle.label(13, .semibold)).widgetAccentable()
+        Text("Agents").font(WidgetStyle.label(13, .semibold)).widgetAccentable()
     }
 
     private func figure(_ value: Int, _ caption: String) -> some View {
@@ -417,7 +417,7 @@ public struct BotsWidgetCard: View {
                 .transition(.activityRow)
             }
             if bots.isEmpty {
-                Text("Create your first bot in Kith.")
+                Text("Make your first agent in Kith.")
                     .font(WidgetStyle.label(12)).foregroundStyle(Palette.muted)
             }
         }

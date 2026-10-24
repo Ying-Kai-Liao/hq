@@ -16,6 +16,7 @@ struct BotListView: View {
     @State private var confirmDelete: RosterItem?
     @State private var newChat: ChatTarget?
     @State private var inviting: ChatTarget?
+    @State private var botSheet: BotSheetTarget?
     @State private var sharingAgent: ShareAgentTarget?
     fileprivate struct ShareAgentTarget: Identifiable {
         let store: BotStore
@@ -45,7 +46,7 @@ struct BotListView: View {
     @AppStorage(CrewOrderMode.storageKey) private var orderStored = CrewOrderMode.automatic.rawValue
 
     // Crew and Board are two pages of one screen: the same sky, top bar and dock.
-    @State private var tab = DemoScreens.name == "board" ? CrewBoardTab.board : CrewBoardTab.crew
+    @State private var tab = ["board", "bots-board"].contains(DemoScreens.name) ? CrewBoardTab.board : CrewBoardTab.crew
     @State private var pageWidth: CGFloat = 390
     // The dock.
     @State private var query = DemoScreens.query
@@ -185,14 +186,15 @@ struct BotListView: View {
         .onChange(of: frozen) { _, _ in syncOrder() }
         .modifier(HomeSheets(
             editing: $editing, editingGroup: $editingGroup, confirmDelete: $confirmDelete, newChat: $newChat,
-            inviting: $inviting, sharingAgent: $sharingAgent, allStores: allStores, query: $query, files: $files, picking: $picking, calling: $calling,
+            inviting: $inviting, botSheet: $botSheet, sharingAgent: $sharingAgent, allStores: allStores, query: $query, files: $files, picking: $picking, calling: $calling,
             pickingPhotos: $pickingPhotos, photoItems: $photoItems, pickingFiles: $pickingFiles, pickingCamera: $pickingCamera,
             pickChoices: pickChoices(for:), addPhotos: addPhotos, addFiles: addFiles, addCamera: { append(HomeAttachments.photos([$0])) }))
     }
 
     /// Everything the Board derives from, across the shown computers.
     private var boardModel: BoardModel {
-        BoardModel(computers: shownStores.map { BoardComputer(store: $0, guestPrompts: accounts.guestPrompts(for: $0.computer.id)) })
+        BoardModel(computers: shownStores.map { BoardComputer(store: $0, guestPrompts: accounts.guestPrompts(for: $0.computer.id),
+                                              botRequests: accounts.botRequests(for: $0.computer.id)) })
     }
 
     /// A sideways swipe moves between the pages; the top bar's switch does the same.
@@ -259,12 +261,18 @@ struct BotListView: View {
             CrewBoardSwitch(selection: $tab, boardCount: waiting)
             Spacer(minLength: 8)
             TopGlassMenu("New chat") {
-                Button("New bot", systemImage: "plus.square", action: newBot)
+                Button("New agent", systemImage: "plus.square", action: newBot)
                     .disabled(!allStores.contains { $0.mismatch == nil })
                 Button("Invite a person", systemImage: "person.badge.plus") {
                     if let store = onlineStores.first { inviting = ChatTarget(store: store) }
                 }
                 .disabled(onlineStores.isEmpty)
+                if !(onlineStores.first?.botGuests.unsupported ?? false) {
+                    Button("Invite a bot", systemImage: "bubble.left.and.bubble.right") {
+                        if let store = onlineStores.first { botSheet = BotSheetTarget.invite(on: store) }
+                    }
+                    .disabled(onlineStores.isEmpty)
+                }
                 Button("New group chat", systemImage: "person.2", action: newGroup)
                     .disabled(onlineStores.isEmpty)
                 ForEach(memberStores, id: \.computer.id) { store in
@@ -326,7 +334,7 @@ struct BotListView: View {
         }
         if accounts.role(for: item.ref.computerId) == .owner, store.connection == .online, !bot.isGroup,
            let agent = bot.hqAgent, AgentShare.canShare(hqAgent: agent) {
-            Button("Share", systemImage: "person.badge.plus") { sharingAgent = ShareAgentTarget(store: store, agent: agent, name: bot.name) }
+            Button("Share access…", systemImage: "person.badge.plus") { sharingAgent = ShareAgentTarget(store: store, agent: agent, name: bot.name) }
         }
         Button("Mark as read", systemImage: "checkmark.message") { store.markAllRead(bot.id) }
         Button("Hide from list", systemImage: "eye.slash") { store.setHidden(bot, true) }
@@ -433,7 +441,10 @@ struct BotListView: View {
         let waiting = shownStores.flatMap { store in
             accounts.guestPrompts(for: store.computer.id).map { (store, $0) }
         }
-        if !waiting.isEmpty {
+        let requests = shownStores.flatMap { store in
+            accounts.botRequests(for: store.computer.id).map { (store, $0) }
+        }
+        if !waiting.isEmpty || !requests.isEmpty {
             Text("Needs your OK")
                 .kithText(.secondary).fontWeight(.semibold)
                 .foregroundStyle(Palette.muted)
@@ -441,6 +452,20 @@ struct BotListView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 4)
                 .accessibilityAddTraits(.isHeader)
+            // Bots from outside first, then the guests' permission cards.
+            ForEach(requests, id: \.1.id) { store, bot in
+                VStack(alignment: .leading, spacing: 4) {
+                    if accounts.computers.count > 1 {
+                        Text(store.hostName).kithText(.secondary).foregroundStyle(Palette.muted)
+                    }
+                    DecisionCard(DecisionCardModel(botRequest: bot), answering: store.botGuests.deciding[bot.botId]) { option in
+                        Task { await store.botGuests.decide(bot, option: option) }
+                    }
+                }
+                .padding(.horizontal, KithSpacing.gutter)
+                .padding(.vertical, 4)
+                .transition(.opacity)
+            }
             ForEach(waiting, id: \.1.id) { store, prompt in
                 VStack(alignment: .leading, spacing: 4) {
                     if accounts.computers.count > 1 {
@@ -595,6 +620,7 @@ private struct HomeSheets: ViewModifier {
     @Binding var confirmDelete: RosterItem?
     @Binding var newChat: BotListView.ChatTarget?
     @Binding var inviting: BotListView.ChatTarget?
+    @Binding var botSheet: BotSheetTarget?
     @Binding var sharingAgent: BotListView.ShareAgentTarget?
     let allStores: [BotStore]
     @Binding var query: String
@@ -638,6 +664,7 @@ private struct HomeSheets: ViewModifier {
             .kithSheet(item: $inviting) { target in
                 InvitePeopleSheet(store: target.store)
             }
+            .botSheets($botSheet, viewer: .owner)
             .kithSheet(item: $sharingAgent) { target in
                 ShareAgentSheet(store: target.store, agent: target.agent, name: target.name)
             }
@@ -658,11 +685,11 @@ private struct HomeSheets: ViewModifier {
             .fullScreenCover(item: $calling) { target in
                 HomeCallCover(store: target.store, botId: target.botId) { calling = nil }
             }
-            .kithDialog("Delete \(confirmDelete?.bot.name ?? "bot")?",
+            .kithDialog("Delete \(confirmDelete?.bot.name ?? "agent")?",
                           isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                           message: confirmDelete?.bot.isGroup == true ? "Its bots and their own chats stay." : "Files it changed on your computer stay as they are.") {
                 let item = confirmDelete
-                return [DialogAction(item?.bot.isGroup == true ? "Delete group chat" : "Delete bot and its conversation", destructive: true) {
+                return [DialogAction(item?.bot.isGroup == true ? "Delete group chat" : "Delete agent and its conversation", destructive: true) {
                     if let item { accounts.store(for: item.ref.computerId)?.delete(item.bot) }
                 }]
             }
@@ -742,15 +769,15 @@ private struct EmptyRoster: View {
     var body: some View {
         VStack(spacing: 14) {
             CharacterAvatar(portrait: "spare-cloud", size: 72)
-            Text("No bots yet").kithText(.agentName).foregroundStyle(Palette.ink)
+            Text("No agents yet").kithText(.agentName).foregroundStyle(Palette.ink)
             Text(hasComputer
-                 ? "Create a bot for each kind of work — a reviewer, a fixer, a docs writer — and point it at a project."
+                 ? "Make an agent for each kind of work: a reviewer, a fixer, a docs writer. Point it at a project."
                  : "Ask one of your account's computers for access, or pair one with its code.")
                 .kithText(.body)
                 .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
             if canCreate {
-                Button("Create your first bot", action: create)
+                Button("Make your first agent", action: create)
                     .buttonStyle(.primary)
             } else if !hasComputer {
                 Button("Computers", action: showComputers)

@@ -14,6 +14,7 @@ struct ShareAgentSheet: View {
     @State private var role: InviteRole = .guest
     @State private var created: CreatedInvite?
     @State private var removing: HostPerson?
+    @State private var botSheet: BotSheetTarget?
 
     /// `people` and `created` are for the DEBUG demo screens; the app passes neither.
     init(store: BotStore, agent: String, name: String, people: PeopleStore? = nil, created: CreatedInvite? = nil) {
@@ -53,7 +54,7 @@ struct ShareAgentSheet: View {
             }
         }
         .background(Palette.background)
-        .safeAreaInset(edge: .top, spacing: 0) { ModalHeader("Share \(name)") }
+        .safeAreaInset(edge: .top, spacing: 0) { ModalHeader("Share access to \(name)") }
         .task { await people.load() }
         .kithDialog("Remove \(removing?.name ?? "")?",
                     isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
@@ -124,7 +125,17 @@ struct ShareAgentSheet: View {
             }
             .buttonStyle(.primary)
             .disabled(!canCreate)
+
+            if !store.botGuests.unsupported {
+                CardSection("Bots", footer: "A bot from Grok or another app can ask \(name) for you. It never acts as you.") {
+                    Button { botSheet = .invite(on: store, preset: [agent]) } label: {
+                        LinkRow { Label("Invite a bot", systemImage: "bubble.left.and.bubble.right") }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
+        .botSheets($botSheet, viewer: .owner)
     }
 
     private func create() async {

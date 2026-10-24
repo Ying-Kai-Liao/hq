@@ -61,6 +61,8 @@ public final class BotStore {
     /// Accepted calls already told to greet, so the agent speaks first only once.
     @ObservationIgnored var greeted: Set<String> = []
     public internal(set) var hello: Hello?
+    /// Bots from outside (Grok and others) on this computer; see `BotGuestStore`.
+    @ObservationIgnored public private(set) lazy var botGuests = BotGuestStore(store: self)
     /// The host's version and protocol levels, kept even when the rest of its `hello` can't be read.
     public internal(set) var hostVersion: HostVersion?
     public internal(set) var bots: [String: Bot] = [:]

@@ -10,6 +10,10 @@ public enum HostEvent: Sendable {
     case resync
     /// An agent is calling (ringing), or a call stopped ringing (answered, declined, missed).
     case call(IncomingCallEvent)
+    /// A bot guest is waiting for the owner's answer (`botRequest`), or one changed (`botUpdated`). Neither carries what
+    /// the screens need: they read the lists again.
+    case botRequest
+    case botUpdated
     /// An event this app version couldn't decode (host newer/older than the app).
     case undecodable(type: String)
 }
@@ -163,6 +167,10 @@ public struct HostClient: Sendable {
             return .resync
         case "call":
             return IncomingCallEvent.decode(data).map { .call($0) }
+        case "botRequest":
+            return .botRequest
+        case "botUpdated":
+            return .botUpdated
         default:
             return nil
         }

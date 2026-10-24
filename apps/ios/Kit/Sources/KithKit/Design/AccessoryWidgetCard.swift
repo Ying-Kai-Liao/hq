@@ -20,14 +20,14 @@ public struct AccessoryWidgetCard: View {
     private var needs: Int { bots.filter(\.needsInput).count }
     private var working: Int { bots.filter { $0.isWorking && !$0.needsInput }.count }
     private var count: Int { needs > 0 ? needs : working > 0 ? working : bots.count }
-    private var botLabel: String { needs > 0 ? (needs == 1 ? "needs you" : "need you") : working > 0 ? "working" : (bots.count == 1 ? "bot" : "bots") }
+    private var botLabel: String { needs > 0 ? (needs == 1 ? "needs you" : "need you") : working > 0 ? "working" : (bots.count == 1 ? "agent" : "agents") }
     private var top: (name: String, window: UsageWindow)? {
         usage.providers.flatMap { p in p.windows.map { (name: p.name, window: $0) } }
             .max { $0.window.percent < $1.window.percent }
     }
     private var headline: String {
         guard paired else { return "Connect a computer" }
-        if kind == .bots { return bots.isEmpty ? "No bots yet" : "\(count) \(botLabel)" }
+        if kind == .bots { return bots.isEmpty ? "No agents yet" : "\(count) \(botLabel)" }
         return top.map { "\($0.name) \(Int($0.window.percent.rounded()))%" } ?? "No usage yet"
     }
 
@@ -56,7 +56,7 @@ public struct AccessoryWidgetCard: View {
                     VStack(spacing: 0) {
                         Text(kind == .bots ? "\(count)" : top.map { "\(Int($0.window.percent.rounded()))" } ?? "—")
                             .font(WidgetStyle.mono(24))
-                        Text(kind == .bots ? (needs > 0 ? "need you" : working > 0 ? "working" : "bots") : top.map { usageCaption($0.window.title) } ?? "usage")
+                        Text(kind == .bots ? (needs > 0 ? "need you" : working > 0 ? "working" : "agents") : top.map { usageCaption($0.window.title) } ?? "usage")
                             .font(WidgetStyle.label(9.5))
                     }
                     .minimumScaleFactor(0.7)
@@ -69,7 +69,7 @@ public struct AccessoryWidgetCard: View {
                     if !paired {
                         Text("Connect a computer").font(WidgetStyle.label(11)).lineLimit(1)
                     } else if kind == .bots {
-                        if bots.isEmpty { Text("No bots yet").font(WidgetStyle.label(11)).lineLimit(1) }
+                        if bots.isEmpty { Text("No agents yet").font(WidgetStyle.label(11)).lineLimit(1) }
                         ForEach(bots.sorted { rank($0) < rank($1) }.prefix(2)) { bot in
                             Text("\(bot.name) · \(bot.needsInput ? "Needs you" : bot.isWorking ? "Working" : "Ready")")
                                 .font(WidgetStyle.label(11)).lineLimit(1)

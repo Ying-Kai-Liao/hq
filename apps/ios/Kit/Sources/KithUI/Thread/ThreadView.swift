@@ -438,22 +438,16 @@ extension ThreadView {
         // The name sits in the middle of the bar; the narrow layout (small phones, long names) gives the buttons room first.
         ViewThatFits(in: .horizontal) {
             ZStack {
-                HStack(spacing: 8) { backButton; Spacer(minLength: 0); shareButton; callButton; menuButton }
-                titleButton.padding(.horizontal, onShare == nil ? 108 : 152)
+                HStack(spacing: 8) { backButton; Spacer(minLength: 0); callButton; menuButton }
+                titleButton.padding(.horizontal, 108)
             }
-            HStack(spacing: 8) { backButton; titleButton.frame(maxWidth: .infinity); shareButton; callButton; menuButton }
+            HStack(spacing: 8) { backButton; titleButton.frame(maxWidth: .infinity); callButton; menuButton }
         }
         .padding(.horizontal, KithSpacing.gutter)
         .padding(.top, 4)
     }
 
     private var backButton: some View { TopGlassButton("Back", systemImage: "chevron.left") { dismiss() } }
-
-    @ViewBuilder private var shareButton: some View {
-        if let onShare {
-            TopGlassButton("Share", systemImage: "person.badge.plus", action: onShare)
-        }
-    }
 
     private var callButton: some View {
         TopGlassButton("Call", systemImage: "phone.fill", action: startCall)
@@ -527,6 +521,9 @@ extension ThreadView {
             Button("Copy resume command", systemImage: "terminal") { Pasteboard.copy(root.resumeCommand(agent: bot.name)) }
         }
         Divider()
+        if let onShare {
+            Button("Share access…", systemImage: "person.badge.plus", action: onShare)
+        }
         Button("Details", systemImage: "info.circle", action: openDetails)
         ForEach(menuItems) { item in
             if item.divider { Divider() }
