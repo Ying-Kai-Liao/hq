@@ -74,6 +74,21 @@ public enum Tasks {
         return status.isBusy || (newest && now - lastAt < idleMs)
     }
 
+    /// The main chat's order with tasks placed by their activity. A task keeps its root's place until it moves after
+    /// the chat's newest other message (a terminal session started days ago, still talking): then it sits at the end,
+    /// by its latest reply, where new things appear. `moved` are the ids of those tasks.
+    public static func place(_ slots: [BotExchangeGroup.Item]) -> (slots: [BotExchangeGroup.Item], moved: Set<String>) {
+        var latest: Int64 = 0
+        for case .entry(let e) in slots where !e.isTask { latest = max(latest, e.createdAt) }
+        for case .exchanges(let g) in slots { latest = max(latest, Int64(g.date.timeIntervalSince1970 * 1000)) }
+        var moved: [(entry: Entry, at: Int64)] = []
+        for case .entry(let e) in slots where e.isTask && lastAt(e) > latest { moved.append((e, lastAt(e))) }
+        if moved.isEmpty { return (slots, []) }
+        let ids = Set(moved.map(\.entry.id))
+        let rest = slots.filter { if case .entry(let e) = $0 { return !ids.contains(e.id) } else { return true } }
+        return (rest + moved.sorted { $0.at < $1.at }.map { .entry($0.entry) }, ids)
+    }
+
     /// A card's title: the task's first message, on one line.
     public static func title(_ root: Entry) -> String {
         let text = (root.data.text ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")

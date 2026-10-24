@@ -55,6 +55,7 @@ export function TaskRow({ root, bot, newest, now, choice, setChoice, openTrace, 
           <TaskStatusIcon status={status} />
           <Text size="subheadline" weight="medium" tone="text" truncate>{taskTitle(root)}</Text>
           <Spacer />
+          {(root.data.thread?.unread ?? 0) > 0 ? <span className="task-unread" role="img" aria-label="Unread replies" /> : null}
           <Text size="footnote" tone="tertiary">{count === 1 ? '1 reply' : `${count} replies`} · {relativeTime.day(taskLastAt(root))}</Text>
           <Icon name="chevron.down" size={10} color="var(--tertiary)" />
         </HStack>

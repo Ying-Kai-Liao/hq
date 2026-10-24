@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { normalizeBot, type Entry } from './models.ts'
-import { TASK_IDLE_MS, chatAndTasks, currentTask, taskOpen, taskStatus, taskTitle } from './tasks.ts'
+import { TASK_IDLE_MS, chatAndTasks, currentTask, placeTasks, taskOpen, taskStatus, taskTitle } from './tasks.ts'
 
 const entry = (id: string, kind: string, data: Entry['data'], threadId: string | null = null): Entry =>
   ({ id, seq: 0, botId: 'b', threadId, rev: 1, kind, turn: 1, data, createdAt: 0, updatedAt: 0 })
@@ -65,4 +65,24 @@ test('a task a terminal is mid-turn in is working, though the host runs no lane 
   assert.equal(taskStatus(idle, thread('terminal', true), []), 'working')
   assert.equal(taskStatus(idle, thread('terminal', false), []), 'done')
   assert.equal(taskStatus(idle, thread('app', true), []), 'done', "an app turn is the host's lane to report")
+})
+
+test('a task still talking after the chat last message moves to the end, by its latest reply', () => {
+  const at = (e: Entry, createdAt: number, thread?: Entry['data']['thread']): Entry => ({ ...e, createdAt, data: { ...e.data, thread } })
+  const old = at(entry('old', 'user', { task: true }), 10, { count: 5, lastAt: 500, authors: [] })
+  const quiet = at(entry('quiet', 'user', { task: true }), 20, { count: 1, lastAt: 25, authors: [] })
+  const note = at(entry('n', 'notice', { text: 'Voice chat' }), 300)
+  const slots = [old, quiet, note].map((entry) => ({ entry }))
+  const placed = placeTasks(slots)
+  assert.deepEqual(placed.slots.map((s) => s.entry.id), ['quiet', 'n', 'old'])
+  assert.deepEqual([...placed.moved], ['old'])
+})
+
+test('a chat whose only row is the task root keeps it, and a settled chat is not reordered', () => {
+  const root = { ...entry('t', 'user', { task: true, thread: { count: 3, lastAt: 90, authors: [] } }), createdAt: 1 }
+  assert.deepEqual(placeTasks([{ entry: root }]).slots.map((s) => s.entry.id), ['t'])
+  const later = { ...entry('m', 'user', { text: 'hi' }), createdAt: 100 }
+  const p = placeTasks([{ entry: root }, { entry: later }])
+  assert.deepEqual(p.slots.map((s) => s.entry.id), ['t', 'm'])
+  assert.equal(p.moved.size, 0)
 })
