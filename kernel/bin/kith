@@ -192,6 +192,7 @@ if [[ $src_pkg == */role ]]; then home=${src_pkg%/role}; else home="$KITH_STATE/
 # Who the run is for: KITH_PERSON, set by the entry point (the bridge, a schedule) and inherited by every helper, so
 # access follows the person who asked however deep the calls go. Unset is the owner and changes nothing. A helper is
 # checked as one (--via the agent that called it). Fails closed: no answer from kith-auth, no run.
+nested=0; [[ -n ${KITH_AGENT:-} ]] && nested=1   # started by another run (KITH_AGENT is exported further down)
 caller=${KITH_AGENT:-}; [[ $caller == "$agent" ]] && caller=""; p_owner=1 p_mode="" p_model="" p_deny="" p_line="" p_env_names="" p_rooms=""
 if [[ -n ${KITH_PERSON:-} ]]; then
   res=$("$KITH/bin/kith-auth" resolve "$agent" ${caller:+--via "$caller"}) \
@@ -414,6 +415,9 @@ sys.exit(0 if ok else 1)' || { echo "kith: session $resume is not one of ${KITH_
 fi
 # These two belong to one run (listing a terminal session, and where it was resumed from): a helper this agent starts must not inherit them.
 unset KITH_TERMINAL_SESSION KITH_RESUMED_FROM
+# An ask token (the owner's approval cards, KITH_ASK_*) belongs to one run: a helper this run starts, or any run for a person
+# who isn't the owner, never inherits it. A helper of the owner's asks the host for its own below.
+[[ $nested -eq 1 || $p_owner == 0 ]] && unset KITH_ASK_TOKEN KITH_ASK_SOCKET HQ_ASK_TOKEN HQ_ASK_SOCKET   # (kith_env_sync would fill the KITH_ names back from the HQ_ ones)
 if [[ $launch -eq 1 ]]; then
   case $harness in claude|codex) ;; *) echo "kith: $agent runs on $harness; --launch-json covers claude and codex only for now" >&2; exit $([[ -n $backup ]] && echo 4 || echo 1) ;; esac
   out_format="" resume=""; unset KITH_CLAUDE_ARGS HQ_CLAUDE_ARGS
@@ -850,6 +854,27 @@ if [[ $# -gt 0 ]]; then
     prev=$a
   done
   [[ -z $csid || $harness != claude ]] || python3 "$KITH/bin/kith-sessions" claim "$csid" "$$" || exit 1
+  # A permission prompt in this run asks for approval through a card (--permission-prompt-tool) instead of being refused.
+  # A guest run was given KITH_RUN_TOKEN/KITH_RUN_SOCKET by the host, an owner run KITH_ASK_*, or gets them here: the
+  # host binds the token to this pid (exec keeps it) and to the session the run continues, or a --session-id chosen now.
+  # No token, no host, no answer: no prompt tool, asks are refused as before, and the run goes on.
+  if [[ $harness == claude ]]; then
+    if [[ -z ${KITH_RUN_TOKEN:-} && -z ${KITH_ASK_TOKEN:-} && $p_owner == 1 ]]; then
+      psid=$csid
+      if [[ -z $psid ]]; then
+        case " ${args[*]} " in
+          *" --session-id "*|*" --continue "*|*" -c "*|*" --resume="*) ;;
+          *) psid=$(python3 -c 'import uuid; print(uuid.uuid4())'); args+=(--session-id "$psid") ;;
+        esac
+      fi
+      [[ -z $psid ]] && psid="continue:$PWD"
+      if ask_env=$("$KITH/bin/kith-permit" issue "$agent" "$psid" "$$"); then eval "$ask_env"; fi
+    fi
+    if [[ -n ${KITH_RUN_TOKEN:-} && -n ${KITH_RUN_SOCKET:-} ]] || [[ -n ${KITH_ASK_TOKEN:-} && -n ${KITH_ASK_SOCKET:-} ]]; then
+      args+=(--mcp-config "{\"mcpServers\":{\"kithpermit\":{\"command\":\"$KITH/bin/kith-permit\",\"args\":[]}}}"
+             --permission-prompt-tool mcp__kithpermit__approve)
+    fi
+  fi
   exec claude "${args[@]}" -p "$*"
 fi
 [[ -t 0 && -t 1 ]] || { echo "kith: no terminal for an interactive session; give a task (kith $agent \"...\") or run it in a terminal" >&2; exit 1; }

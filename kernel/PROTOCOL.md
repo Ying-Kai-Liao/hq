@@ -157,6 +157,7 @@ updated: YYYY-MM-DD   by: <agent>
 - Other agents may write to shared files at the same time: append to `decisions.md`; for `codebase.md` and `verify.md`, re-read it
   right before editing and change only your sections.
 - `ID.md` and session files are yours alone.
+- **A refused action in a one-shot run is a card, not a no:** a permission prompt in a `claude -p` run goes to the person who can approve it (`--permission-prompt-tool`, `bin/kith-permit`). When the answer says someone is being asked, end your turn and say what you were waiting for; don't retry or work around it. Secrets and logins are never carded.
 - Stay in your lane: work that belongs to another specialist goes to it as above, not done by you. Code
   changes in a repo are coder's (when it is installed): unless the user asked you to make them yourself, send it a
   bounded request (what to change, where, acceptance criteria) with `{{KITH}}/bin/kith ask --bg coder -p <ID> "…"`, which
