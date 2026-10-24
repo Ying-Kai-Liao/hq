@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# kith-owner-launch-check — the owner's `claude -p` launch carries no guest restriction (F11 step 2a changes guest runs only).
+# Runs `kith echo hi` as the owner with a stub claude that logs its arguments and the settings file it was handed, in a
+# throwaway HOME/KITH_HOME/KITH_STATE (never the real ~/.kith). Checks: no sandbox, no denyWrite, no kith-permit, no
+# --strict-mcp-config. With a baseline kernel folder as $1 (e.g. `git archive origin/main kernel`), the normalised args and
+# settings of both launches must be identical: that is the before/after proof for a change to the launch code.
+#
+#   kernel/tests/kith-owner-launch-check [BASELINE_KERNEL_DIR]
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+BASE=${1:-}
+T0=$(mktemp -d "${TMPDIR:-/tmp}/kith-owner-launch-check.XXXXXX")
+trap 'rm -rf "$T0"' EXIT
+fails=0
+expect() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (got $2, want $3)"; fails=$((fails + 1)); fi; }
+
+# launch KERNEL OUT: one owner run, normalised log in OUT.
+launch() {
+  local kernel=$1 out=$2 T
+  T=$(mktemp -d "$T0/run.XXXXXX"); T=$(cd "$T" && pwd -P)
+  mkdir -p "$T/home" "$T/bin"
+  (
+    export HOME=$T/home KITH_HOME="$T/root" KITH_AUTH=$T/auth.json KITH_STATE=$T/state
+    unset KITH_PROJECT KITH_PERSON KITH_AGENT KITH_CLAUDE_ARGS KITH_HARNESS KITH_PERMISSION_MODE CLAUDE_CONFIG_DIR HQ_HOME KITH_RUN_TOKEN KITH_RUN_SOCKET
+    mkdir -p "$KITH_HOME/agents/echo/role" "$KITH_STATE/projects" "$KITH_STATE/logs"
+    printf -- '---\nname: echo\ndescription: t\n---\nYou echo.\n' > "$KITH_HOME/agents/echo/role/agent.md"
+    cat > "$T/bin/claude" <<'EOF'
+#!/bin/sh
+[ "$1" = "--version" ] && echo "2.1.309 (Claude Code)"
+[ "$1 $2" = "plugin list" ] && echo "[]"
+case "$*" in *--append-system-prompt*) echo "ARGS $*" >> "$ARGS_LOG"; prev=; for a in "$@"; do [ "$prev" = --settings ] && { echo "SETTINGS $a" >> "$ARGS_LOG"; [ -f "$a" ] && cat "$a" >> "$ARGS_LOG"; }; prev=$a; done;; esac
+exit 0
+EOF
+    chmod +x "$T/bin/claude"
+    printf '#!/bin/sh\nexit 0\n' > "$T/bin/kith-stub"; chmod +x "$T/bin/kith-stub"
+    export KITH_BIN=$T/bin/kith-stub PATH=$T/bin:$PATH ARGS_LOG=$T/args
+    cd "$KITH_HOME/agents/echo" && "$kernel/bin/kith" echo hi >/dev/null 2>"$T/err"
+  )
+  sed "s#$T#TMP#g; s#$kernel#KERNEL#g" "$T/args" > "$out" 2>/dev/null || : > "$out"
+}
+
+launch "$KERNEL" "$T0/after"
+expect "owner: the stub claude was launched with its settings" "$(grep -c '^SETTINGS' "$T0/after")" 1
+expect "owner: no sandbox in the settings" "$(grep -c '"sandbox"' "$T0/after")" 0
+expect "owner: no denyWrite" "$(grep -c 'denyWrite' "$T0/after")" 0
+expect "owner: no kith-permit server forced" "$(grep -c 'kithpermit' "$T0/after")" 0
+expect "owner: no --strict-mcp-config" "$(grep -c -- '--strict-mcp-config' "$T0/after")" 0
+if [ -n "$BASE" ]; then
+  launch "$BASE" "$T0/before"
+  if diff "$T0/before" "$T0/after" >/dev/null; then expect "owner: args and settings identical to the baseline" same same
+  else expect "owner: args and settings identical to the baseline" different same; diff "$T0/before" "$T0/after" | head -20; fi
+fi
+exit $((fails > 0))

@@ -208,7 +208,7 @@ pub fn within(roots: &[std::path::PathBuf], tool: &str, input: &Value) -> bool {
 /// the same folders). A file card for anything else is the owner's to answer, a member's own run included.
 pub fn grant_roots(person: &str, agent: &str) -> Vec<std::path::PathBuf> {
     let home = crate::kernel::home_dir(&dirs::home_dir().unwrap_or_default());
-    let agents = crate::kernel::var("AGENTS").map(std::path::PathBuf::from).unwrap_or_else(|| home.join("agents"));
+    let agents = crate::kernel::var("AGENTS").map_or_else(|| home.join("agents"), std::path::PathBuf::from);
     let base = agents.join(agent);
     [base.join("memory/people").join(person), base.join("files/people").join(person), base.join("memory/shared")]
         .iter()
