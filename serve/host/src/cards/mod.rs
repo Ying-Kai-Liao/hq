@@ -8,11 +8,11 @@
 //! stays live until the process is gone, then parks (C6). An answer while the process is up goes through the live
 //! channel and uses the once grant (C3); an answer while it is gone is recorded, as an approved card with its grant.
 //!
-//! HELD: the resume after such an answer (a wake request in the kernel queue `~/.kith/sessions/queue/`, and on restart
-//! "grant without resume -> queue it", C4's second half). `follow_up` is that one call site; it does nothing until the
-//! setting `cards.resume` is on, and even then only logs.
+//! The resume after such an answer, and on restart "grant without resume -> owed" (C4's second half), is `resume`.
+//! `follow_up` is its one call site; the setting `cards.resume` (default on) is the kill switch.
 
 pub mod resource;
+pub mod resume;
 
 use crate::hub::Hub;
 use crate::runauth::{RunIdentity, TokenScope};
@@ -44,7 +44,7 @@ pub fn settings(store: &Store) -> Settings {
         window: num(WINDOW_KEY).map_or(DEFAULT_WINDOW, |s| Duration::from_secs(s.min(600))),
         expiry_ms: num(EXPIRY_KEY)
             .map_or(DEFAULT_EXPIRY_MS, |h| i64::try_from(h.clamp(1, 24 * 30) * 3_600_000).unwrap_or(DEFAULT_EXPIRY_MS)),
-        resume: matches!(store.kv_get(RESUME_KEY).as_deref(), Some("on" | "true" | "1")),
+        resume: !matches!(store.kv_get(RESUME_KEY).as_deref(), Some("off" | "false" | "0")),
     }
 }
 
@@ -322,7 +322,7 @@ pub fn allows(entry_data: &Value, option_id: Option<&str>) -> bool {
 
 /// An approver's answer to the card behind `entry_id` (`respondPermission`). Who may answer was decided before this
 /// (roles.rs); here only the card decides whether the answer counts.
-pub fn answer(hub: &Hub, entry_id: &str, option_id: Option<&str>, by: &str) -> anyhow::Result<Outcome> {
+pub fn answer(hub: &Arc<Hub>, entry_id: &str, option_id: Option<&str>, by: &str) -> anyhow::Result<Outcome> {
     let Some(entry) = hub.store.entry(entry_id) else { return Ok(Outcome::Closed) };
     let Some(card) = hub.store.card_by_entry(entry_id) else { return Ok(Outcome::Closed) };
     let allow = allows(&entry.data, option_id);
@@ -469,11 +469,12 @@ pub fn sweep(hub: &Hub) {
     }
 }
 
-/// The resume half, held: an approved card whose asker was gone would queue a wake request here (kernel queue
-/// `~/.kith/sessions/queue/`) carrying its grant. Off by default; nothing is queued yet.
-pub fn follow_up(hub: &Hub, card: &Card) {
+/// The resume half (see `resume`): an approved card whose asker was gone owes its session a turn. On unless
+/// `cards.resume` is set to `off` (a kill switch); the store keeps the card owed either way, so switching it back on
+/// (and the next start) delivers what waited.
+pub fn follow_up(hub: &Arc<Hub>, card: &Card) {
     if settings(&hub.store).resume {
-        tracing::info!(card = %card.id, session = %card.session, "cards.resume is on, but the resume is not built yet");
+        resume::offer(hub, card);
     }
 }
 
@@ -484,7 +485,7 @@ pub fn start(hub: &Arc<Hub>) {
         Ok(parked) => mark_parked(hub, &parked),
         Err(error) => tracing::warn!(error = format!("{error:#}"), "couldn't restore cards"),
     }
-    for card in hub.store.cards_awaiting_resume() {
+    for card in hub.store.cards_awaiting_resume(now_ms()) {
         follow_up(hub, &card);
     }
     let weak = Arc::downgrade(hub);
@@ -509,3 +510,6 @@ pub fn start(hub: &Arc<Hub>) {
 mod props;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod resume_tests;

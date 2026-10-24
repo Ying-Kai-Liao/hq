@@ -251,6 +251,76 @@ fn descendants(root: u32) -> Vec<u32> {
     found
 }
 
+/// Whether `id` can be a Claude session id (it names a file under the state folder).
+pub fn safe_session(id: &str) -> bool {
+    safe_id(id)
+}
+
+/// What [`stop_holder`] came to.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Stopped {
+    /// No live claim (none, or a stale one whose pid is gone or was reused): nothing was signalled.
+    Nobody,
+    /// The host's own turn holds it (the claimer is a child of this host): its Stop ends it, not this.
+    OwnTurn(Claim),
+    /// The claimer and its children were ended.
+    Ended(Claim),
+}
+
+/// Ends the live holder of `sid` (the owner's Stop for a session held by an old run): SIGTERM to the claimer and its
+/// claude child, SIGKILL for what is still there after `grace`. The claim is checked first (`is_live`: the pid is
+/// running AND started when the claim says, so a reused pid is left alone) and the kill goes to that pid only.
+///
+/// This is a small kill helper of its own; it should merge with the claim sweep of the kernel-side lease work (#248).
+pub fn stop_holder(state: &Path, sid: &str, grace: std::time::Duration) -> Stopped {
+    let Some(claim) = holder(state, sid) else { return Stopped::Nobody };
+    if parent_of(claim.pid) == Some(std::process::id()) {
+        return Stopped::OwnTurn(claim);
+    }
+    let mut victims = children_of(claim.pid, 3);
+    victims.insert(0, claim.pid);
+    signal(&victims, libc::SIGTERM);
+    let deadline = std::time::Instant::now() + grace;
+    while std::time::Instant::now() < deadline && victims.iter().any(|p| pid_runs(*p)) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    // Still the claimer we judged? (The pid can only have gone, but a rest of the tree is signalled by pid alone.)
+    let left: Vec<u32> = victims.iter().copied().filter(|p| pid_runs(*p)).collect();
+    signal(&left, libc::SIGKILL);
+    release(state, sid, claim.pid, claim.takeover);
+    Stopped::Ended(claim)
+}
+
+fn ps_pids(args: &[&str]) -> Vec<u32> {
+    std::process::Command::new("ps")
+        .args(args)
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).split_whitespace().filter_map(|w| w.parse().ok()).collect())
+        .unwrap_or_default()
+}
+
+fn parent_of(pid: u32) -> Option<u32> {
+    ps_pids(&["-o", "ppid=", "-p", &pid.to_string()]).first().copied()
+}
+
+/// The descendants of `pid` down `depth` levels (claude and the tools it started).
+fn children_of(pid: u32, depth: usize) -> Vec<u32> {
+    if depth == 0 {
+        return Vec::new();
+    }
+    let out = std::process::Command::new("pgrep").args(["-P", &pid.to_string()]).output();
+    let kids: Vec<u32> = out
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).split_whitespace().filter_map(|w| w.parse().ok()).collect())
+        .unwrap_or_default();
+    let mut all = kids.clone();
+    for k in kids {
+        all.extend(children_of(k, depth - 1));
+    }
+    all
+}
+
 /// An advisory lock on a file, held until dropped.
 struct Lock(#[allow(dead_code)] std::fs::File);
 

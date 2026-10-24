@@ -253,7 +253,7 @@ pub fn attach(hub: &Arc<crate::hub::Hub>) {
     let _ = HUB.set(Arc::downgrade(hub));
 }
 
-fn hub() -> Option<Arc<crate::hub::Hub>> {
+pub(crate) fn hub() -> Option<Arc<crate::hub::Hub>> {
     HUB.get()?.upgrade()
 }
 

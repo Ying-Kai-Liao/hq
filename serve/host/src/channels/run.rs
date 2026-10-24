@@ -37,7 +37,7 @@ fn run_room(agent: &str, person: Option<&str>, private: bool, chat: &str) -> Opt
     (!chat.is_empty()).then(|| crate::agent::hq::room_of(agent, person, Some(chat)))
 }
 
-fn inherited(name: &str) -> bool {
+pub(crate) fn inherited(name: &str) -> bool {
     let basic = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "TZ", "TERM"].contains(&name)
         || name.starts_with("LC_");
     // No bot tokens or keys, and this is no agent's helper.
@@ -277,6 +277,13 @@ impl Core {
                 continue;
             }
             let res = serde_json::from_slice::<Value>(&attempt.out).ok();
+            // A card's wake rides in this task: no result means the turn never ran (held session, failed spawn).
+            let failed = self.settle_wake(task, res.is_some());
+            if !failed.is_empty()
+                && let Some(hub) = crate::runauth::hub()
+            {
+                crate::cards::resume::channel_failed(&hub, &failed);
+            }
             let limit = res.as_ref().and_then(depleted);
             if let Some(limit) = limit {
                 if chain.len() < 2 && self.backups.known_chain(agent).is_none() {
