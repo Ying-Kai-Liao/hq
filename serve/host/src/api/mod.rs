@@ -6,6 +6,8 @@ mod backups;
 #[cfg(test)]
 mod bot_guests_tests;
 pub mod botguests;
+#[cfg(test)]
+mod botguests_props;
 mod bots;
 mod calls;
 pub mod devices;
