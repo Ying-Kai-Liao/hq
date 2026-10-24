@@ -24,7 +24,7 @@ done
 wait
 counts=$(python3 -c "import json; d=json.load(open('$KITH_AUTH')); print(len(d['people']), len(d['members']['house']))")
 check "$N parallel person+member writes: none lost ($counts)" "[ '$counts' = '$((N + 1)) $N' ]"
-check "auth.json stays 0600" "[ \"\$(stat -f %Lp '$KITH_AUTH' 2>/dev/null || stat -c %a '$KITH_AUTH')\" = 600 ]"
+check "auth.json stays 0600" "[ \"\$(python3 -c \"import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])\" '$KITH_AUTH')\" = 600 ]"
 check "no tmp files left behind" "[ -z \"\$(ls $T | grep '[.]tmp\$')\" ]"
 
 # settings.json: parallel choices for different agents (its path comes from kith_paths: find it from the module)
