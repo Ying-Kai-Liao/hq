@@ -185,7 +185,7 @@ impl Actor {
         };
         let mut approver = None;
         if let Some((person, agent)) = &whose {
-            let name = tool["_meta"]["claudeCode"]["toolName"].as_str().unwrap_or(&title);
+            let name = tool["_meta"]["claudeCode"]["toolName"].as_str().unwrap_or_default();
             let kind = tool["kind"].as_str().unwrap_or("other");
             approver =
                 Some(if crate::api::roles::approves_own(person, agent, name, kind).await { "member" } else { "owner" });

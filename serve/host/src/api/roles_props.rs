@@ -276,7 +276,7 @@ impl World {
                 2 => Some(json!(bots[(e.bot + 1) % bots.len()])),
                 _ => Some(json!(7)),
             };
-            let mut data = json!({"options": [{"optionId": "allow"}]});
+            let mut data = json!({"options": [{"optionId": "allow"}], "toolKind": "fetch"});   // not code: a member may answer
             if let Some(a) = author {
                 data["author"] = a;
             }

@@ -173,6 +173,11 @@ pub fn runs_code(tool: &str, kind: &str) -> bool {
     if matches!(tool, "BashOutput" | "KillShell") {
         return false;
     }
+    // No tool name (an ACP request without claudeCode's toolName: its title is display text and may be an MCP tool's
+    // label): only a kind that clearly runs no code is the member's; an unknown kind goes to the owner too.
+    if tool.is_empty() {
+        return !matches!(kind, "read" | "edit" | "search" | "fetch" | "think");
+    }
     kind == "execute" || tool == "Bash" || tool.starts_with("mcp__")
 }
 

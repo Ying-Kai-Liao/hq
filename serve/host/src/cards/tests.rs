@@ -301,6 +301,13 @@ async fn a_members_own_card_for_code_goes_to_the_owner() {
     assert!(!roles::approves_own("sam", "house", "mcp__x__y", "other").await);
     assert!(roles::approves_own("sam", "house", "BashOutput", "execute").await);
     assert!(roles::approves_own("sam", "house", "Edit", "edit").await);
+    // An ACP request with no toolName: only a kind that clearly runs no code stays the member's.
+    for kind in ["read", "edit", "search", "fetch", "think"] {
+        assert!(roles::approves_own("sam", "house", "", kind).await, "{kind}");
+    }
+    for kind in ["execute", "other", "delete", "move", "switch_mode", "", "made-up"] {
+        assert!(!roles::approves_own("sam", "house", "", kind).await, "{kind} with no tool name");
+    }
     let call = ask(&r.hub, owner_run("s1"), "Bash", ls());
     assert_eq!(shown(&r.hub).await.approver, "owner");
     call.abort();
