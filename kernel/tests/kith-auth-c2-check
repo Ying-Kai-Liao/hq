@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# kith-auth-c2-check — nothing gives a removed person access: a grant, membership, share or link for someone who is not
+# a person is refused inside the auth.json lock; a grant racing a removal never leaves access behind; old rows left
+# for a removed person do nothing; the installer's swap waits for old kith-auth writers. Throwaway dirs, never ~/.kith.
+#
+#   kernel/tests/kith-auth-c2-check     about 15 seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$KERNEL/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-c2.XXXXXX"); T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export KITH_AUTH=$T/auth.json HOME=$T/home KITH_HOME=$T/kith
+unset KITH_STATE HQ_STATE KITH_PERSON KITH_AGENT HQ_HOME
+mkdir -p "$HOME" "$KITH_HOME/agents/house/role"
+printf -- '---\nname: house\ndescription: test\n---\nbody\n' > "$KITH_HOME/agents/house/role/agent.md"
+A() { python3 "$KERNEL/bin/kith-auth" "$@"; }
+fail=0
+check() { if eval "$2" >/dev/null 2>&1; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi; }
+J() { python3 -c "import json,sys; d=json.load(open('$KITH_AUTH')); [d.setdefault(k, {}) for k in ('members','grants','invites','people')]; print($1)"; }
+
+A person kai owner >/dev/null
+A person sam name=Sam >/dev/null
+A member house sam >/dev/null
+A grant house@sam browser browser/sam >/dev/null
+A share browser/sam kai >/dev/null 2>&1 || true
+A invite sam >/dev/null
+CODE=$(J "list(d['invites'])[0]")
+
+A person sam --rm >/dev/null
+check "a removed person has no membership, grant or invite" \
+  "[ \"\$(J \"'sam' in d['members'].get('house', {}) or 'house@sam' in d['grants'] or bool(d['invites'])\")\" = False ]"
+check "member for a removed person is refused" "! A member house sam"
+check "member for someone never added is refused" "! A member house nobody"
+check "member env.X for a removed person is refused" "! A member house sam env.FOO=1"
+check "grant house@removed is refused" "! A grant house@sam browser browser/sam"
+check "grant to a person never added is refused" "! A grant house@ghost browser browser/ghost"
+check "share with a removed person is refused" "! A share browser/sam sam"
+check "invite for a removed person is refused" "! A invite sam"
+check "a link code made before the removal writes nothing" "! A link telegram 123 $CODE"
+check "removing twice is fine" "A person sam --rm"
+check "revoke and member --rm still work on anyone" "A revoke house browser && A member house sam --rm"
+check "the owner is always allowed" "A member house kai"
+
+# rows an older kith-auth left for a removed person grant nothing (may() needs a person), and a new person of that id starts clean
+python3 - <<PY
+import json
+d = json.load(open('$KITH_AUTH'))
+d.setdefault('members', {}).setdefault('house', {})['ghost'] = {'preset': 'member'}
+d.setdefault('grants', {})['house@ghost'] = {'browser': 'browser/ghost'}
+json.dump(d, open('$KITH_AUTH', 'w'))
+PY
+check "resolve ignores an old row for someone who is not a person" \
+  "[ \"\$(A resolve house --person ghost | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"allowed\"])')\" = False ]"
+A person ghost >/dev/null
+check "a new person with an old id starts with no rows" \
+  "[ \"\$(J \"'ghost' in d['members'].get('house', {}) or 'house@ghost' in d['grants']\")\" = False ]"
+
+# a grant racing a removal: whichever order, the person ends with nothing
+bad=0
+for i in $(seq 1 20); do
+  A person "r$i" >/dev/null
+  ( A member house "r$i" preset=member >/dev/null 2>&1 ) &
+  ( A person "r$i" --rm >/dev/null 2>&1 ) &
+  ( A grant "house@r$i" browser "browser/r$i" >/dev/null 2>&1 ) &
+  wait
+  left=$(J "'r$i' in d['people'] or 'r$i' in d['members'].get('house', {}) or 'house@r$i' in d['grants']")
+  [ "$left" = False ] || bad=$((bad + 1))
+done
+check "20 parallel grant-vs-remove races: nobody keeps access ($bad bad)" "[ $bad = 0 ]"
+
+# the installer's swap: lock, swap, wait for writers that started before it, let go
+awk "/<<'QUIESCE'/{on=1; next} /^QUIESCE\$/{on=0} on" "$ROOT/scripts/install.sh" > "$T/quiesce.py"
+check "the installer carries the swap helper" "[ -s '$T/quiesce.py' ]"
+mkdir -p "$T/bin"
+printf '#!/bin/sh\nsleep "$1"\n' > "$T/bin/kith-auth"; chmod +x "$T/bin/kith-auth"
+printf 'touch "%s/swapped"\n' "$T" > "$T/swap.sh"
+sh "$T/bin/kith-auth" 3 & old=$!
+sleep 1.3
+s=$(date +%s)
+( sleep 1.8; sh "$T/bin/kith-auth" 9 ) & late=$!
+KITH_QUIESCE_MATCH="$T/bin/kith-auth" python3 "$T/quiesce.py" "$T/lock-dir/auth.json.lock" "$T/lock-dir/settings.json.lock" 20 sh "$T/swap.sh"; rc=$?
+took=$(( $(date +%s) - s ))
+check "the swap ran" "[ $rc = 0 ] && [ -e '$T/swapped' ]"
+check "it waited for the writer that started before the swap (${took}s)" "[ $took -ge 1 ]"
+check "it did not wait for the one that started after it (${took}s)" "[ $took -lt 7 ]"
+kill "$late" 2>/dev/null; pkill -P "$late" 2>/dev/null; wait 2>/dev/null
+sh "$T/bin/kith-auth" 60 & stuck=$!
+sleep 1.3
+KITH_QUIESCE_MATCH="$T/bin/kith-auth" python3 "$T/quiesce.py" "$T/lock-dir/auth.json.lock" "$T/lock-dir/settings.json.lock" 1 sh "$T/swap.sh"
+sleep 0.3
+check "a writer that outlives the limit is SIGTERMed" "! kill -0 $stuck"
+
+# settings.json: an old settings writer is waited for, and a new kith_settings write waits for the drain to end
+S=$(python3 -c "import sys; sys.path.insert(0, '$KERNEL/lib'); import kith_settings as s; print(s.FILE)")
+SL=$S.lock
+printf '#!/bin/sh\nsleep "$1"\n' > "$T/bin/kith_settings.py"; chmod +x "$T/bin/kith_settings.py"
+sh "$T/bin/kith_settings.py" 3 & oldset=$!
+sleep 1.3
+( KITH_QUIESCE_MATCH="$T/bin/kith_settings" python3 "$T/quiesce.py" "$T/lock-dir/auth.json.lock" "$SL" 20 sh "$T/swap.sh"; date +%s > "$T/drained" ) &
+drain=$!
+sleep 0.8
+python3 "$KERNEL/lib/kith_settings.py" set permission_mode late plan >/dev/null 2>&1
+date +%s > "$T/written"
+wait "$drain"
+check "a new settings write waited for the drain to end" "[ \$(cat '$T/written') -ge \$(cat '$T/drained') ]"
+check "the old settings writer was waited for" "! kill -0 $oldset"
+check "the write landed" "python3 -c \"import json; assert 'late' in json.load(open('$S'))['agents']\""
+
+# the installer finds the lock files through the installed kernel's own kith_paths: a Mac whose ~/.kith is not its
+# folder keeps auth.json and settings.json under ~/.config/kith
+awk '/^lock_paths\(\) \{/{on=1} on{print} /^}/{on=0}' "$ROOT/scripts/install.sh" > "$T/lock_paths.sh"
+lp() {   # lp PREFIX HOME: the two lock paths the installer would take
+  env -u KITH_AUTH -u KITH_HOME -u KITH_STATE HOME="$2" sh -c 'have() { command -v "$1" >/dev/null 2>&1; }; PREFIX=$1; . "$2"; lock_paths; echo "$AUTH_LOCK"; echo "$SETTINGS_LOCK"' sh "$1" "$T/lock_paths.sh"
+}
+mkdir -p "$T/home2/.config/kith" "$T/prefix/share/kith"
+check "no installed kernel: the defaults" "[ \"\$(lp '$T/none' '$T/home2' | sed -n 1p)\" = '$T/none/secrets/auth.json.lock' ]"
+cp -R "$KERNEL" "$T/prefix/share/kith/kernel"
+lp "$T/prefix" "$T/home2" > "$T/got"
+check "~/.config/kith layout: auth lock beside the real auth.json" "[ \"\$(sed -n 1p '$T/got')\" = '$T/home2/.config/kith/auth.json.lock' ]"
+check "~/.config/kith layout: settings lock beside the real settings.json" "[ \"\$(sed -n 2p '$T/got')\" = '$T/home2/.config/kith/settings.json.lock' ]"
+exit $fail
