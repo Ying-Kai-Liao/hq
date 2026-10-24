@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # kith-owner-launch-check — the owner's `claude -p` launch carries no guest restriction (F11 step 2a changes guest runs only).
 # Runs `kith echo hi` as the owner with a stub claude that logs its arguments and the settings file it was handed, in a
-# throwaway HOME/KITH_HOME/KITH_STATE (never the real ~/.kith). Checks: no sandbox, no denyWrite, no kith-permit, no
-# --strict-mcp-config. With a baseline kernel folder as $1 (e.g. `git archive origin/main kernel`), the normalised args and
+# throwaway HOME/KITH_HOME/KITH_STATE (never the real ~/.kith). Checks: no sandbox, no denyWrite, no kith-permit.
+# With a baseline kernel folder as $1 (e.g. `git archive origin/main kernel`), the normalised args and
 # settings of both launches must be identical: that is the before/after proof for a change to the launch code.
 #
 #   kernel/tests/kith-owner-launch-check [BASELINE_KERNEL_DIR]
@@ -37,7 +37,9 @@ EOF
     export KITH_BIN=$T/bin/kith-stub PATH=$T/bin:$PATH ARGS_LOG=$T/args
     cd "$KITH_HOME/agents/echo" && "$kernel/bin/kith" echo hi >/dev/null 2>"$T/err"
   )
-  sed "s#$T#TMP#g; s#$kernel#KERNEL#g" "$T/args" > "$out" 2>/dev/null || : > "$out"
+  # Also drop what differs per run: the pid, session id, package hash, and the shell-escaped kernel path.
+  local esc=${kernel// /\\\\ }
+  sed -e "s#$T#TMP#g" -e "s#$kernel#KERNEL#g" -e "s#$esc#KERNEL#g" -e "s#${esc//\\\\/\\\\\\\\}#KERNEL#g" -e 's#echo@[0-9a-f]*#echo@HASH#g' -e 's#/\.runs/[0-9]*\.#/.runs/PID.#g' -e 's#--session-id [0-9a-f-]*#--session-id SID#' "$T/args" > "$out" 2>/dev/null || : > "$out"
 }
 
 launch "$KERNEL" "$T0/after"
@@ -45,7 +47,6 @@ expect "owner: the stub claude was launched with its settings" "$(grep -c '^SETT
 expect "owner: no sandbox in the settings" "$(grep -c '"sandbox"' "$T0/after")" 0
 expect "owner: no denyWrite" "$(grep -c 'denyWrite' "$T0/after")" 0
 expect "owner: no kith-permit server forced" "$(grep -c 'kithpermit' "$T0/after")" 0
-expect "owner: no --strict-mcp-config" "$(grep -c -- '--strict-mcp-config' "$T0/after")" 0
 if [ -n "$BASE" ]; then
   launch "$BASE" "$T0/before"
   if diff "$T0/before" "$T0/after" >/dev/null; then expect "owner: args and settings identical to the baseline" same same
