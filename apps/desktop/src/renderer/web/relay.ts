@@ -36,6 +36,8 @@ export interface WebRelayDeps {
 
 export class WebRelay {
   private owner: string | null = null
+  /** Bumped whenever the links are dropped (sign-out, another session, a refused key): a `linkFor` that began earlier must not create one. */
+  private generation = 0
   private readonly links = new Map<string, RelayLink>()
   private readonly registered = new Map<string, Promise<CloudResult<unknown>>>()
   private readonly asking = new Map<string, { requestId: string | null; cancelled: boolean }>()
@@ -49,6 +51,7 @@ export class WebRelay {
 
   /** Closes every socket (sign-out, §4.2 step 1) and forgets what was registered. */
   closeAll() {
+    this.generation++
     for (const l of this.links.values()) l.close()
     this.links.clear()
     this.registered.clear()
@@ -71,6 +74,7 @@ export class WebRelay {
   private async register(session: { userId: string; sid: string }): Promise<CloudResult<{ userId: string }>> {
     const key = `${session.userId}:${session.sid}`
     if (this.owner !== key) {
+      if (this.owner !== null) this.generation++
       for (const l of this.links.values()) l.close()
       this.links.clear()
       this.registered.clear()
@@ -86,6 +90,9 @@ export class WebRelay {
     this.registered.delete(key)
     // 403: this key was retired or revoked. It can never be used again, so it goes, and the next load is a new device.
     if (res.error.status === 403) {
+      this.generation++
+      for (const l of this.links.values()) l.close()
+      this.links.clear()
       await this.d.keyRefused(session.userId)
       return failure(403, 'deviceRetired', DEVICE_RETIRED)
     }
@@ -93,10 +100,13 @@ export class WebRelay {
   }
 
   private async linkFor(computerId: string, signKey: string): Promise<RelayLink | RelayCallError> {
+    const generation = this.generation
+    const gone = { status: 0, message: 'Sign in again to reach your computers.', code: 'signedOut' }
     const ensured = await this.ensureDevice()
     if (!ensured.ok) return { status: ensured.error.status, message: ensured.error.message ?? 'Sign in again.', code: ensured.error.code }
+    if (generation !== this.generation) return gone
     const signer = await this.d.signer(false)
-    if (!signer) return { status: 0, message: 'Sign in again to reach your computers.', code: 'signedOut' }
+    if (!signer || generation !== this.generation) return gone
     const existing = this.links.get(computerId)
     if (existing) return existing
     const link = new RelayLink({

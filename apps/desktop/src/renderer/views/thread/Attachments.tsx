@@ -73,7 +73,8 @@ function AttachmentImage({ file, botId, fit }: { file: Attachment; botId: string
     let made: string | null = null
     void store.attachmentData(file.id, botId).then((data) => {
       if (!data || revoked) return
-      made = URL.createObjectURL(new Blob([data as BlobPart]))
+      // Never a type the browser would render as a document ("open image in new tab" on a blob: URL runs on this origin).
+      made = URL.createObjectURL(new Blob([data as BlobPart], { type: 'application/octet-stream' }))
       setUrl(made)
     })
     return () => {

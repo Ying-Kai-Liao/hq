@@ -9,7 +9,8 @@ export interface WebSession {
   ready(): Promise<void>
   /** Why this browser can't hold the device key, or null when it can. */
   support(): Promise<Unsupported | null>
-  hasPendingLink(): Promise<boolean>
+  /** The invite waiting to be joined (no token): which computer it is for. Null when none. */
+  pendingLink(): Promise<{ computerId: string } | null>
   /** Drops the waiting invite once the join ended or the person closed it. */
   discardPending(): Promise<void>
   /** "Sign in again": ends the Clerk session only. The key and the kept invite stay, so nothing is proven twice. */
@@ -28,7 +29,7 @@ const need = () => {
 export const webSession: WebSession = {
   ready: () => need().ready(),
   support: () => need().support(),
-  hasPendingLink: () => need().hasPendingLink(),
+  pendingLink: () => need().pendingLink(),
   discardPending: () => need().discardPending(),
   signInAgain: () => need().signInAgain(),
 }

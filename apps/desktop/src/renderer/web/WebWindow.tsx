@@ -77,7 +77,7 @@ function Gate() {
 function SignIn() {
   const acct = useAccount()
   const [invited, setInvited] = useState(false)
-  useEffect(() => void webSession.hasPendingLink().then(setInvited), [])
+  useEffect(() => void webSession.pendingLink().then((l) => setInvited(!!l)), [])
   const providers: { id: SignInProvider; label: string }[] = [
     { id: 'google', label: 'Continue with Google' },
     { id: 'github', label: 'Continue with GitHub' },
@@ -141,6 +141,24 @@ function JoinPanel() {
   )
 }
 
+function ConfirmJoin({ computerId, onJoin, onDecline }: { computerId: string; onJoin: () => void; onDecline: () => void }) {
+  return (
+    <div className="web-center" data-screen="confirm-join">
+      <div className="web-card">
+        <h1 className="web-title">Join a computer on Kith?</h1>
+        <p className="web-text">
+          An invite link asked this browser to join the computer with ID {computerId.slice(0, 8)}. Only continue if you expect this invite
+          from someone you know. Its owner will see that you joined and decides which agents you can use.
+        </p>
+        <div className="web-buttons">
+          <Button className="web-wide" onClick={onJoin}>Join</Button>
+          <Button kind="secondary" className="web-wide" onClick={onDecline}>Not now</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function MemberApp() {
   const app = useApp()
   const macs = useRelayMacs(app)
@@ -154,10 +172,12 @@ function MemberApp() {
 
   useEffect(() => window.kith.relay.onState((id, s) => setStates((prev) => ({ ...prev, [id]: s }))), [])
 
-  // The invite waiting in IndexedDB (or one that survived a reload mid-join) runs now that the person is signed in.
+  // An invite waiting in IndexedDB (or one that survived a reload mid-join) is offered, never run by itself: a link an
+  // agent posted and the person opened while signed in must not join anything without a click.
+  const [offer, setOffer] = useState<{ computerId: string } | null | undefined>(undefined)
+  useEffect(() => void webSession.pendingLink().then(setOffer), [])
   useEffect(() => {
     inviteJoin.adopt = (id) => app.relayMacs.adopt(id)
-    void inviteJoin.start()
     return () => void (inviteJoin.adopt = null)
   }, [app])
 
@@ -165,7 +185,7 @@ function MemberApp() {
   const tried = useRef(new Set<string>())
   useEffect(() => {
     // Not while a join is running: it asks for access itself, and a second request would cancel the first.
-    if (join.link !== null) return
+    if (join.link !== null || offer !== null) return
     for (const c of macs.computers) {
       if (c.role !== 'member' || tried.current.has(c.computerId) || macs.store(c.computerId) || macs.access.has(c.computerId)) continue
       tried.current.add(c.computerId)
@@ -179,6 +199,23 @@ function MemberApp() {
   const showThread = !!(selected && selectedStore && selectedStore.bots.get(selected.botId))
 
   if (join.link !== null) return <Shell>{<JoinPanel />}</Shell>
+  if (offer) {
+    return (
+      <Shell>
+        <ConfirmJoin
+          computerId={offer.computerId}
+          onJoin={() => {
+            setOffer(null)
+            void inviteJoin.start()
+          }}
+          onDecline={() => {
+            setOffer(null)
+            void webSession.discardPending()
+          }}
+        />
+      </Shell>
+    )
+  }
 
   return (
     <Shell

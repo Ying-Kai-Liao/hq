@@ -8,6 +8,7 @@ import { takeInviteFromHash } from './hash.ts'
 import { KeyStore, PENDING, type Kv, type Store } from './keystore.ts'
 import { noticeFor } from './notice.ts'
 import { WebRelay, DEVICE_RETIRED } from './relay.ts'
+import { KeyRefusal } from './refusal.ts'
 import { signOutInOrder } from './signout.ts'
 
 const subtle = webcrypto.subtle as unknown as SubtleCrypto
@@ -277,6 +278,46 @@ test('a refused key (403) is dropped so the next load makes a new device, and th
   assert.equal(res.ok, false)
   assert.equal(!res.ok && res.error.message, DEVICE_RETIRED)
   assert.deepEqual(dropped, ['u'])
+})
+
+test('after the cloud refuses a key, no new key is made in this page for that user', () => {
+  const r = new KeyRefusal()
+  assert.equal(r.mayCreate('u'), true)
+  r.refuse('u')
+  assert.equal(r.mayCreate('u'), false)
+  assert.equal(r.mayCreate('other'), true)
+})
+
+test('a link that was past registration when sign-out closed everything is not created', async () => {
+  let release!: () => void
+  const gate = new Promise<void>((r) => (release = r))
+  const cloud = { request: async () => (await gate, { ok: true, value: {} }) } as unknown as WebCloud
+  const signer: Signer = { publicKey: new Uint8Array(32), sign: async () => new Uint8Array(64) }
+  const relay = new WebRelay({
+    cloud,
+    cloudURL: 'https://cloud.test',
+    session: () => ({ userId: 'u', sid: 's' }),
+    jwt: async () => 'jwt',
+    signer: async () => signer,
+    keyRefused: async () => {},
+    deviceName: 'Kith web',
+  })
+  const pending = relay.bridge.state('cmp', 'AAAA')
+  relay.closeAll()
+  release()
+  const state = await pending
+  assert.equal(state.kind, 'failed')
+  assert.equal(state.kind === 'failed' && state.code, 'signedOut')
+})
+
+test('a link waiting for sign-in belongs to the first account that signs in with it', async () => {
+  const { store } = newStore()
+  await store.savePending({ computerId: 'cmp_1', inviteId: 'inv_1', token: TOKEN })
+  assert.equal((await store.pending(null))?.forUser ?? null, null, 'signed out: nobody owns it yet')
+  assert.ok(await store.pending('user_a'))
+  assert.ok(await store.pending('user_a'), 'a reload for the same account still finds it')
+  assert.equal(await store.pending('user_b'), null, 'another account never gets it')
+  assert.equal(await store.pending('user_a'), null, 'and it is gone')
 })
 
 // ---- link outcome to words ----
