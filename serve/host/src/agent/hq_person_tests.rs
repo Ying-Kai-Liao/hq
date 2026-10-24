@@ -64,8 +64,17 @@ impl Kernel {
     }
 
     async fn launch(&self, person: Option<&str>) -> anyhow::Result<hq::Launch> {
-        hq::launch(&self.kith, "house", self.dir.join("cwd").to_str().unwrap(), None, None, person, "1:1:house:owner")
-            .await
+        hq::launch(
+            &self.kith,
+            "house",
+            self.dir.join("cwd").to_str().unwrap(),
+            None,
+            None,
+            person,
+            "1:1:house:owner",
+            &[],
+        )
+        .await
     }
 }
 

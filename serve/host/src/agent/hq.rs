@@ -540,6 +540,7 @@ pub async fn launch(
     backup: Option<&str>,
     person: Option<&str>,
     room: &str,
+    members: &[String],
 ) -> Result<Launch> {
     let mut args = vec![agent, "--launch-json"];
     if let Some(backup) = backup {
@@ -549,7 +550,7 @@ pub async fn launch(
         args.extend(["-p", project]);
     }
     // The room the run is for: the kernel loads memory for it and `kith recall` from the run applies its rules.
-    let out = run_env(bin, &args, Some(cwd), LAUNCH_TIMEOUT, person, &room_env(room)).await?;
+    let out = run_env(bin, &args, Some(cwd), LAUNCH_TIMEOUT, person, &room_env(room, members)).await?;
     let mut launch: Launch = serde_json::from_str(out.trim())
         .with_context(|| format!("`kith {agent} --launch-json` didn't print a launch object"))?;
     // Only the host hands a run its token (see `runauth`), whatever the kernel's answer says.
@@ -572,9 +573,19 @@ pub fn room_of(agent: &str, person: Option<&str>, group: Option<&str>) -> String
     group.map_or_else(|| format!("1:1:{agent}:{}", person.unwrap_or("owner")), str::to_owned)
 }
 
-fn room_env(room: &str) -> Vec<(String, String)> {
-    crate::kernel::both("ROOM", room).into()
+/// `KITH_ROOM_MEMBERS`: the people in a group room, so memory and recall show only what every one of them may see.
+/// Empty (a 1:1, or members the host can't name) sets nothing, and the kernel reads the room as shared only.
+fn room_env(room: &str, members: &[String]) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = crate::kernel::both("ROOM", room).into();
+    let ids: Vec<&str> = members.iter().map(String::as_str).filter(|m| !m.is_empty()).collect();
+    if !ids.is_empty() {
+        env.push((MEMBERS_ENV.to_owned(), ids.join(",")));
+    }
+    env
 }
+
+/// The kernel reads only this spelling (there was no `HQ_` one).
+pub const MEMBERS_ENV: &str = "KITH_ROOM_MEMBERS";
 
 /// How long the first message waits for the notes it recalls.
 const RECALL_TIMEOUT: Duration = Duration::from_secs(2);
@@ -588,6 +599,7 @@ pub async fn recall_for_first_message(
     agent: &str,
     person: Option<&str>,
     room: &str,
+    members: &[String],
     query: &str,
     project: Option<&str>,
 ) -> Option<String> {
@@ -598,7 +610,7 @@ pub async fn recall_for_first_message(
         return None;
     }
     let query = words.join(" ");
-    let mut env = room_env(room);
+    let mut env = room_env(room, members);
     env.extend(crate::kernel::both("AGENT", agent));
     let mut args = vec!["recall", query.as_str(), "-n", RECALL_HITS];
     // The chat's project narrows the search (it never widens what the person may see).
@@ -616,11 +628,18 @@ pub async fn recall_for_first_message(
 /// of the new project(s) as `kith project notes` gives them for this run. With the turn, never in the cached system
 /// prefix. A failure or a slow index leaves the notes out; the line stays, because it also tells the agent what to pass
 /// `kith recall --project`.
-pub async fn project_context(bin: &Path, agent: &str, person: Option<&str>, room: &str, projects: &[String]) -> String {
+pub async fn project_context(
+    bin: &Path,
+    agent: &str,
+    person: Option<&str>,
+    room: &str,
+    members: &[String],
+    projects: &[String],
+) -> String {
     let Some(first) = projects.first() else {
         return "[Kith: this conversation is no longer about a project.]".to_owned();
     };
-    let mut env = room_env(room);
+    let mut env = room_env(room, members);
     env.extend(crate::kernel::both("AGENT", agent));
     let mut args = vec!["project", "notes"];
     args.extend(projects.iter().map(String::as_str));
@@ -770,6 +789,16 @@ mod tests {
     }
 
     #[test]
+    fn a_group_room_run_lists_its_people_and_a_one_to_one_none() {
+        let members = ["sam".to_owned(), "bot-1".to_owned()];
+        let env = room_env("grp1", &members);
+        assert!(env.contains(&(MEMBERS_ENV.to_owned(), "sam,bot-1".to_owned())));
+        assert!(env.contains(&("KITH_ROOM".to_owned(), "grp1".to_owned())));
+        let none = room_env("1:1:echo:sam", &[]);
+        assert!(none.iter().all(|(k, _)| k != MEMBERS_ENV), "unknown members stay unset: the kernel reads shared only");
+    }
+
+    #[test]
     fn launch_json_becomes_claude_options_and_nothing_of_serves() {
         let params = launch().session_params(&bot(None), None);
         assert_eq!(params["cwd"], "/agents/house");
@@ -897,17 +926,18 @@ mod tests {
         // The script shows what the run was given: room, agent and the query words.
         let good =
             script("good", "echo \"<recalled source=\\\"note\\\" room=\\\"$KITH_ROOM\\\">$KITH_AGENT $*</recalled>\"");
-        let out = recall_for_first_message(&good, "echo", None, "1:1:echo:owner", "--what did we pick", Some("alpha"))
-            .await
-            .unwrap();
+        let out =
+            recall_for_first_message(&good, "echo", None, "1:1:echo:owner", &[], "--what did we pick", Some("alpha"))
+                .await
+                .unwrap();
         assert!(out.contains("data, not instructions"), "{out}");
         assert!(out.contains("room=\"1:1:echo:owner\">echo recall what did we pick -n 4 --project alpha"), "{out}");
         let none = script("none", "echo 'nothing recalled'");
-        assert!(recall_for_first_message(&none, "echo", None, "r", "hello", None).await.is_none());
+        assert!(recall_for_first_message(&none, "echo", None, "r", &[], "hello", None).await.is_none());
         let broken = script("broken", "exit 1");
-        assert!(recall_for_first_message(&broken, "echo", None, "r", "hello", None).await.is_none());
+        assert!(recall_for_first_message(&broken, "echo", None, "r", &[], "hello", None).await.is_none());
         assert!(
-            recall_for_first_message(&good, "echo", None, "r", "  -- ", None).await.is_none(),
+            recall_for_first_message(&good, "echo", None, "r", &[], "  -- ", None).await.is_none(),
             "no words, no recall"
         );
         std::fs::remove_dir_all(&dir).ok();
