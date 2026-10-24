@@ -164,6 +164,8 @@ struct BotListView: View {
                 }
             }
             .padding(.bottom, 4)
+            // Swallow taps in the dock's gaps so they never reach a room scrolling beneath it.
+            .background(Color.clear.contentShape(Rectangle()).onTapGesture {})
         }
         .toolbar(.hidden, for: .navigationBar)
         .onChange(of: computedOrder, initial: true) { _, _ in syncOrder() }
