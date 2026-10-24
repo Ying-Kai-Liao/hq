@@ -79,6 +79,20 @@ impl Environment {
         }
     }
 
+    /// Where the web client for this environment is served; Main has none yet. `KITH_WEB_ORIGIN` overrides it for
+    /// local work (read here at runtime; the cloud never supplies it, or a hostile cloud could point invites at a
+    /// look-alike page).
+    pub fn web_origin(self) -> Option<String> {
+        let own = std::env::var("KITH_WEB_ORIGIN").ok().map(|v| v.trim().trim_end_matches('/').to_owned());
+        if let Some(o) = own.filter(|o| !o.is_empty()) {
+            return Some(o);
+        }
+        match self {
+            Self::Main => None,
+            Self::Dev => Some("https://kith-web-dev.lykevin890919.workers.dev".into()),
+        }
+    }
+
     #[allow(clippy::unused_self)]
     pub fn require_release_updates(self) -> anyhow::Result<()> {
         anyhow::bail!("updates are off in this build; rebuild with `kith serve start`")
