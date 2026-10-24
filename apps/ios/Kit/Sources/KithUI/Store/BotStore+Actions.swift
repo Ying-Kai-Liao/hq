@@ -98,6 +98,25 @@ extension BotStore {
         perform { try await $0.callGreet(id) }
     }
 
+    /// The call connected: its chat line goes in now, where the call began. Yields nil on a computer
+    /// older than this (or a failure), and `finishCall` then writes the old end-of-call line.
+    public func startCall(_ botId: String) -> Task<String?, Never> {
+        Task { try? await withLink { try await $0.startCall(botId) } }
+    }
+
+    /// The call ended: its length goes on the line `startCall` made. `started` is nil when the call never connected.
+    public func finishCall(_ botId: String, started: Task<String?, Never>?, seconds: Int) {
+        Task {
+            let entryId = await started?.value
+            if started != nil, entryId == nil {
+                try? await withLink(replay: true) { try await $0.logCall(botId, seconds: seconds) }
+                return
+            }
+            // A computer older than endCall just doesn't learn the call ended; there is no line to write.
+            try? await withLink(replay: true) { try await $0.endCall(botId, entryId: entryId, seconds: seconds) }
+        }
+    }
+
     public func logCall(_ botId: String, seconds: Int) { perform { try await $0.logCall(botId, seconds: seconds) } }
     public func newSession(_ botId: String) { perform { try await $0.newSession(botId) } }
 

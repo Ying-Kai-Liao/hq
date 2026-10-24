@@ -288,6 +288,41 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let e = hub.add_entry(&Lane::main(bot), EntryKind::Notice, hub.store.max_turn(bot), &data);
             json!({"entry": e})
         }
+        // A voice call that just connected: its line goes in the chat now, so it sits where the call began; `endCall`
+        // fills in the length. `callLive` is the "in progress" mark; the apps stop showing it after a few hours.
+        "startCall" => {
+            let bot = str_arg(&b, "botId")?;
+            hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+            let data = json!({"text": "Voice chat", "callLive": true});
+            // None means the line wasn't saved: an error, so the app falls back to `logCall` instead of waiting on a null.
+            let e = hub.add_entry(&Lane::main(bot), EntryKind::Notice, hub.store.max_turn(bot), &data)
+                .ok_or_else(|| anyhow!("couldn't save the call"))?;
+            json!({"entry": e})
+        }
+        // The call's end: the length goes on its line. Sending it twice (a retry) changes nothing the second time.
+        // Without `entryId` (a call that never connected) it only frees the person for the next call.
+        "endCall" => {
+            let bot = str_arg(&b, "botId")?;
+            hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+            hub.calls.ended(bot);
+            if let Some(id) = b["entryId"].as_str() {
+                let e = hub.store.entry(id).filter(|e| e.bot_id == bot && e.kind == EntryKind::Notice.as_str());
+                // Only a call line (live, or already filled in by an earlier `endCall`): members may call this, and
+                // must not be able to stamp a length on any other notice of the chat.
+                let is_call = |e: &crate::store::Entry| e.data["callLive"] == true || !e.data["callSeconds"].is_null();
+                let mut e = e.filter(is_call).ok_or_else(|| anyhow!("unknown call"))?;
+                if e.data["callSeconds"].is_null() {
+                    if let Some(data) = e.data.as_object_mut() {
+                        data.remove("callLive");
+                        data.insert("callSeconds".into(), b["seconds"].as_u64().unwrap_or(0).into());
+                    }
+                    e = hub.set_entry(id, &e.data).ok_or_else(|| anyhow!("couldn't save the call"))?;
+                }
+                json!({"entry": e})
+            } else {
+                json!({})
+            }
+        }
         // Stops where the user pressed it: the bot's chat, or the thread `threadId`; `all` stops the bot everywhere.
         // A group stops as a whole.
         "stop" => {

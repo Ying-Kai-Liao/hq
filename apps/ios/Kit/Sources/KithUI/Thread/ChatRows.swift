@@ -249,8 +249,8 @@ struct NoticeRow: View {
         let text = entry.data.text ?? ""
         if let kind = ThreadFeed.writerDivider(entry, mac: model.hostName) {
             WriterDivider(kind, time: entry.date.formatted(date: .omitted, time: .shortened))
-        } else if let seconds = entry.data.callSeconds {
-            Label("\(text) · \(String(format: "%02d:%02d", seconds / 60, seconds % 60))", systemImage: "waveform")
+        } else if let line = VoiceCallLine.suffix(entry.data, at: entry.date) {
+            Label("\(text)\(line)", systemImage: "waveform")
                 .font(.footnote.monospacedDigit())
                 .foregroundStyle(Palette.secondary)
                 .frame(maxWidth: .infinity)

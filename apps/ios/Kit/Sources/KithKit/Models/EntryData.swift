@@ -59,6 +59,8 @@ public struct EntryData: Codable, Hashable, Sendable {
     public var files: [SharedFile]?
     /// notice: a finished voice call's length.
     public var callSeconds: Int?
+    /// notice: a voice call that began and may still be going; `callSeconds` replaces it at the end.
+    public var callLive: Bool?
     /// notice (divider): who started or stopped writing. Open string; see `WriterChange`.
     public var writerChange: String?
     /// notice: when the writer changed, in ms.

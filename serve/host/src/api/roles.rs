@@ -49,6 +49,10 @@ pub const MEMBER_METHODS: &[&str] = &[
     "callGreet",
     // The app logs the end of a call it took (frees the person for the next one).
     "logCall",
+    // The same for the call's line in the chat: `startCall` writes it, `endCall` fills in its length (only a call line
+    // of their own chat). Named by `botId`, so `guard` covers them with `own_bot` in its default arm.
+    "startCall",
+    "endCall",
     // Their own bot guests (docs/kith-bot-guests.md): inviting one from what they hold, seeing and removing their own.
     // Each handler checks the bot is theirs; deciding on a bot and the per-person toggle stay the owner's.
     "createBotInvite",
