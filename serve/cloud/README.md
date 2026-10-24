@@ -49,16 +49,17 @@ Deploys go through the `kith-dev` and `kith` environments (see Kith below). The 
 | Name | Kind | Purpose |
 |---|---|---|
 | `CLERK_SECRET_KEY` | secret | JWKS for session tokens |
-| `CLERK_WEBHOOK_SECRET` | secret | Svix signature on `/v1/webhooks/clerk` (`user.deleted`) |
+| `CLERK_WEBHOOK_SECRET` | secret | Svix signature on `/v1/webhooks/clerk` (`user.deleted`, `user.updated` for banned or locked users) |
 | `CLERK_ISSUER` | var | Clerk Frontend API URL; tokens must carry this `iss` |
 | `CLERK_AUTHORIZED_PARTIES` | var, optional | comma-separated; a token with `azp` must match |
 | `CLERK_JWT_KEY` | var, dev/e2e only | public key for networkless verification |
 
 ### Kith
 
-Kith runs its own copy on its own Cloudflare account, at workers.dev, without accounts: no Clerk secrets are set,
-so only QR pairing admits devices (the account routes answer 401). `kith-dev` serves every local build; release
-builds use the `kith` environment (below).
+Kith runs its own copy on its own Cloudflare account, at workers.dev. `kith-dev` serves every local build and
+takes sign-ins from the Kith Clerk development instance (issuer set in `[env.kith-dev]`; steps below). Until Kai sets
+its Clerk secrets, the account routes answer 401 and only QR pairing admits devices. Release builds use the `kith`
+environment (below), which has no Clerk instance yet and keeps `https://clerk.invalid`.
 
 ```bash
 npx wrangler login                                   # once, in a browser
@@ -85,13 +86,33 @@ Cloudflare login; the rest are one-line commands. Nothing secret goes in the rep
 4. `npx wrangler login` (once, in a browser) **[Kai]**
 5. `npx wrangler d1 create kith`, then put the `database_id` it prints into `[env.kith]` > `d1_databases` (replace the `0000...` placeholder).
 6. `npx wrangler secret put CLERK_SECRET_KEY --env kith` (paste the `sk_...` key when asked) **[Kai]**
-7. **[Kai]** Clerk > Webhooks > Add endpoint: `https://kith-cloud.<your-account>.workers.dev/v1/webhooks/clerk`, event `user.deleted`. Copy the **Signing secret** (`whsec_...`), then `npx wrangler secret put CLERK_WEBHOOK_SECRET --env kith`. (Deploy once first, step 9, to learn the URL; set the webhook and this secret after.)
+7. **[Kai]** Clerk > Webhooks > Add endpoint: `https://kith-cloud.<your-account>.workers.dev/v1/webhooks/clerk`, events `user.deleted` and `user.updated`. Copy the **Signing secret** (`whsec_...`), then `npx wrangler secret put CLERK_WEBHOOK_SECRET --env kith`. (Deploy once first, step 9, to learn the URL; set the webhook and this secret after.)
 8. `npx wrangler d1 migrations apply kith --env kith --remote`
 9. `npx wrangler deploy --env kith`, then `curl https://kith-cloud.<your-account>.workers.dev/v1/health`
 10. App builds: set `KITH_CLERK_PUBLISHABLE_KEY=pk_...` and `KITH_CLOUD_URL=https://kith-cloud.<your-account>.workers.dev` in the environment when you build the desktop and iOS apps (the apps pick them up at build time; see `apps/README.md`).
 11. On each Mac, keep a kith-auth owner person (`kith-auth person <you> owner`). When the Mac is claimed, the host binds `kith <clerk user id>` to that person; leaving the account removes it. The Settings "Link Telegram" button asks the host for `linkCode`.
 
 The rule stays: the cloud can only shorten a device's access, never grant it; the host decides.
+
+### Kith accounts on kith-dev
+
+The dev worker takes sign-ins from the Kith Clerk development instance (application `Kith`, instance
+`ins_3L8cSNxglgpzXdJY3Ob2IczJZ09`, Frontend API `https://adjusted-starfish-4735.clerk.accounts.dev`). Google and
+GitHub work there. Apple does not: the instance uses Clerk's shared development credentials, and a free Personal
+Team cannot sign Sign in with Apple anyway. `CLERK_AUTHORIZED_PARTIES` stays unset on kith-dev, because native
+iOS and desktop session tokens may carry no `azp` or a non-web one.
+
+Missing secrets degrade cleanly. Without `CLERK_SECRET_KEY`, token verification has no key and every account route
+answers 401, as before. Without `CLERK_WEBHOOK_SECRET`, the webhook route answers an internal error and deletes or
+bans nothing. QR pairing and the `Kith-Sig` host routes do not use Clerk and are unaffected.
+
+1. **[Kai]** Clerk dashboard > Kith > Development > API keys: copy the secret key (`sk_test_...`).
+2. **[Kai]** From `serve/cloud`: `npx wrangler secret put CLERK_SECRET_KEY --env kith-dev` (paste the key when asked).
+3. **[Kai]** If migrations are pending: `npx wrangler d1 migrations apply kith-dev --env kith-dev --remote`.
+4. **[Kai]** `npx wrangler deploy --env kith-dev` (or `npm run deploy:dev`).
+5. **[Kai]** Clerk > Kith > Development > Webhooks > Add endpoint: `https://kith-cloud-dev.lykevin890919.workers.dev/v1/webhooks/clerk`, events `user.deleted` and `user.updated`. Copy the **Signing secret** (`whsec_...`), then `npx wrangler secret put CLERK_WEBHOOK_SECRET --env kith-dev`.
+6. **[Kai]** `curl https://kith-cloud-dev.lykevin890919.workers.dev/v1/health`
+7. **[Kai]** App builds for dev: `KITH_CLERK_PUBLISHABLE_KEY=pk_test_YWRqdXN0ZWQtc3RhcmZpc2gtNDczNS5jbGVyay5hY2NvdW50cy5kZXYk` and `KITH_CLOUD_URL=https://kith-cloud-dev.lykevin890919.workers.dev` (see `apps/README.md`). The publishable key is not secret, but it stays out of committed plists.
 
 Local end-to-end of the account path (no Clerk account needed, a self-signed test key):
 
