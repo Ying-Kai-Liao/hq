@@ -8,7 +8,13 @@ import UIKit
 public struct ThreadView: View {
     let botId: String
 
-    public init(botId: String) { self.botId = botId }
+    /// Set where the owner may share this agent (the header then shows Share); the app presents the sheet.
+    let onShare: (() -> Void)?
+
+    public init(botId: String, onShare: (() -> Void)? = nil) {
+        self.botId = botId
+        self.onShare = onShare
+    }
     @Environment(BotStore.self) var model
     @Environment(\.dismiss) var dismiss
     @State var showTrace = false
@@ -428,16 +434,22 @@ extension ThreadView {
         // The name sits in the middle of the bar; the narrow layout (small phones, long names) gives the buttons room first.
         ViewThatFits(in: .horizontal) {
             ZStack {
-                HStack(spacing: 8) { backButton; Spacer(minLength: 0); callButton; menuButton }
-                titleButton.padding(.horizontal, 108)
+                HStack(spacing: 8) { backButton; Spacer(minLength: 0); shareButton; callButton; menuButton }
+                titleButton.padding(.horizontal, onShare == nil ? 108 : 152)
             }
-            HStack(spacing: 8) { backButton; titleButton.frame(maxWidth: .infinity); callButton; menuButton }
+            HStack(spacing: 8) { backButton; titleButton.frame(maxWidth: .infinity); shareButton; callButton; menuButton }
         }
         .padding(.horizontal, KithSpacing.gutter)
         .padding(.top, 4)
     }
 
     private var backButton: some View { TopGlassButton("Back", systemImage: "chevron.left") { dismiss() } }
+
+    @ViewBuilder private var shareButton: some View {
+        if let onShare {
+            TopGlassButton("Share", systemImage: "person.badge.plus", action: onShare)
+        }
+    }
 
     private var callButton: some View {
         TopGlassButton("Call", systemImage: "phone.fill", action: startCall)

@@ -140,6 +140,9 @@ public final class PeopleStore {
 
 /// What sharing one agent means: who has it, which invites offer it, and the bodies that touch only it.
 public enum AgentShare {
+    /// Only a bot that is an hq agent can be shared; the invite names that agent.
+    public static func canShare(hqAgent: String?) -> Bool { !(hqAgent ?? "").isEmpty }
+
     /// People who have the agent, with the role they have for it.
     public static func sharedWith(_ agent: String, in people: [HostPerson]) -> [(person: HostPerson, role: InviteRole)] {
         people.compactMap { person in person.agents[agent].map { (person, $0) } }
