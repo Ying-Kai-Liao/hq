@@ -69,7 +69,7 @@ for who in guest bot-3f9a1c2e; do
   expect "$who: no network but the fixed host socket (both spellings), even with no KITH_RUN_SOCKET" "$(q "$S" "sb['network']['allowUnixSockets'] == ['$T/linked state/run/host.sock', '$T/real state/run/host.sock']")" True
   expect "$who: allowLocalBinding never set" "$(q "$S" '"allowLocalBinding" in sb["network"] or "allowedDomains" in sb["network"]')" False
   for root in "$T/linked state" "$T/real state"; do
-    for f in index serve secrets browsers bridge; do
+    for f in index serve secrets browsers bridge room-ledger; do
       expect "$who: denyRead $root/$f" "$(q "$S" "'$root/$f' in dr")" True
     done
   done

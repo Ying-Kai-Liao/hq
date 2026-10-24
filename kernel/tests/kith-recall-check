@@ -138,6 +138,30 @@ check "bot with a row for the agent: shared only" "[ \"\$(aud KITH_AGENT=echo KI
 check "bot with no row (bot_may false): nothing" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=bot-cd34 \"$R\" zebra --json)\" = '[]' ]"
 check "recall room members: a member outside the room cuts the set to shared" "[ \"\$(aud KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=grp1 KITH_ROOM_MEMBERS=sam,eve)\" = shared ]"
 
+# owner-only groups (the host's KITH_ROOM_OWNER_ONLY) and the room-note ledger
+check "owner-only marker: the owner recalls the room's notes, shared and its own, not other people's" \
+  "[ \"\$(aud KITH_AGENT=echo KITH_ROOM=grp1 KITH_ROOM_OWNER_ONLY=1)\" = 'owner room:grp1 shared' ]"
+check "owner-only marker without a room, or in a 1:1 room: nothing changes" \
+  "[ \"\$(aud KITH_AGENT=echo KITH_ROOM_OWNER_ONLY=1)\" = 'owner person:eve person:sam room:grp1 shared' ] && [ \"\$(aud KITH_AGENT=echo KITH_ROOM=1:1:echo:owner KITH_ROOM_OWNER_ONLY=1)\" = 'owner person:eve person:sam room:grp1 shared' ]"
+check "owner-only marker with a channel via stays shared only" "[ \"\$(aud KITH_AGENT=echo KITH_ROOM=grp1 KITH_VIA=telegram KITH_ROOM_OWNER_ONLY=1)\" = shared ]"
+check "owner-only marker with a blank room stays shared only" "[ \"\$(aud KITH_AGENT=echo KITH_VIA=group KITH_ROOM_OWNER_ONLY=1)\" = shared ]"
+check "spoofing: a person's run that sets the marker is not widened" \
+  "[ \"\$(aud KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=grp1 KITH_ROOM_OWNER_ONLY=1)\" = shared ]"
+check "marker beside a member list is ignored" "[ \"\$(aud KITH_AGENT=echo KITH_ROOM=grp1 KITH_ROOM_OWNER_ONLY=1 KITH_ROOM_MEMBERS=sam)\" = shared ]"
+check "marker with another value is ignored" "[ \"\$(aud KITH_AGENT=echo KITH_ROOM=grp1 KITH_ROOM_OWNER_ONLY=true)\" = shared ]"
+check "an unrecorded room note is recalled in an owner-only group" "env KITH_AGENT=echo KITH_ROOM=grp1 KITH_ROOM_OWNER_ONLY=1 \"$R\" 'grp1 room' | grep -q 'grp1 room'"
+RN() { python3 -c "import sys; sys.path.insert(0,'$KERNEL/lib'); import kith_recall as r; print(r._room_note_ok({'agent':'echo','audiences':['x'],'present':$1}, 'room:grp1', '$M/rooms/grp1/rec.md', {}))"; }
+check "room notes by ledger: no record, a person present: hidden; nobody but the owner: shown" "[ \"\$(RN \"['sam']\")\" = False ] && [ \"\$(RN '[]')\" = True ]"
+F "k.record_room_write('echo', 'grp1', 'rooms/grp1/rec.md', ['sam', 'eve'], False)"
+check "room notes by ledger: everyone present was there: shown; a guest who joined later: hidden" \
+  "[ \"\$(RN \"['sam']\")\" = True ] && [ \"\$(RN \"['sam', 'eve']\")\" = True ] && [ \"\$(RN \"['sam', 'ann']\")\" = False ]"
+F "k.record_room_write('echo', 'grp1', 'rooms/grp1/rec.md', ['sam'], False)"
+check "room notes by ledger: a later write with fewer present narrows it for good" "[ \"\$(RN \"['sam', 'eve']\")\" = False ] && [ \"\$(RN \"['sam']\")\" = True ]"
+check "room notes by ledger: a note Tidy moved to another audience is not held to the room's record" \
+  "python3 -c \"import sys; sys.path.insert(0,'$KERNEL/lib'); import kith_recall as r; print(r._room_note_ok({'agent':'echo','audiences':['x'],'present':['zed']}, 'shared', '$M/rooms/grp1/rec.md', {}))\" | grep -q True"
+check "room notes by ledger: the owner outside a group sees everything" \
+  "python3 -c \"import sys; sys.path.insert(0,'$KERNEL/lib'); import kith_recall as r; print(r._room_note_ok({'agent':'echo','audiences':None}, 'room:grp1', '$M/rooms/grp1/zz.md', {}))\" | grep -q True"
+
 
 # output shape
 check "text output frames hits as data" "env KITH_AGENT=echo \"$R\" zebra | grep -q '^<recalled source=\"note\" tier=\"2\" audience=\"'"

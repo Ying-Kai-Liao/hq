@@ -338,6 +338,7 @@ const SCRUB: &[&str] = &[
     "KITH_ROOM",
     "HQ_ROOM",
     "KITH_ROOM_MEMBERS",
+    "KITH_ROOM_OWNER_ONLY",
     "KITH_PROJECT",
     "HQ_PROJECT",
     "KITH_VIA",

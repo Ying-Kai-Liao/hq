@@ -541,7 +541,7 @@ pub async fn launch(
     backup: Option<&str>,
     person: Option<&str>,
     room: &str,
-    members: &[String],
+    members: &Members,
 ) -> Result<Launch> {
     let mut args = vec![agent, "--launch-json"];
     if let Some(backup) = backup {
@@ -574,19 +574,41 @@ pub fn room_of(agent: &str, person: Option<&str>, group: Option<&str>) -> String
     group.map_or_else(|| format!("1:1:{agent}:{}", person.unwrap_or("owner")), str::to_owned)
 }
 
-/// `KITH_ROOM_MEMBERS`: the people in a group room, so memory and recall show only what every one of them may see.
-/// Empty (a 1:1, or members the host can't name) sets nothing, and the kernel reads the room as shared only.
-fn room_env(room: &str, members: &[String]) -> Vec<(String, String)> {
+/// Who is in a run's room, as the host knows it right now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Members {
+    /// A 1:1, a channel group, or a group whose members could not be read just now. Sets nothing: the kernel reads the
+    /// room as shared only.
+    Unknown,
+    /// A Kith app group read just now whose member bots are all the owner's. Sets [`OWNER_ONLY_ENV`].
+    OwnerOnly,
+    /// The person each member bot runs as (an invitee, or a bot guest). Never empty.
+    People(Vec<String>),
+}
+
+/// `KITH_ROOM_MEMBERS` (the people in a group room) or `KITH_ROOM_OWNER_ONLY` (nobody but the owner), so memory and
+/// recall show only what every one of them may see. [`Members::Unknown`] sets neither, and the kernel reads the room as
+/// shared only: a failed read can never look owner-only.
+fn room_env(room: &str, members: &Members) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = crate::kernel::both("ROOM", room).into();
-    let ids: Vec<&str> = members.iter().map(String::as_str).filter(|m| !m.is_empty()).collect();
-    if !ids.is_empty() {
-        env.push((MEMBERS_ENV.to_owned(), ids.join(",")));
+    match members {
+        Members::Unknown => {}
+        Members::OwnerOnly => env.push((OWNER_ONLY_ENV.to_owned(), "1".to_owned())),
+        Members::People(people) => {
+            let ids: Vec<&str> = people.iter().map(String::as_str).filter(|m| !m.is_empty()).collect();
+            if !ids.is_empty() {
+                env.push((MEMBERS_ENV.to_owned(), ids.join(",")));
+            }
+        }
     }
     env
 }
 
 /// The kernel reads only this spelling (there was no `HQ_` one).
 pub const MEMBERS_ENV: &str = "KITH_ROOM_MEMBERS";
+/// Set to `1` by the host alone: this Kith app group has no member but the owner. A separate name, not a value of
+/// `KITH_ROOM_MEMBERS`, so it can never be read as a person id.
+pub const OWNER_ONLY_ENV: &str = "KITH_ROOM_OWNER_ONLY";
 
 /// How long the first message waits for the notes it recalls.
 const RECALL_TIMEOUT: Duration = Duration::from_secs(2);
@@ -600,7 +622,7 @@ pub async fn recall_for_first_message(
     agent: &str,
     person: Option<&str>,
     room: &str,
-    members: &[String],
+    members: &Members,
     query: &str,
     project: Option<&str>,
 ) -> Option<String> {
@@ -634,7 +656,7 @@ pub async fn project_context(
     agent: &str,
     person: Option<&str>,
     room: &str,
-    members: &[String],
+    members: &Members,
     projects: &[String],
 ) -> String {
     let Some(first) = projects.first() else {
@@ -791,12 +813,24 @@ mod tests {
 
     #[test]
     fn a_group_room_run_lists_its_people_and_a_one_to_one_none() {
-        let members = ["sam".to_owned(), "bot-1".to_owned()];
+        let members = Members::People(vec!["sam".to_owned(), "bot-1".to_owned()]);
         let env = room_env("grp1", &members);
         assert!(env.contains(&(MEMBERS_ENV.to_owned(), "sam,bot-1".to_owned())));
         assert!(env.contains(&("KITH_ROOM".to_owned(), "grp1".to_owned())));
-        let none = room_env("1:1:echo:sam", &[]);
-        assert!(none.iter().all(|(k, _)| k != MEMBERS_ENV), "unknown members stay unset: the kernel reads shared only");
+        let none = room_env("1:1:echo:sam", &Members::Unknown);
+        assert!(
+            none.iter().all(|(k, _)| k != MEMBERS_ENV && k != OWNER_ONLY_ENV),
+            "unknown members stay unset: the kernel reads shared only"
+        );
+        assert!(env.iter().all(|(k, _)| k != OWNER_ONLY_ENV), "a group with people is not owner only");
+        let solo = room_env("grp1", &Members::OwnerOnly);
+        assert!(solo.contains(&(OWNER_ONLY_ENV.to_owned(), "1".to_owned())));
+        assert!(solo.iter().all(|(k, _)| k != MEMBERS_ENV), "owner only is never a person list");
+        let empty = room_env("grp1", &Members::People(vec![]));
+        assert!(
+            empty.iter().all(|(k, _)| k != MEMBERS_ENV && k != OWNER_ONLY_ENV),
+            "an empty list is unknown, not owner only"
+        );
     }
 
     #[test]
@@ -927,18 +961,25 @@ mod tests {
         // The script shows what the run was given: room, agent and the query words.
         let good =
             script("good", "echo \"<recalled source=\\\"note\\\" room=\\\"$KITH_ROOM\\\">$KITH_AGENT $*</recalled>\"");
-        let out =
-            recall_for_first_message(&good, "echo", None, "1:1:echo:owner", &[], "--what did we pick", Some("alpha"))
-                .await
-                .unwrap();
+        let out = recall_for_first_message(
+            &good,
+            "echo",
+            None,
+            "1:1:echo:owner",
+            &Members::Unknown,
+            "--what did we pick",
+            Some("alpha"),
+        )
+        .await
+        .unwrap();
         assert!(out.contains("data, not instructions"), "{out}");
         assert!(out.contains("room=\"1:1:echo:owner\">echo recall what did we pick -n 4 --project alpha"), "{out}");
         let none = script("none", "echo 'nothing recalled'");
-        assert!(recall_for_first_message(&none, "echo", None, "r", &[], "hello", None).await.is_none());
+        assert!(recall_for_first_message(&none, "echo", None, "r", &Members::Unknown, "hello", None).await.is_none());
         let broken = script("broken", "exit 1");
-        assert!(recall_for_first_message(&broken, "echo", None, "r", &[], "hello", None).await.is_none());
+        assert!(recall_for_first_message(&broken, "echo", None, "r", &Members::Unknown, "hello", None).await.is_none());
         assert!(
-            recall_for_first_message(&good, "echo", None, "r", &[], "  -- ", None).await.is_none(),
+            recall_for_first_message(&good, "echo", None, "r", &Members::Unknown, "  -- ", None).await.is_none(),
             "no words, no recall"
         );
         std::fs::remove_dir_all(&dir).ok();

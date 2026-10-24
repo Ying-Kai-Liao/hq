@@ -72,7 +72,7 @@ impl Kernel {
             None,
             person,
             "1:1:house:owner",
-            &[],
+            &hq::Members::Unknown,
         )
         .await
     }

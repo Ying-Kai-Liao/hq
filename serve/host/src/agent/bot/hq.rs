@@ -76,15 +76,15 @@ impl Actor {
         hq::room_of(agent, self.cfg.person.as_deref(), self.memory_room().as_deref())
     }
 
-    /// The people in a group room's run, as `KITH_ROOM_MEMBERS`: the person each member bot runs as (an invitee, or a
-    /// bot guest), read now so a change between turns counts. The owner is always there and needs no entry; a 1:1 or a
-    /// group nobody but the owner is in has none, which the kernel reads as shared only.
-    pub(super) fn run_members(&self) -> Vec<String> {
-        let Some(group) = self.active_group.as_ref().and_then(|g| self.hub.store.bot(&g.lane.chat).ok().flatten())
-        else {
-            return Vec::new();
-        };
-        group_people(&self.hub.store, &group.config.members)
+    /// Who is in a group room's run, read now so a change between turns counts: the person each member bot runs as (an
+    /// invitee, or a bot guest). Only a Kith app group is ever known; a 1:1, and anything the store fails to read (the
+    /// group, or any member), is `Unknown`, which the kernel reads as shared only. `OwnerOnly` needs this very read to
+    /// succeed and find nobody but the owner's own bots, and a run that is itself a person's never gets it.
+    pub(super) fn run_members(&self) -> hq::Members {
+        match self.active_group.as_ref() {
+            Some(g) => room_members(&self.hub.store, &g.lane.chat, self.cfg.person.as_deref()),
+            None => hq::Members::Unknown,
+        }
     }
 
     /// The notes to put before the first user message of a thread. Once per thread: the session is new only for its
@@ -565,18 +565,36 @@ impl Actor {
     }
 }
 
-/// The person each of these bots runs as (an invitee's, or a bot guest's), sorted and without repeats; deleted and
-/// unknown bots count for nobody.
-fn group_people(store: &crate::store::Store, members: &[String]) -> Vec<String> {
-    let mut ids: Vec<String> = members
-        .iter()
-        .filter_map(|id| store.bot(id).ok().flatten())
-        .filter(|r| !r.deleted)
-        .filter_map(|r| r.config.person)
-        .collect();
+/// [`Actor::run_members`] for the group `chat`, run by the bot of `run_person` (`None` is the owner's).
+fn room_members(store: &crate::store::Store, chat: &str, run_person: Option<&str>) -> hq::Members {
+    use hq::Members::{OwnerOnly, People, Unknown};
+    let Ok(Some(group)) = store.bot(chat) else { return Unknown };
+    if group.deleted {
+        return Unknown;
+    }
+    match group_people(store, &group.config.members) {
+        None => Unknown,
+        Some(people) if !people.is_empty() => People(people),
+        Some(_) if run_person.is_some() => Unknown,
+        Some(_) => OwnerOnly,
+    }
+}
+
+/// The person each of these bots runs as (an invitee's, or a bot guest's), sorted and without repeats; a deleted bot or
+/// one the store does not have counts for nobody. `None` when the store failed to answer for any of them: that is not
+/// "nobody", and the caller must not read it as owner only.
+fn group_people(store: &crate::store::Store, members: &[String]) -> Option<Vec<String>> {
+    let mut ids = Vec::new();
+    for id in members {
+        match store.bot(id) {
+            Err(_) => return None,
+            Ok(Some(r)) if !r.deleted => ids.extend(r.config.person),
+            Ok(_) => {}
+        }
+    }
     ids.sort();
     ids.dedup();
-    ids
+    Some(ids)
 }
 
 #[cfg(test)]
@@ -636,7 +654,33 @@ mod tests {
         }
         let all: Vec<String> = ["m1", "m2", "m3", "m4", "gone"].map(String::from).to_vec();
         // The owner's bot (no person) and an unknown bot add nobody; a person in two bots counts once.
-        assert_eq!(group_people(&store, &all), ["bot-1234abcd", "sam"]);
-        assert!(group_people(&store, &["m3".to_owned()]).is_empty(), "owner only: none, so shared only");
+        assert_eq!(group_people(&store, &all).unwrap(), ["bot-1234abcd", "sam"]);
+        assert_eq!(group_people(&store, &["m3".to_owned()]), Some(vec![]), "read fine, owner only");
+    }
+
+    #[test]
+    fn only_a_fresh_read_that_finds_the_owner_alone_is_owner_only() {
+        use hq::Members::{OwnerOnly, People, Unknown};
+        let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+        let save = |id: &str, person: Value, members: Value, deleted: bool| {
+            let cfg =
+                json!({"id": id, "name": id, "backend": "claude", "cwd": "/tmp", "person": person, "members": members});
+            store.save_bot(&serde_json::from_value(cfg).unwrap()).unwrap();
+            if deleted {
+                store.delete_bot(id).unwrap();
+            }
+        };
+        save("mine", json!(null), json!([]), false);
+        save("mine2", json!(null), json!([]), false);
+        save("theirs", json!("sam"), json!([]), false);
+        save("gone", json!("sam"), json!([]), true);
+        save("solo", json!(null), json!(["mine", "mine2", "gone"]), false);
+        save("mixed", json!(null), json!(["mine", "theirs"]), false);
+        save("dead-group", json!(null), json!(["mine"]), true);
+        assert_eq!(room_members(&store, "solo", None), OwnerOnly, "owner's bots and a deleted guest");
+        assert_eq!(room_members(&store, "mixed", None), People(vec!["sam".to_owned()]));
+        assert_eq!(room_members(&store, "nope", None), Unknown, "group not found is a failed read");
+        assert_eq!(room_members(&store, "dead-group", None), Unknown, "a group deleted mid-run");
+        assert_eq!(room_members(&store, "solo", Some("sam")), Unknown, "a person's own run is never owner only");
     }
 }
