@@ -869,7 +869,19 @@ fn what_a_person_is_shown_has_no_paths_folders_or_error_text() {
             // hello: only the allowed names survive.
             let hello =
                 roles::shape(&w.hub, "p1", "hello", with_secrets(base.clone(), &["cwd", "addr", "screens", "path"]));
-            let keep = ["hostId", "computerId", "signKey", "boxKey", "name", "version", "minApp", "os", "rev", "store"];
+            let keep = [
+                "hostId",
+                "computerId",
+                "signKey",
+                "boxKey",
+                "name",
+                "version",
+                "protocol",
+                "minProtocol",
+                "os",
+                "rev",
+                "store",
+            ];
             prop_assert!(hello.as_object().is_none_or(|o| o.keys().all(|k| keep.contains(&k.as_str()))), "{hello}");
             // history / thread: not the folder.
             for m in ["history", "thread"] {

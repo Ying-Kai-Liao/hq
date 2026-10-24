@@ -130,23 +130,21 @@ async fn iphones_paired(port: u16) -> bool {
     devices.await.unwrap_or(true)
 }
 
-/// The `minApp` a downloaded (verified) executable declares.
-async fn staged_min_app(stage: &Path) -> Result<String> {
+/// The `minProtocol` a downloaded (verified) executable declares.
+async fn staged_min_protocol(stage: &Path) -> Result<u64> {
     let output = tokio::process::Command::new(stage).arg("compat").kill_on_drop(true).output();
     let output = tokio::time::timeout(Duration::from_secs(10), output).await??;
-    ensure!(output.status.success(), "the downloaded host couldn't report the iPhone app it needs");
+    ensure!(output.status.success(), "the downloaded host couldn't report the apps it serves");
     let compat: serde_json::Value = serde_json::from_slice(&output.stdout)?;
-    compat["minApp"].as_str().map(str::to_owned).context("the downloaded host reported no minimum app version")
+    compat["minProtocol"].as_u64().context("the downloaded host reported no minimum protocol")
 }
 
-/// Whether a release needing `new_min_app` waits for the App Store (only if it raises the floor).
-async fn app_store_gate(new_min_app: &str, port: u16) -> crate::compat::Gate {
-    if !crate::compat::below(crate::compat::MIN_APP, new_min_app) {
+/// Whether a release serving clients from `new_min` up waits for the iPhones (only if it raises the floor).
+async fn app_gate(new_min: u64, port: u16) -> crate::compat::Gate {
+    if new_min <= crate::compat::MIN_PROTOCOL {
         return crate::compat::Gate::Proceed;
     }
-    let iphones = iphones_paired(port).await;
-    let store = if iphones { crate::compat::app_store_version().await } else { Ok(None) };
-    crate::compat::gate(crate::compat::MIN_APP, new_min_app, iphones, &store)
+    crate::compat::gate(crate::compat::MIN_PROTOCOL, new_min, iphones_paired(port).await)
 }
 
 pub async fn apply(
@@ -159,9 +157,9 @@ pub async fn apply(
     require_standalone(target)?;
     // The release's signed compat file answers before anything is downloaded; releases
     // without one are asked after download (below).
-    let early_min_app = if skip_app_check { None } else { release::min_app(release).await.ok() };
-    if let Some(min_app) = &early_min_app {
-        let gate = app_store_gate(min_app, port).await;
+    let early_min = if skip_app_check { None } else { release::min_protocol(release).await.ok() };
+    if let Some(min) = early_min {
+        let gate = app_gate(min, port).await;
         if gate != crate::compat::Gate::Proceed {
             return Ok(gate);
         }
@@ -198,10 +196,10 @@ pub async fn apply(
                 && String::from_utf8_lossy(&output.stdout).trim() == format!("kith-serve {}", release.version),
             "downloaded executable reported the wrong version"
         );
-        // Before anything stops: a release that needs a newer iPhone app than the App Store
-        // has waits, so paired iPhones aren't asked for an update they can't get yet.
-        if !skip_app_check && early_min_app.is_none() {
-            let gate = app_store_gate(&staged_min_app(&stage).await?, port).await;
+        // Before anything stops: a release that stops serving the iPhones' protocol waits, so
+        // paired iPhones aren't asked for an update they may not have yet.
+        if !skip_app_check && early_min.is_none() {
+            let gate = app_gate(staged_min_protocol(&stage).await?, port).await;
             if gate != crate::compat::Gate::Proceed {
                 return Ok(gate);
             }

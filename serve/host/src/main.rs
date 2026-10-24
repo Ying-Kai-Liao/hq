@@ -146,8 +146,8 @@ enum Sub {
         /// Allow a manual update to interrupt active bots (their sessions resume).
         #[arg(long)]
         force: bool,
-        /// Install even if the App Store doesn't have the iPhone app this release needs yet
-        /// (paired iPhones then ask for an update they may not get until review is done).
+        /// Install even if this release stops serving the paired iPhones' app (they then ask
+        /// for an app update).
         #[arg(long)]
         skip_app_check: bool,
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
@@ -431,7 +431,7 @@ async fn main() -> Result<()> {
         Sub::Compat => {
             println!(
                 "{}",
-                serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "minApp": compat::MIN_APP, "environment": environment::Environment::current().name()})
+                serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "protocol": compat::PROTOCOL, "minProtocol": compat::MIN_PROTOCOL, "environment": environment::Environment::current().name()})
             );
             Ok(())
         }
@@ -460,17 +460,11 @@ async fn main() -> Result<()> {
                 if let Some(version) = status["state"]["availableVersion"].as_str() {
                     println!("Available version: {version}");
                 }
-                if let Some(required) = status["state"]["requiredApp"].as_str() {
-                    match status["state"]["appStoreVersion"].as_str() {
-                        Some(store) => println!(
-                            "Waiting for the iPhone app {required} (the App Store has {store}); \
-                             it installs once that passes review"
-                        ),
-                        None => println!(
-                            "Waiting for the iPhone app {required}: couldn't check the App Store. \
-                             `kith-serve update --skip-app-check` installs anyway"
-                        ),
-                    }
+                if let Some(required) = status["state"]["requiredProtocol"].as_u64() {
+                    println!(
+                        "Waiting for the iPhones: this release serves apps on protocol {required} and up. \
+                         Update the iPhone app, then `kith-serve update --skip-app-check`"
+                    );
                 }
                 if let Some(error) = status["state"]["error"].as_str() {
                     println!("Last error: {error}");

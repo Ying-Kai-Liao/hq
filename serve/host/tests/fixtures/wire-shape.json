@@ -1,5 +1,5 @@
 {
-  "minApp": "2.18.0",
+  "minProtocol": 1,
   "shapes": {
     "event:bot": "object",
     "event:bot.bot": "object",
@@ -179,9 +179,10 @@
     "hello.device": "string",
     "hello.home": "string",
     "hello.hostId": "string",
-    "hello.minApp": "string",
+    "hello.minProtocol": "number",
     "hello.name": "string",
     "hello.os": "string",
+    "hello.protocol": "number",
     "hello.rev": "number",
     "hello.signKey": "string",
     "hello.store": "object",

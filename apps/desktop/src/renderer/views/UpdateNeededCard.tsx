@@ -14,13 +14,13 @@ export const updateNeededText = {
   detail(m: VersionMismatch, host: string, hostVersion: string | null | undefined, os: string | null | undefined, instructions = true) {
     if (m.kind === 'updateApp') {
       const runs = hostVersion ? `${host} runs Kith ${hostVersion} and` : host
-      return `${runs} needs this app to be ${m.minimum} or newer. Your chats are safe on the computer.`
+      return `${runs} needs a newer version of this app. Your chats are safe on the computer.`
     }
     const how =
       os === 'macos' ? 'Open Kith on that Mac and choose Check for Updates.'
       : os === 'linux' ? 'Run kith-serve update there.'
       : 'Update Kith on that computer.'
-    const needs = `${host} runs Kith ${m.version}; this app needs ${m.minimum} or newer.`
+    const needs = `${host} runs Kith ${m.version}; this app needs a newer one.`
     return instructions ? `${needs} ${how}` : needs
   },
 }

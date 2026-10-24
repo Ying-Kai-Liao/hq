@@ -1,6 +1,6 @@
 import type { IncomingCall } from '@shared/incoming-call'
 import { mirrorStamp } from '@shared/mirror-stamp'
-import { checkVersions, isBelow, type VersionMismatch } from '@shared/compat'
+import { checkHost, isBelow, type HostVersion, type VersionMismatch } from '@shared/compat'
 import {
   type AccessRequest,
   type Bot,
@@ -36,7 +36,7 @@ export class BotMirror extends Observable {
   hostRoute: HostRoute | null = null
   client: HostClient | null = null
   hello: Hello | null = null
-  hostVersion: { version: string; minApp?: string | null } | null = null
+  hostVersion: HostVersion | null = null
   bots = new Map<string, Bot>()
   entries = new Map<string, Entry[]>()
   usage: Usage = { providers: [] }
@@ -117,9 +117,12 @@ export class BotMirror extends Observable {
 
   get mismatch(): VersionMismatch | null {
     if (!this.hostVersion) return null
-    const found = checkVersions(this.appVersion, this.hostVersion.version, this.hostVersion.minApp)
+    const found = checkHost(this.hostVersion)
     if (found) return found
-    if (this.unreadable && isBelow(this.appVersion, this.hostVersion.version)) return { kind: 'updateApp', minimum: this.hostVersion.version }
+    // Data this app can't read from a newer host. Only hosts with a protocol level share this
+    // app's version line; a legacy host's 2.x says nothing about this app.
+    const newer = typeof this.hostVersion.protocol === 'number' && isBelow(this.appVersion, this.hostVersion.version)
+    if (this.unreadable && newer) return { kind: 'updateApp' }
     return null
   }
 

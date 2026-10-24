@@ -405,12 +405,10 @@ impl App {
 pub fn mismatch_text(m: &crate::compat::Mismatch, host: &str) -> String {
     let host = if host.is_empty() { "the computer" } else { host };
     match m {
-        crate::compat::Mismatch::UpdateApp { minimum } => {
-            format!("Update this app: {host} needs Kith {minimum} or newer here.")
+        crate::compat::Mismatch::UpdateApp => format!("Update this app: {host} needs a newer Kith here."),
+        crate::compat::Mismatch::UpdateHost { version } => {
+            format!("Update Kith on {host}: it runs {version}, this app needs a newer one. ^k → Check for updates.")
         }
-        crate::compat::Mismatch::UpdateHost { version, minimum } => format!(
-            "Update Kith on {host}: it runs {version}, this app needs {minimum} or newer. ^k → Check for updates."
-        ),
     }
 }
 

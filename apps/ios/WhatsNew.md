@@ -5,14 +5,12 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
-## 2.19.1
+## 0.1.0
 
 ### zh-Hant
 
-- 修正語音通話中麥克風暫時無法使用時（例如換了耳機或被來電打斷），App 會閃退的問題。
-- 修正和電腦的直連中斷時，App 偶爾會閃退的問題。
+- Kith 的第一個公開版本：在 iPhone 上和你電腦上的程式代理人聊天、核准它們的動作、接手它們的工作。
 
 ### en-US
 
-- Fixed the app closing during a voice call when the microphone was briefly unavailable, such as after switching headphones or an incoming call.
-- Fixed an occasional crash when the direct connection to your computer dropped.
+- The first public release of Kith: chat with the coding agents on your computer, approve what they do and pick up their work from your iPhone.

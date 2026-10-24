@@ -76,17 +76,19 @@ public enum LabelFamily: Codable, Sendable, CaseIterable, RawRepresentable {
     /// `<family>/<rest>`, e.g. `kith/hs1/v1`.
     func label(_ rest: String) -> String { "\(rawValue)/\(rest)" }
 
-    /// The first host release that verifies `kith/*` labels. Older hosts only know the old ones. Guessing too
-    /// high is safe (a new host accepts the old ones as well); guessing too low would get the request denied.
+    /// The first legacy (2.x) host release that verifies `kith/*` labels. Older 2.x hosts only know the old
+    /// ones. Guessing too high is safe (a new host accepts the old ones as well); guessing too low would get
+    /// the request denied. Kith's own line starts again at 0.1.0 and every release of it knows `kith/*`.
     static let firstKithHostVersion = [2, 20, 0]
 
     /// The labels to use toward a host that reports `version` (an account computer that was never paired
-    /// by QR): a host that predates the rename gets the old ones.
+    /// by QR): a 2.x host that predates the rename gets the old ones, any other version the new ones.
     public static func forHost(version: String?) -> LabelFamily {
         guard let version else { return .legacy }
         let parts = version.split(separator: ".").prefix(3).map { Int($0.prefix { $0.isNumber }) ?? 0 }
         let padded = parts + Array(repeating: 0, count: max(0, 3 - parts.count))
-        return padded.lexicographicallyPrecedes(firstKithHostVersion) ? .legacy : .kith
+        let legacyLine = padded[0] == 2
+        return legacyLine && padded.lexicographicallyPrecedes(firstKithHostVersion) ? .legacy : .kith
     }
 }
 

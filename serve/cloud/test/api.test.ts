@@ -93,7 +93,7 @@ describe("basics", () => {
   });
 
   it("health", async () => {
-    expect(await call("GET", "/v1/health")).toEqual({ status: 200, body: { ok: true, version: "2.2.0" } });
+    expect(await call("GET", "/v1/health")).toEqual({ status: 200, body: { ok: true, version: "0.1.0" } });
   });
 
   it("errors carry a code and a requestId", async () => {

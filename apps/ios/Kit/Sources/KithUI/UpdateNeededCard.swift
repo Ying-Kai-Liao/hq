@@ -52,15 +52,15 @@ public enum UpdateNeededText {
     public static func detail(_ mismatch: VersionMismatch, host: String, hostVersion: String?, os: String?,
                               instructions: Bool = true) -> String {
         switch mismatch {
-        case let .updateApp(minimum):
+        case .updateApp:
             let runs = hostVersion.map { "\(host) runs Kith \($0) and" } ?? host
-            return "\(runs) needs this app to be \(minimum) or newer. Your chats are safe on the computer."
-        case let .updateHost(version, minimum):
+            return "\(runs) needs a newer version of this app. Your chats are safe on the computer."
+        case let .updateHost(version):
             let how = switch os {
             case "macos": "Pull the latest hq on that Mac and run kith serve start there."
             default: "Update Kith on that computer."
             }
-            let needs = "\(host) runs Kith \(version); this app needs \(minimum) or newer."
+            let needs = "\(host) runs Kith \(version); this app needs a newer one."
             return instructions ? "\(needs) \(how)" : needs
         }
     }

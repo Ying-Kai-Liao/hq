@@ -1,35 +1,55 @@
 import Foundation
 
-/// Phone/host compatibility: each side names the oldest version of the other it still works
-/// with (docs/reference/compatibility.md). The host sends `minApp` in `hello`; this app keeps
-/// `minHost`. Mirrors `host/src/compat.rs`.
+/// Phone/host compatibility: each side names the oldest protocol level of the other it still
+/// works with (docs/reference/compatibility.md). The host sends `protocol` and `minProtocol` in
+/// `hello`; this app keeps `minHostProtocol`. Mirrors `host/src/compat.rs`.
 public enum VersionMismatch: Equatable, Sendable {
-    /// This app is older than the host's `minApp`.
-    case updateApp(minimum: String)
-    /// The host is older than `minHost`.
-    case updateHost(version: String, minimum: String)
+    /// The host no longer serves this app's protocol level.
+    case updateApp
+    /// The host's protocol level (or, before levels, its version) is older than this app needs.
+    case updateHost(version: String)
 
-    /// The oldest host this app works with. Raise it only when the app starts depending on
-    /// something older hosts don't have (an optional feature hides its control instead).
-    public static let minHost = "2.12.0"
+    /// This app's protocol level, checked against the host's `minProtocol`.
+    public static let protocolLevel = 1
+    /// The oldest host protocol level this app works with. Raise it only when the app starts
+    /// depending on something older hosts don't have (an optional feature hides its control instead).
+    public static let minHostProtocol = 1
+    /// A host from before protocol levels (no `protocol` in its hello) works with this app from this version.
+    public static let legacyMinHost = "2.12.0"
 
-    /// Checks this app (`app`) against a host's version and `minApp` (nil from hosts that predate it).
-    public static func check(app: String, minHost: String = minHost, hostVersion: String, minApp: String?) -> VersionMismatch? {
-        if let minApp, AppVersion.isBelow(app, minApp) { return .updateApp(minimum: minApp) }
-        if AppVersion.isBelow(hostVersion, minHost) { return .updateHost(version: hostVersion, minimum: minHost) }
-        return nil
+    /// Checks this app against a host. A legacy host is held to `legacyMinHost`; its `minApp`
+    /// is not checked, since every app with a protocol level is newer than any it names.
+    public static func check(_ host: HostVersion, client: Int = protocolLevel, minHost: Int = minHostProtocol) -> VersionMismatch? {
+        guard let level = host.protocolLevel else {
+            return AppVersion.isBelow(host.version, legacyMinHost) ? .updateHost(version: host.version) : nil
+        }
+        if let min = host.minProtocol, client < min { return .updateApp }
+        return level < minHost ? .updateHost(version: host.version) : nil
+    }
+
+    /// Whether a host has a feature that legacy hosts got in `legacyVersion`. Every host with a
+    /// protocol level has all of them; an unknown host is given the benefit of the doubt.
+    public static func hostHas(version: String?, protocolLevel: Int?, since legacyVersion: String) -> Bool {
+        if protocolLevel != nil { return true }
+        return !AppVersion.isBelow(version ?? "", legacyVersion)
     }
 }
 
-/// The two fields a compatibility check needs, readable even from a `hello` whose other
-/// fields this app version can't decode.
+/// The fields a compatibility check needs, readable even from a `hello` whose other fields
+/// this app version can't decode. `protocolLevel` is nil from a host before 0.1.0.
 public struct HostVersion: Codable, Equatable, Sendable {
     public var version: String
-    public var minApp: String?
+    public var protocolLevel: Int?
+    public var minProtocol: Int?
 
-    public init(version: String, minApp: String? = nil) {
+    private enum CodingKeys: String, CodingKey {
+        case version, protocolLevel = "protocol", minProtocol
+    }
+
+    public init(version: String, protocolLevel: Int? = nil, minProtocol: Int? = nil) {
         self.version = version
-        self.minApp = minApp
+        self.protocolLevel = protocolLevel
+        self.minProtocol = minProtocol
     }
 }
 

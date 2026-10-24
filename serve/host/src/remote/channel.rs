@@ -841,7 +841,8 @@ mod tests {
         let hello = p.call(1, "hello", json!({})).await;
         assert_eq!(hello["ok"]["computerId"], hub.identity.computer_id());
         assert_eq!(hello["ok"]["signKey"], hub.identity.sign_pub_b64());
-        assert_eq!(hello["ok"]["minApp"], crate::compat::MIN_APP);
+        assert_eq!(hello["ok"]["protocol"], crate::compat::PROTOCOL);
+        assert_eq!(hello["ok"]["minProtocol"], crate::compat::MIN_PROTOCOL);
         assert_eq!(hub.connected.locked().get(&p.dk()), Some(&1));
         assert!(hub.store.device(&p.dk()).unwrap().last_seen_at.is_some());
 
