@@ -302,6 +302,15 @@ fn glob_base(pattern: &str) -> Option<&str> {
     })
 }
 
+/// The absolute addresses a file tool's input names (and the folder a Glob pattern starts in), as the run spelled them.
+pub fn named_paths<'a>(tool: &str, input: &'a Value) -> Vec<&'a str> {
+    if !FILE_TOOLS.contains(&tool) {
+        return Vec::new();
+    }
+    let base = (tool == "Glob").then(|| input["pattern"].as_str().and_then(glob_base)).flatten();
+    FILE_FIELDS.iter().filter_map(|f| input[f].as_str()).chain(base).collect()
+}
+
 /// Sorts a tool call into a card, a never, or a malformed ask. `roots` are the Kith folders (see [`roots`]).
 pub fn classify(tool: &str, input: &Value, roots: &Roots) -> Classified {
     if tool.is_empty() || tool.len() > 200 || tool.chars().any(char::is_control) {
