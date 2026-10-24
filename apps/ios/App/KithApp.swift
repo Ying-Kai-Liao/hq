@@ -106,6 +106,15 @@ private struct DebugHooks: ViewModifier {
             // Design token gallery for screenshots: launch with -kithTokenGallery.
             if ProcessInfo.processInfo.arguments.contains("-kithTokenGallery") { KithTokenGallery() }
             if ProcessInfo.processInfo.arguments.contains("-kithComponentGallery") { KithComponentGallery() }
+            // First-run and pairing shots sit over the demo account's home: `-kithDemoScreens pairing-<welcome|scan|install|success|error>`.
+            if let screen = DemoScreens.name, screen.hasPrefix("pairing-") {
+                Group {
+                    if screen == "pairing-welcome" { WelcomeView {} } else { PairingView(onSkip: {}) { BackButton {} } }
+                }
+                .environment(app)
+                .environment(app.account)
+                .background(Palette.background)
+            }
         }
         .task {
             // Simulator/UI-test pairing: SIMCTL_CHILD_KITH_PAIR_URL=kith://pair?...
