@@ -740,9 +740,9 @@ print(json.dumps({"mcpServers": servers}))' "${f[@]}"
 }
 # The launch JSON for kith serve, from the lists built above: dirs[] holds --add-dir pairs; the arguments are the argv to give
 # claude (none for Codex, which the host builds itself: settings and claude_args are then null).
-# Claude Code turns the Artifact tools off under the SDK and -p; the owner's runs get them (their artifacts publish to
-# their own claude.ai account). Not a guest's run: whether guests may publish is open.
-[[ $harness == claude && $p_owner == 1 ]] && export CLAUDE_CODE_ARTIFACT=1
+# Claude Code turns the Artifact tools off under the SDK and -p; every Claude run gets them, guests' included (a guest's
+# artifacts publish to the owner's claude.ai account, which is accepted).
+[[ $harness == claude ]] && export CLAUDE_CODE_ARTIFACT=1
 export KITH_OWNER=$p_owner   # the plugin's answer to "is this run the owner's": KITH_PERSON can name the owner too
 emit_launch() {
   # Only a Claude run on the agent's own model: a person's membership picks their model, and another harness names its own.
