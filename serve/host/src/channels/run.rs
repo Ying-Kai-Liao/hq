@@ -337,11 +337,7 @@ impl Core {
             ""
         };
         let mut cmd = tokio::process::Command::new(&self.paths.hq_bin);
-        cmd.arg(agent);
-        if let Some(id) = backup {
-            cmd.arg("--backup").arg(id);
-        }
-        cmd.arg(format!("{preface}{task}{}", ad.footer()))
+        cmd.args(run_args(agent, backup, &format!("{preface}{task}{}", ad.footer())))
             .env_clear()
             .envs(env)
             .stdin(Stdio::null())
@@ -572,10 +568,28 @@ pub(super) async fn flush(ad: &Arc<dyn Adapter>, conv: &Value, outbox: &Path) ->
     taken
 }
 
+/// The arguments of one run: `--` ends kith's own flags, so a message that starts with a dash ("-r", "--resume x") is
+/// the prompt and not a flag.
+fn run_args(agent: &str, backup: Option<&str>, prompt: &str) -> Vec<String> {
+    let mut args = vec![agent.to_owned()];
+    if let Some(id) = backup {
+        args.extend(["--backup".to_owned(), id.to_owned()]);
+    }
+    args.extend(["--".to_owned(), prompt.to_owned()]);
+    args
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{depleted, inherited, run_room};
+    use super::{depleted, inherited, run_args, run_room};
     use serde_json::json;
+
+    #[test]
+    fn the_message_follows_a_double_dash_so_a_leading_dash_is_text() {
+        let args = run_args("kai", Some("b1"), "-r foo\nsecond line");
+        assert_eq!(args, ["kai", "--backup", "b1", "--", "-r foo\nsecond line"]);
+        assert_eq!(run_args("kai", None, "--resume x"), ["kai", "--", "--resume x"]);
+    }
 
     #[test]
     fn a_dm_is_a_1_1_and_a_group_chat_is_its_own_room() {

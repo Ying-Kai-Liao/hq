@@ -190,6 +190,15 @@ private func link(_ query: String, scheme: String = "kith") -> URL { URL(string:
     #expect(try json(4)["agent"] as? String == "house")
 }
 
+@Test func unregisterActivityNamesTheBot() async throws {
+    let transport = RecordingTransport()
+    try? await HostClient(transport: transport).unregisterActivity(botId: "bot_1")
+    let calls = await transport.calls
+    #expect(calls.map(\.method) == ["unregisterActivity"])
+    let body = try #require(JSONSerialization.jsonObject(with: calls[0].body) as? [String: String])
+    #expect(body == ["botId": "bot_1"])
+}
+
 private actor RecordingTransport: HostTransport {
     struct Call: Sendable { var method: String; var body: Data }
     private(set) var calls: [Call] = []

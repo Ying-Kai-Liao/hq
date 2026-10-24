@@ -120,6 +120,7 @@ function link(relay: FakeRelay, over: { hostSignKey?: string; computerId?: strin
     hostSignKey: over.hostSignKey ?? b64url(hostKey.publicKey),
     signer: deviceKey,
     dial: relay.dial,
+    probe: async () => null,
     delay: () => 5,
   })
 }
@@ -250,10 +251,47 @@ test('a socket that never opens is retried, not given up on', async () => {
     }
     return relay.dial(url, headers)
   }
-  const l = new RelayLink({ cloudURL: 'https://cloud.test', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, dial, delay: () => 5 })
+  const l = new RelayLink({ cloudURL: 'https://cloud.test', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, dial, probe: async () => null, delay: () => 5 })
   assert.equal(((await l.call('x', null, 3000)) as { echoed: string }).echoed, 'x')
   assert.equal(n, 3)
   l.close()
+})
+
+for (const [status, message, code] of [
+  [426, /too old/, 426],
+  [404, /isn't on your account/, 404],
+] as const) {
+  test(`a refused upgrade the relay answers ${status} to is a final, specific refusal`, async () => {
+    const dial = (): Socket => {
+      const s: Socket = { send() {}, close() {}, onopen: null, onmessage: null, onclose: null }
+      queueMicrotask(() => s.onclose?.(1006))
+      return s
+    }
+    const l = new RelayLink({ cloudURL: 'https://cloud.test', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, dial, probe: async () => status, delay: () => 5 })
+    l.start()
+    await until('failed', () => l.state.kind === 'failed')
+    assert.match((l.state as { message: string }).message, message)
+    await assert.rejects(l.call('hello', {}, 100), (e: { status: number }) => e.status === code)
+    l.close()
+  })
+}
+
+test('a refused upgrade the probe cannot explain stays unreachable and retries', async () => {
+  const dial = (): Socket => {
+    const s: Socket = { send() {}, close() {}, onopen: null, onmessage: null, onclose: null }
+    queueMicrotask(() => s.onclose?.(1006))
+    return s
+  }
+  const l = new RelayLink({ cloudURL: 'https://cloud.test', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, dial, probe: async () => 502, delay: () => 5 })
+  l.start()
+  try {
+    await assert.rejects(l.call('x', null, 150), (e: { status: number }) => e.status === 0)
+    // A retrying failure shows as a non-final `failed` between attempts; only a final one is a verdict.
+    const s = l.state
+    assert.ok(!(s.kind === 'failed' && s.final), 'a refusal nobody can explain is not final')
+  } finally {
+    l.close()
+  }
 })
 
 test('an event stream delivers each event as JSON, and cancel and end are told to the Mac and the caller', async () => {

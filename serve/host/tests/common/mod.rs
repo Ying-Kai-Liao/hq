@@ -42,6 +42,10 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
                 .env("KITH_KERNEL_BIN", "")
                 .env("HQ_BIN", "")
                 // The test machine's memory and a two-agent limit must not hold a test back (see `gate_e2e`).
+                // Never this computer's state: the fake agents share a session id, and turn claims and terminal
+                // registries live under it. An explicit folder inside the test's home.
+                .env("KITH_STATE", home.join("machine-state"))
+                .env("CLAUDE_CONFIG_DIR", home.join("claude-config"))
                 .env("KITH_SERVE_MAX_RUNNING_AGENTS", "64")
                 .env("KITH_SERVE_MIN_FREE_MEMORY_PERCENT", "0")
                 .env("KITH_SERVE_MAX_SWAP_USED_GB", "0")

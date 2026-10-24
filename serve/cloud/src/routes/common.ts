@@ -276,6 +276,35 @@ export async function notify(env: Env, computerId: string, blocked: Blocked[] = 
   }
 }
 
+/**
+ * Ends everything a Clerk account holds as a member: its devices' grants, its memberships, devices and pending
+ * requests. Shared by user.deleted and a ban so both cut the same access. Computers the account owns are not touched
+ * here (and neither are bot guests, which hang off a computer's owner, never off a member).
+ */
+export async function revokeMemberAccess(env: Env, userId: string, reason: string, actor: string, now: number) {
+  const { stmts, blocks } = await revokeGrants(env, "d.owner_user_id = ?", [userId], reason, now);
+  const memberOf = await env.DB.prepare("SELECT DISTINCT computer_id FROM memberships WHERE user_id = ? AND revoked_at IS NULL")
+    .bind(userId)
+    .all<{ computer_id: string }>();
+  const batch = [
+    ...stmts,
+    env.DB.prepare("UPDATE memberships SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, userId),
+    env.DB.prepare("UPDATE devices SET revoked_at = ? WHERE owner_user_id = ? AND revoked_at IS NULL").bind(now, userId),
+    env.DB.prepare("UPDATE access_requests SET status = 'cancelled', decided_at = ? WHERE status = 'pending' AND user_id = ?").bind(
+      now,
+      userId,
+    ),
+    ...(actor ? [audit(env, actor, reason, userId, "ok", now)] : []),
+  ];
+  const computers = [...new Set([...blocks.keys(), ...memberOf.results.map((r) => r.computer_id)])];
+  return { batch, blocks, computers };
+}
+
+/** True when the account owns a computer: such an account is never revoked by a ban (the owner's call, not ours). */
+export async function ownsComputers(env: Env, userId: string): Promise<boolean> {
+  return !!(await env.DB.prepare("SELECT 1 FROM computers WHERE owner_user_id = ? LIMIT 1").bind(userId).first());
+}
+
 /** Removes a computer from its account: grants revoked, pending requests cancelled, sockets closed. */
 export async function unclaim(env: Env, id: string, actor: string, now: number): Promise<void> {
   const { stmts, blocks } = await revokeGrants(env, "g.computer_id = ?", [id], "unclaimed", now);

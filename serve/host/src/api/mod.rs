@@ -6,6 +6,8 @@ mod backups;
 #[cfg(test)]
 mod bot_guests_tests;
 pub mod botguests;
+#[cfg(test)]
+mod botguests_props;
 mod bots;
 mod calls;
 pub mod devices;
@@ -18,7 +20,9 @@ mod host;
 mod http;
 mod kith_info;
 mod marketplace;
-mod people;
+pub(crate) mod people;
+#[cfg(test)]
+mod people_tests;
 #[cfg(test)]
 mod proof_tests;
 mod remote;

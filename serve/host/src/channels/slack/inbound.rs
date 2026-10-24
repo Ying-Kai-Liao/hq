@@ -19,7 +19,12 @@ impl Slack {
         if !self.seen.locked().first(format!("{channel}:{ts}")) {
             return Ok(());
         }
-        let (files, notes) = self.download(e).await;
+        let has_files = e["files"].as_array().is_some_and(|f| !f.is_empty());
+        let (files, notes) = if has_files && self.core.knows_sender("slack", &m.uid, false).await {
+            self.download(e).await
+        } else {
+            (Vec::new(), Vec::new()) // a stranger's files are not fetched
+        };
         m.files = files;
         m.text = notes.iter().fold(m.text, |t, n| if t.is_empty() { n.clone() } else { format!("{t}\n\n{n}") });
         // A stuck core (a hanging hq-auth) must end well before the supervisor decides the connection is dead.

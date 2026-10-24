@@ -959,3 +959,18 @@ fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
     }
     out
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_strangers_files_are_not_downloaded() {
+    let rig = Rig::new().await;
+    rig.bot.state.locked().files.insert("pic".into(), b"x".to_vec());
+    let (_tg, task) = rig.run();
+    let doc = json!({"document": {"file_id": "pic", "file_name": "a.txt", "file_size": 1}});
+    rig.bot.say(777, DM, "/link ABCD1234", 0, &doc);
+    rig.bot.say(777, DM, "hello", 0, &doc);
+    until("the not-linked reply", || !rig.bot.calls("sendMessage").is_empty()).await;
+    assert_eq!(rig.bot.calls("getFile").len(), 0);
+    let kept = walk(&rig.core.attachments_dir("telegram/hq"));
+    assert!(kept.is_empty(), "{kept:?}");
+    task.abort();
+}

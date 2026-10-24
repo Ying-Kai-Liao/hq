@@ -33,6 +33,11 @@ impl Default for FileShares {
     }
 }
 impl FileShares {
+    /// Whether no share is still being sent.
+    pub fn is_idle(&self) -> bool {
+        self.pending.is_empty()
+    }
+
     pub fn cancel(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         for flag in self.pending.drain(..) {
