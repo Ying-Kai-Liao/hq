@@ -86,8 +86,8 @@ import Testing
     #expect(VersionMismatch.check(HostVersion(version: "0.2.0", protocolLevel: 2, minProtocol: 1)) == nil)
     #expect(VersionMismatch.check(current, client: 1, minHost: 2) == .updateHost)
     // A host from before protocol levels is level 0, whatever it calls its version; its `minApp`
-    // names the old numbering and isn't read.
-    let legacy = try JSONDecoder().decode(HostVersion.self, from: Data(#"{"version":"2.20.0","minApp":"2.18.0"}"#.utf8))
+    // is not read.
+    let legacy = try JSONDecoder().decode(HostVersion.self, from: Data(#"{"version":"0.0.1","minApp":"0.0.1"}"#.utf8))
     #expect(legacy.protocolLevel == nil)
     #expect(VersionMismatch.check(legacy) == .updateHost)
     #expect(VersionMismatch.check(HostVersion(version: "")) == .updateHost)

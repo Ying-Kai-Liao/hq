@@ -140,7 +140,7 @@ fn app_and_homebrew_binaries_keep_their_installation_owner() {
         install::Method::AppBundle
     );
     assert_eq!(
-        install::method(std::path::Path::new("/opt/homebrew/Cellar/kith-serve/2.2.1/bin/kith-serve")),
+        install::method(std::path::Path::new("/opt/homebrew/Cellar/kith-serve/0.1.0/bin/kith-serve")),
         install::Method::Homebrew
     );
 }

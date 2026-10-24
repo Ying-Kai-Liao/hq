@@ -54,11 +54,11 @@ import Testing
     }
     let crashed = frame("KithKit", 3, frame("SwiftUI", 2, frame("Kith", 1)))
     let json = #"{"callStackPerThread":true,"callStacks":[{"threadAttributed":false,"callStackRootFrames":[\#(frame("libsystem_kernel.dylib", 9))]},{"threadAttributed":true,"callStackRootFrames":[\#(crashed)]}]}"#
-    let p = CrashReports.properties(callStack: Data(json.utf8), exceptionType: 1, signal: 11, appVersion: "2.14.1")
+    let p = CrashReports.properties(callStack: Data(json.utf8), exceptionType: 1, signal: 11, appVersion: "0.1.0")
 
     #expect(p["$exception_level"] == .string("fatal"))
     #expect(p["process"] == .string("ios"))
-    #expect(p["app_version"] == .string("2.14.1"))
+    #expect(p["app_version"] == .string("0.1.0"))
     guard case .array(let list) = p["$exception_list"], case .object(let exception) = list.first,
           case .object(let stack) = exception["stacktrace"], case .array(let frames) = stack["frames"] else {
         Issue.record("no exception")

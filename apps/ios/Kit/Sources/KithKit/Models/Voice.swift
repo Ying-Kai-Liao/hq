@@ -86,7 +86,7 @@ public struct VoiceStatus: Decodable, Sendable {
     public struct Provider: Decodable, Sendable {
         public var provider: VoiceProvider
         public var configured: Bool
-        /// Missing from hosts before 2.6.3.
+        /// Missing from older hosts.
         public var defaults: VoiceDefaults?
     }
 
@@ -102,7 +102,7 @@ public struct VoiceModels: Codable, Sendable {
     public var models: [String]
     public var transcribe: [String]
     public var speech: [String]
-    /// Missing from hosts before 2.6.3.
+    /// Missing from older hosts.
     public var defaults: VoiceDefaults?
 
     public init(models: [String], transcribe: [String], speech: [String], defaults: VoiceDefaults? = nil) {

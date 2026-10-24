@@ -83,7 +83,7 @@ async function main() {
   const computerId = ref.computerId(hostKey.pub);
   const reg = await cloud("POST", "/v1/host/register", {
     key: hostKey,
-    body: { boxKey: ref.b64url(hostBox.pub), name: "Test Mac", platform: "macos", device: "e2e", version: "2.2.0" },
+    body: { boxKey: ref.b64url(hostBox.pub), name: "Test Mac", platform: "macos", device: "e2e", version: "0.1.0" },
   });
   check(reg.status === 200 && reg.body.computerId === computerId, "the fake host registered");
 
@@ -94,7 +94,7 @@ async function main() {
   const sig = ref.b64url(ref.sign(hostKey, ref.enc.encode(ref.claimCanonical(claim.body.claimId, claim.body.nonce, ownerId, computerId, boxKey))));
   const done = await cloud("POST", `/v1/claims/${claim.body.claimId}/complete`, {
     token: owner,
-    body: { computerId, signKey: ref.b64url(hostKey.pub), boxKey, name: "Test Mac", platform: "macos", device: "e2e", version: "2.2.0", sig },
+    body: { computerId, signKey: ref.b64url(hostKey.pub), boxKey, name: "Test Mac", platform: "macos", device: "e2e", version: "0.1.0", sig },
   });
   check(done.status === 200, "the owner account claimed the fake host");
 

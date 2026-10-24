@@ -27,7 +27,7 @@ final class MemoryStore {
                 error = nil
             }
         } catch {
-            // A host before 2.18.0 answers with its old memory listing, which has no layers or tidy-ups.
+            // An older host answers with its old memory listing, which has no layers or tidy-ups.
             if asked == request {
                 self.error = error is DecodingError ? "Update Kith on your computer to see this bot's memory." : error.localizedDescription
             }
