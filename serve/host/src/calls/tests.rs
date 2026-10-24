@@ -307,4 +307,9 @@ async fn a_voice_call_line_is_written_at_the_start_and_filled_in_at_the_end() {
     rpc(&r, &Caller::Local, "endCall", json!({"botId": bot, "seconds": 3})).await.unwrap();
     assert!(rpc(&r, &Caller::Local, "endCall", json!({"botId": bot, "entryId": "nope"})).await.is_err());
     assert_eq!(notices(&r, &bot).len(), 2);
+    // A notice that is not a call line is not stamped with a length.
+    let plain = r.hub.add_entry(&Lane::main(&bot), EntryKind::Notice, 1, &json!({"text": "hello"})).unwrap();
+    let stamp = rpc(&r, &Caller::Local, "endCall", json!({"botId": bot, "entryId": plain.id, "seconds": 5})).await;
+    assert!(stamp.is_err());
+    assert!(r.hub.store.entry(&plain.id).unwrap().data["callSeconds"].is_null());
 }

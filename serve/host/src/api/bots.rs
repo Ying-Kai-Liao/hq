@@ -294,7 +294,9 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let bot = str_arg(&b, "botId")?;
             hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
             let data = json!({"text": "Voice chat", "callLive": true});
-            let e = hub.add_entry(&Lane::main(bot), EntryKind::Notice, hub.store.max_turn(bot), &data);
+            // None means the line wasn't saved: an error, so the app falls back to `logCall` instead of waiting on a null.
+            let e = hub.add_entry(&Lane::main(bot), EntryKind::Notice, hub.store.max_turn(bot), &data)
+                .ok_or_else(|| anyhow!("couldn't save the call"))?;
             json!({"entry": e})
         }
         // The call's end: the length goes on its line. Sending it twice (a retry) changes nothing the second time.
@@ -305,7 +307,10 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             hub.calls.ended(bot);
             if let Some(id) = b["entryId"].as_str() {
                 let e = hub.store.entry(id).filter(|e| e.bot_id == bot && e.kind == EntryKind::Notice.as_str());
-                let mut e = e.ok_or_else(|| anyhow!("unknown call"))?;
+                // Only a call line (live, or already filled in by an earlier `endCall`): members may call this, and
+                // must not be able to stamp a length on any other notice of the chat.
+                let is_call = |e: &crate::store::Entry| e.data["callLive"] == true || !e.data["callSeconds"].is_null();
+                let mut e = e.filter(is_call).ok_or_else(|| anyhow!("unknown call"))?;
                 if e.data["callSeconds"].is_null() {
                     if let Some(data) = e.data.as_object_mut() {
                         data.remove("callLive");
