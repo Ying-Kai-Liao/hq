@@ -915,3 +915,64 @@ async fn pressing_a_button_twice_at_once_runs_the_task_once() {
     r.idle().await;
     assert_eq!(r.calls("kith").len(), 1);
 }
+
+/// The guest loses `shop` (the stub's access file is what kith-auth would say).
+fn revoke_guest(r: &Rig) {
+    r.put("access", &json!({"kai": {"owner": true}, "guest": {"owner": false, "agents": []}}));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_revoked_person_whose_run_waits_for_the_gate_never_starts_and_the_owners_does() {
+    let gate = GateSettings { max_running: 1, ..GateSettings::unlimited() };
+    let r = Rig::with(Opts { gate, gate_task: true, ..Opts::new() });
+    let permit = r.core.gate.enter("test:holder").granted().await;
+    r.send(&Rig::msg("2", "@shop guest waits")).await;
+    r.send(&Rig::msg("1", "@house owner waits")).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(r.calls("kith").is_empty());
+    revoke_guest(&r);
+    r.core.stop_person("guest", false).await;
+    drop(permit);
+    r.idle().await;
+    let calls = r.calls("kith");
+    assert_eq!(calls.len(), 1, "only the owner's run: {calls:?}");
+    assert!(calls[0]["person"].is_null());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_run_dequeued_before_the_sweep_but_not_spawned_is_refused_at_the_spawn_point() {
+    let gate = GateSettings { max_running: 1, ..GateSettings::unlimited() };
+    let r = Rig::with(Opts { gate, gate_task: true, ..Opts::new() });
+    let permit = r.core.gate.enter("test:holder").granted().await;
+    r.send(&Rig::msg("2", "@shop guest waits")).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // The sweep has not reached this run (it ran before it, or found nothing to stop): only kith-auth changed.
+    revoke_guest(&r);
+    drop(permit);
+    r.idle().await;
+    assert!(r.calls("kith").is_empty(), "no run after the revoke");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_batch_left_in_the_inbox_by_an_earlier_host_is_swept_with_the_person() {
+    let r = Rig::new();
+    r.send(&Rig::msg("2", "@shop hi")).await;
+    r.idle().await;
+    let key = r.core.with(|i| i.st.threads.keys().next().cloned().unwrap());
+    let wk = format!("{key}#shop");
+    r.core.with(|i| {
+        i.st.inbox.insert(wk.clone(), vec![vec!["left over".into()]]);
+    });
+    r.core.stop_person("guest", false).await;
+    assert!(r.inbox_empty(&wk));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_person_who_is_invited_again_runs_again() {
+    let r = Rig::new();
+    revoke_guest(&r);
+    r.core.stop_person("guest", false).await;
+    r.put("access", &json!({"kai": {"owner": true}, "guest": {"owner": false, "agents": ["shop"]}}));
+    r.send(&Rig::msg("2", "@shop back")).await;
+    until("the guest's answer", || !r.fake.posts().is_empty()).await;
+}
