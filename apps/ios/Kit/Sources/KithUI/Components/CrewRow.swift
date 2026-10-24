@@ -67,7 +67,7 @@ public struct CrewRow: View {
     public var body: some View {
         HStack(spacing: 14) {
             CrewRowFace(shape: model.shape, state: model.state)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(model.name)
                         .kithText(isGroup ? .topBar : .agentName)
@@ -91,8 +91,8 @@ public struct CrewRow: View {
             }
         }
         .padding(.horizontal, KithSpacing.gutter)
-        .padding(.vertical, KithSpacing.rowV)
-        .frame(minHeight: 44)
+        .padding(.vertical, 13)
+        .frame(minHeight: 64)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(accessibilityText))
@@ -106,11 +106,11 @@ public struct CrewRow: View {
     }
 }
 
-/// The 48 pt mark of a row: agent, team or group.
+/// The 54 pt mark of a row: agent, team or group.
 struct CrewRowFace: View {
     let shape: CrewRowModel.Shape
     let state: BotAvatarState
-    private let box = KithSize.botAvatar
+    private let box: CGFloat = 54
 
     var body: some View {
         switch shape {
@@ -124,9 +124,9 @@ struct CrewRowFace: View {
             .frame(width: box, height: box)
         case .group(let a, let b, let person):
             ZStack {
-                bot(a, size: 30).position(x: 15, y: 15)
-                bot(b, size: 28).position(x: 34, y: 33)
-                SkyPatch(id: person, size: 20).position(x: 10, y: 38)
+                bot(a, size: 34).position(x: 17, y: 17)
+                bot(b, size: 32).position(x: 38, y: 37)
+                SkyPatch(id: person, size: 22).position(x: 11, y: 43)
             }
             .frame(width: box, height: box)
         }

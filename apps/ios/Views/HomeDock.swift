@@ -30,8 +30,8 @@ struct PickAgentSheet: View {
         VStack(spacing: 0) {
             ModalHeader(title)
             if choices.isEmpty {
-                EmptyState(title: "No agents yet", systemImage: "person.crop.circle.badge.plus",
-                           message: "Create a bot from the new-chat button first.")
+                EmptyState(title: "No agents to pick", systemImage: "person.crop.circle.badge.plus",
+                           message: "Group rooms can't be called or started from here. Open one from Crew, or create an agent from the new-chat button.")
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
