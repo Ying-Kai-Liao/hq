@@ -119,8 +119,8 @@ function openPairing() {
     return
   }
   pairing = new BrowserWindow({
-    width: 340,
-    height: 420,
+    width: 360,
+    height: 480,
     useContentSize: true,
     resizable: false,
     title: 'Pair iPhone',

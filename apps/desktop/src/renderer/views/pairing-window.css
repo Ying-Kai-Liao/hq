@@ -1,18 +1,75 @@
-/* The pairing QR window (PairingWindow). */
+/* The shared pairing code (PairingCode): the Pair iPhone window and the sheet in Settings. */
 .pairing {
-  width: 340px;
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 24px 24px 20px;
+  text-align: center;
 }
-/* White in both schemes, so cameras read the code (also the Computers page's pairing panel). */
+/* The window is a fixed 360×480; the error and loading states sit in the middle of it. */
+.pairing-error,
+.pairing-loading {
+  justify-content: center;
+  min-height: 100%;
+  gap: 8px;
+}
+/* White in both schemes, so cameras read the code. */
 .pairing-qr {
-  padding: 10px;
+  padding: 12px;
   background: #fff;
-  border-radius: var(--radius-m);
+  border-radius: 14px;
+  border: 1px solid var(--border);
 }
 .pairing-qr img {
   display: block;
   image-rendering: pixelated;
 }
-.pairing-note {
-  text-align: center;
+.pairing-heading {
+  margin-top: 20px;
+  font-size: calc(15px * var(--scale));
+  font-weight: 600;
+  color: var(--text);
+}
+.pairing-error .pairing-heading {
+  margin-top: 8px;
+}
+.pairing-line {
+  margin-top: 4px;
+  font-size: calc(12.5px * var(--scale));
+  line-height: 1.4;
+  color: var(--secondary);
+}
+.pairing-route {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  align-self: stretch;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  font-size: calc(12px * var(--scale));
+  line-height: 1.4;
+  text-align: left;
+  color: var(--secondary);
+}
+.pairing-route > :first-child {
+  margin-top: 2px;
+}
+.pairing-link {
+  color: var(--accent);
+}
+.pairing-footer {
+  margin-top: 14px;
+  font-size: calc(11.5px * var(--scale));
+  color: var(--tertiary);
+}
+.styled-button.pairing-retry {
+  margin-top: 8px;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
 }

@@ -3,11 +3,13 @@ import KithUI
 import SwiftUI
 
 /// The picture at the top left of Crew: your sky patch (your photo once you have one) in a ring. A stock menu with
-/// the account, Computers, Extensions, Usage and Settings.
+/// the account (its subtitle is the Macs' health line; the Macs themselves live in Account > Your devices),
+/// Extensions, Usage and Settings.
 struct ProfileMenu: View {
     @Environment(AppStore.self) private var app
     @Environment(AccountStore.self) private var accounts
     @Environment(AccountSession.self) private var account
+    @AppStorage("hiddenComputers") private var hiddenComputers = ""
 
     /// A guest (joined computers by invite only) has no usage, extensions or widgets: those are the owner's.
     private var ownerThings: Bool { accounts.computers.isEmpty || !accounts.ownedComputers.isEmpty }
@@ -15,17 +17,9 @@ struct ProfileMenu: View {
     private var accountTitle: String { account.email ?? "This iPhone" }
 
     private var accountSubtitle: String {
+        if account.isSignedIn { return ComputerProblem.healthLine(in: accounts, hidden: hiddenComputers) }
         let count = accounts.computers.count
-        let signedIn = account.isSignedIn ? "Signed in" : "Local pairing"
-        return count == 0 ? signedIn : "\(signedIn) · \(count) Mac\(count == 1 ? "" : "s")"
-    }
-
-    private var computersSubtitle: String {
-        let stores = accounts.computers.compactMap { accounts.store(for: $0.id) }
-        guard !stores.isEmpty else { return "Pair a computer" }
-        let names = stores.map(\.hostName).joined(separator: " · ")
-        let trouble = stores.filter { $0.isOffline || $0.mismatch != nil }.count
-        return trouble == 0 ? "\(names), all healthy" : "\(names), \(trouble) need\(trouble == 1 ? "s" : "") a look"
+        return count == 0 ? "Local pairing" : "Local pairing · \(count) Mac\(count == 1 ? "" : "s")"
     }
 
     var body: some View {
@@ -36,11 +30,6 @@ struct ProfileMenu: View {
                 Image(systemName: "person.crop.circle")
             }
             Divider()
-            Button { app.showComputers = true } label: {
-                Text("Computers")
-                Text(computersSubtitle)
-                Image(systemName: "desktopcomputer")
-            }
             if ownerThings {
                 Button { app.marketplace = app.currentStore?.computer.id } label: {
                     Label("Extensions", systemImage: "puzzlepiece.extension")
