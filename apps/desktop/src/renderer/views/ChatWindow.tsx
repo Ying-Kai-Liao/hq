@@ -19,6 +19,8 @@ import { useComputerRoster } from '../store/computer-roster'
 import { CrewSidebar, RosterEmpty } from './crew/CrewSidebar'
 import { ComputerFilterHeader, computerSelection } from './ComputerFilterHeader'
 import { ThreadView } from './thread/ThreadView'
+import { canShareAgent, ShareAgentSheet } from './ShareAgentSheet'
+import { peopleFor } from '../store/people-store'
 import { NewChatView } from './bots/NewChatView'
 import { BotEditorView } from './bots/BotEditorView'
 import { MarketplaceView } from './marketplace/MarketplaceView'
@@ -179,6 +181,8 @@ function ChatSplitView() {
   const [editing, setEditing] = useState<EditTarget | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<BotTarget | null>(null)
   const [newSessionBot, setNewSessionBot] = useState<BotTarget | null>(null)
+  const [sharingBot, setSharingBot] = useState<BotTarget | null>(null)
+  const [, bumpMenu] = useState(0)
   const [marketplace, setMarketplace] = useState<string | null>(null)
   // Settings is its own window: every old entry point opens it on the page it wants.
   const setSettings = useCallback((page: SettingsPage) => openSettingsWindow(page), [])
@@ -269,6 +273,7 @@ function ChatSplitView() {
   const botActions = (bot: Bot, store: BotStore): MenuItem[] => store.isOwner ? [
     { title: bot.pinned ? 'Unpin' : 'Pin', icon: 'pin', action: () => store.setPinned(bot, !bot.pinned) },
     { title: 'Mark as Read', icon: 'bell.badge', action: () => store.markAllRead(bot.id) },
+    ...(canShareAgent(store, bot) ? [{ title: 'Share…', icon: 'person.crop.circle.badge.plus', action: () => setSharingBot({ bot, store }) }] : []),
     { title: 'Edit Profile…', icon: 'square.and.pencil', divider: true, action: () => setEditing({ id: crypto.randomUUID(), draft: draftOf(bot), store }) },
     { title: 'Copy conversation ID', icon: 'square.on.square', divider: true, action: () => window.kith.app.copy(bot.id) },
     { title: 'New session', icon: 'arrow.counterclockwise', action: () => setNewSessionBot({ bot, store }) },
@@ -370,7 +375,11 @@ function ChatSplitView() {
           items={visibleRoster}
           listRef={listRef}
           onListKey={onListKey}
-          onContext={(bot, store, x, y) => setContextBot({ target: { bot, store }, x, y })}
+          onContext={(bot, store, x, y) => {
+            setContextBot({ target: { bot, store }, x, y })
+            // The host's answer about people decides whether Share shows; ask once if it hasn't been.
+            if (peopleFor(store).supported === null) void peopleFor(store).load().then(() => bumpMenu((n) => n + 1))
+          }}
           searchRef={searchRef}
           newItems={newItems}
           canCreate={onlineStores.length > 0}
@@ -412,6 +421,7 @@ function ChatSplitView() {
           </StoreContext.Provider>
         ) : null}
       </Sheet>
+      {sharingBot ? <ShareAgentSheet store={sharingBot.store} bot={sharingBot.bot} open onClose={() => setSharingBot(null)} /> : null}
       <Dialog
         open={newSessionBot !== null}
         title="Start a new session?"

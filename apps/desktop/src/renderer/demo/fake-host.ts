@@ -21,6 +21,12 @@ export class FakeHost {
   private nextReply = new Map<string, number>()
   /** Already chosen, so the demo never asks for consent. */
   private analytics = true
+  /** The people the owner invited and their open invites (host methods `people`, `invites`). */
+  private people: Record<string, unknown>[] = [
+    { personId: 'mia', name: 'Mia', agents: { pacer: 'member', relay: 'guest' }, projects: [], joined: true, openInvites: 0, devices: [] },
+    { personId: 'leo', name: 'Leo', agents: { pacer: 'guest' }, projects: [], joined: false, openInvites: 0, devices: [] },
+  ]
+  private invites: Record<string, unknown>[] = []
 
   constructor(
     readonly version: string,
@@ -286,6 +292,29 @@ export class FakeHost {
         return { enabled: this.analytics }
       case 'track':
         return {}
+      case 'people':
+        return { people: this.people }
+      case 'invites':
+        return { invites: this.invites }
+      case 'createInvite': {
+        const agents = (b.agents ?? {}) as Record<string, string>
+        const existing = this.people.find((p) => p.personId === b.personId)
+        const personId = existing ? String(existing.personId) : str('name').toLowerCase().replace(/\W+/g, '-')
+        if (!existing) this.people.push({ personId, name: str('name'), agents: {}, projects: [], joined: false, openInvites: 0, devices: [] })
+        const inviteId = `inv-${this.invites.length + 1}`
+        const expiresAt = Date.now() + 86_400_000
+        this.invites.push({ inviteId, personId, agents, createdAt: Date.now(), expiresAt, usedAt: null, revokedAt: null })
+        return { inviteId, link: `https://kith.app/join#${inviteId}-demo`, expiresAt, personId }
+      }
+      case 'revokeInvite':
+        for (const i of this.invites) if (i.inviteId === b.inviteId) i.revokedAt = Date.now()
+        return {}
+      case 'setPersonAccess': {
+        const person = this.people.find((p) => p.personId === b.personId)
+        if (!person) throw fail(`\`${str('personId')}\` isn't someone you invited`)
+        if (b.agents) person.agents = b.agents
+        return { person }
+      }
       default:
         throw fail(DEMO_UNAVAILABLE)
     }
