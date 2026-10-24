@@ -25,6 +25,9 @@ export const isTerminalOrigin = (t: Pick<ThreadSummary, 'origin'> | undefined | 
 /** Someone other than the app holds the thread, so the app shows it read-only. An unknown writer counts as held. */
 export const isHeldElsewhere = (t: Pick<ThreadSummary, 'liveWriter'> | undefined | null) => !!t?.liveWriter && t.liveWriter !== 'app'
 
+/** A terminal is mid-turn in the thread: work the host's own lanes don't show, since the app isn't running it. */
+export const isBusyInTerminal = (t: Pick<ThreadSummary, 'liveWriter' | 'liveBusy'> | undefined | null) => t?.liveWriter === 'terminal' && t.liveBusy === true
+
 export const isHeldByTerminal = (t: Pick<ThreadSummary, 'liveWriter'> | undefined | null) => t?.liveWriter === 'terminal'
 
 /** For a thread's root entry: the command that continues it in a terminal. */

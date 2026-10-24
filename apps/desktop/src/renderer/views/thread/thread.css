@@ -533,3 +533,11 @@
   place-items: center;
   color: var(--secondary);
 }
+/* Unread replies of a task placed at the end of the chat for its latest activity. */
+.task-unread {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, #0a84ff);
+  flex: none;
+}

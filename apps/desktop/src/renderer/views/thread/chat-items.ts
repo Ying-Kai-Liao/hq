@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { isChat, type Entry } from '@shared/models'
-import { isTask } from '@shared/tasks'
+import { isTask, placeTasks, taskLastAt } from '@shared/tasks'
 import { groupExchanges, type BotExchange, type ChatSlot } from './bot-exchange'
 
 export type ChatItem =
@@ -8,7 +8,7 @@ export type ChatItem =
   | { id: string; kind: 'entry'; entry: Entry; groupStart: boolean }
   | { id: string; kind: 'exchanges'; entry: Entry; exchanges: BotExchange[] }
   /** A task's first message: the task, shown inline with its thread or as a card (`TaskRow`). */
-  | { id: string; kind: 'task'; entry: Entry }
+  | { id: string; kind: 'task'; entry: Entry; moved: boolean }
 
 /**
  * Chat-visible entries plus time separators (gaps > 1 h) and author grouping. A bot's messages
@@ -20,24 +20,28 @@ export function buildChat(entries: Entry[], grouped = false): ChatItem[] {
   const out: ChatItem[] = []
   let lastDate: number | null = null
   let lastAuthor: string | null = null
-  const slots: ChatSlot[] = grouped ? groupExchanges(entries) : entries.filter(isChat).map((entry) => ({ entry, exchanges: null }))
+  let slots: ChatSlot[] = grouped ? groupExchanges(entries) : entries.filter(isChat).map((entry) => ({ entry, exchanges: null }))
+  // A task still talking after the chat's last message sits at the end, not at its old root.
+  let moved = new Set<string>()
+  if (grouped) ({ slots, moved } = placeTasks(slots))
   for (const { entry: e, exchanges } of slots) {
     const id = e.kind === 'user' && e.data.clientNonce ? `user-${e.data.clientNonce}` : e.id
-    if (lastDate === null || e.createdAt - lastDate > 3_600_000) {
-      out.push({ id: `sep-${id}`, kind: 'separator', date: e.createdAt })
+    const at = moved.has(e.id) ? taskLastAt(e) : e.createdAt
+    if (lastDate === null || at - lastDate > 3_600_000) {
+      out.push({ id: `sep-${id}`, kind: 'separator', date: at })
       lastAuthor = null
     }
     if (exchanges || (grouped && isTask(e))) {
-      out.push(exchanges ? { id, kind: 'exchanges', entry: e, exchanges } : { id, kind: 'task', entry: e })
+      out.push(exchanges ? { id, kind: 'exchanges', entry: e, exchanges } : { id, kind: 'task', entry: e, moved: moved.has(e.id) })
       lastAuthor = null
-      lastDate = e.createdAt
+      lastDate = at
       continue
     }
     // In a group each bot is its own author.
     const author = e.kind === 'user' ? 'user' : e.kind === 'agent' ? `agent:${e.data.author ?? ''}` : e.kind
     out.push({ id, kind: 'entry', entry: e, groupStart: author !== lastAuthor })
     lastAuthor = author === 'user' || e.kind === 'agent' ? author : null
-    lastDate = e.createdAt
+    lastDate = at
   }
   return out
 }

@@ -2,7 +2,7 @@
 // the chat (`data.task`); the bot's answers and the rest of the burst are its thread. The chat shows a task inline
 // while it's going and folds it into a card once it's idle.
 import { isWorkingIn, type Bot, type Entry } from './models.ts'
-import { isHeldElsewhere } from './thread-writer.ts'
+import { isBusyInTerminal, isHeldElsewhere } from './thread-writer.ts'
 
 /** The host's `tasks::IDLE_MS`: a task idle this long is over, and folds. */
 export const TASK_IDLE_MS = 10 * 60_000
@@ -30,6 +30,8 @@ export function taskStatus(bot: Bot, root: Entry, replies: Entry[]): TaskStatus 
     const held = isHeldElsewhere(root.data.thread)
     return !held && replies.some((e) => e.kind === 'permission' && e.data.status === 'pending') ? 'needsYou' : 'working'
   }
+  // A session started in a terminal works outside the host's lanes; its thread says so.
+  if (isBusyInTerminal(root.data.thread)) return 'working'
   // The host says how a finished turn ended; an older host doesn't, so the thread's entries tell. A host "working"
   // or "needsYou" while no lane is working is stale (the host restarted), so it isn't taken.
   const said = root.data.thread?.status
@@ -52,3 +54,19 @@ export function taskOpen(status: TaskStatus, newest: boolean, lastAt: number, no
 
 /** A card's title: the task's first message, on one line. */
 export const taskTitle = (root: Entry) => (root.data.text ?? '').replace(/\s+/g, ' ').trim() || 'Task'
+
+/**
+ * The main chat's order with tasks placed by their activity. A task keeps its root's place until it moves after the
+ * chat's newest other message (a terminal session started days ago, still talking): then it sits at the end, by its
+ * latest reply, where new things appear. `moved` are the ids of those tasks.
+ */
+export function placeTasks<T extends { entry: Entry }>(slots: T[]): { slots: T[]; moved: Set<string> } {
+  let latest = 0
+  for (const s of slots) if (!isTask(s.entry)) latest = Math.max(latest, s.entry.createdAt)
+  const moved = new Map<string, T>()
+  for (const s of slots) if (isTask(s.entry) && taskLastAt(s.entry) > latest) moved.set(s.entry.id, s)
+  if (moved.size === 0) return { slots, moved: new Set() }
+  const rest = slots.filter((s) => !moved.has(s.entry.id))
+  const tail = [...moved.values()].sort((a, b) => taskLastAt(a.entry) - taskLastAt(b.entry))
+  return { slots: [...rest, ...tail], moved: new Set(moved.keys()) }
+}

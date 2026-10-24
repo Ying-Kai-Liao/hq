@@ -42,6 +42,8 @@ public enum Tasks {
             let held = root.data.thread?.isHeldElsewhere == true
             return !held && replies.contains { $0.kind == "permission" && $0.data.status == "pending" } ? .needsYou : .working
         }
+        // A session started in a terminal works outside the host's lanes; its thread says so.
+        if root.data.thread?.isBusyInTerminal == true { return .working }
         // The host says how a finished turn ended; an older host doesn't, so the thread's entries tell. A host
         // "working" or "needsYou" while no lane is working is stale (the host restarted), so it isn't taken.
         switch root.data.thread?.status {
@@ -70,6 +72,21 @@ public enum Tasks {
     public static func isOpen(_ status: TaskStatus, newest: Bool, lastAt: Int64, now: Int64, choice: Bool? = nil) -> Bool {
         if let choice { return choice }
         return status.isBusy || (newest && now - lastAt < idleMs)
+    }
+
+    /// The main chat's order with tasks placed by their activity. A task keeps its root's place until it moves after
+    /// the chat's newest other message (a terminal session started days ago, still talking): then it sits at the end,
+    /// by its latest reply, where new things appear. `moved` are the ids of those tasks.
+    public static func place(_ slots: [BotExchangeGroup.Item]) -> (slots: [BotExchangeGroup.Item], moved: Set<String>) {
+        var latest: Int64 = 0
+        for case .entry(let e) in slots where !e.isTask { latest = max(latest, e.createdAt) }
+        for case .exchanges(let g) in slots { latest = max(latest, Int64(g.date.timeIntervalSince1970 * 1000)) }
+        var moved: [(entry: Entry, at: Int64)] = []
+        for case .entry(let e) in slots where e.isTask && lastAt(e) > latest { moved.append((e, lastAt(e))) }
+        if moved.isEmpty { return (slots, []) }
+        let ids = Set(moved.map(\.entry.id))
+        let rest = slots.filter { if case .entry(let e) = $0 { return !ids.contains(e.id) } else { return true } }
+        return (rest + moved.sorted { $0.at < $1.at }.map { .entry($0.entry) }, ids)
     }
 
     /// A card's title: the task's first message, on one line.

@@ -137,13 +137,17 @@ impl Store {
     }
 
     /// Entries changed after `since`. A fresh client (`since == 0`) only gets the
-    /// newest `cap` entries per bot and pages older ones in with `history`.
+    /// newest `cap` entries per bot and pages older ones in with `history`. The roots of threads whose replies
+    /// made that window come too, or a long task's card (root far back, replies fresh) would reach no client.
     pub fn entries_since(&self, since: i64, cap: i64) -> Result<Vec<Entry>> {
         let c = self.db.locked();
         let sql = if since == 0 {
             format!(
-                "SELECT {ENTRY_COLS} FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY bot_id ORDER BY seq DESC) AS rn FROM entries)
-                 WHERE rn <= ?2 AND rev > ?1 ORDER BY seq"
+                "WITH ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY bot_id ORDER BY seq DESC) AS rn FROM entries)
+                 SELECT {ENTRY_COLS} FROM ranked
+                 WHERE (rn <= ?2 AND rev > ?1)
+                    OR id IN (SELECT thread_id FROM ranked WHERE rn <= ?2 AND thread_id IS NOT NULL)
+                 ORDER BY seq"
             )
         } else {
             format!("SELECT {ENTRY_COLS} FROM entries WHERE rev > ?1 AND ?2 > 0 ORDER BY seq")
@@ -378,6 +382,24 @@ mod tests {
             .map(|e| e.data["text"].as_str().unwrap().to_owned())
             .collect();
         assert_eq!(texts, ["owner", "to owner", "owner again"]);
+    }
+
+    #[test]
+    fn a_fresh_sync_brings_the_root_of_a_thread_whose_replies_fill_the_window() {
+        let s = temp_store();
+        let root =
+            s.insert_entry(&Lane::main("b1"), EntryKind::User, 1, &json!({"text": "task", "task": true})).unwrap();
+        s.insert_entry(&Lane::main("b1"), EntryKind::User, 2, &json!({"text": "other chat"})).unwrap();
+        let thread = Lane::in_thread("b1", &root.id);
+        for i in 0..5 {
+            s.insert_entry(&thread, EntryKind::Agent, 1, &json!({"text": format!("reply {i}"), "final": true}))
+                .unwrap();
+        }
+        let ids = |cap| -> Vec<String> {
+            s.entries_since(0, cap).unwrap().into_iter().map(|e| e.data["text"].as_str().unwrap().to_owned()).collect()
+        };
+        // The newest 3 are all replies; the old root rides along, and the main chat row outside the window does not.
+        assert_eq!(ids(3), ["task", "reply 2", "reply 3", "reply 4"]);
     }
 
     #[test]
