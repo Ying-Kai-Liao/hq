@@ -85,8 +85,8 @@ mod tests {
     #[test]
     fn a_host_without_a_protocol_level_is_level_zero() {
         // Whatever its version or `minApp` (both on the old numbering), it needs an update.
-        assert_eq!(check(1, 1, &json!({"version": "2.20.0", "minApp": "2.18.0"})), Some(Mismatch::UpdateHost));
+        assert_eq!(check(1, 1, &json!({"version": "0.0.1", "minApp": "0.0.1"})), Some(Mismatch::UpdateHost));
         assert_eq!(check(1, 1, &json!({})), Some(Mismatch::UpdateHost));
-        assert_eq!(check(1, 0, &json!({"version": "2.20.0"})), None);
+        assert_eq!(check(1, 0, &json!({"version": "0.0.1"})), None);
     }
 }
