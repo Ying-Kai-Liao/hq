@@ -494,6 +494,31 @@ mod tests {
         assert!(acp.notify("x", json!({})).await.is_err(), "a stopped agent takes no more messages");
     }
 
+    /// Settles whether a person's warm agent process dies with the host: a dropped `Acp` (the host stopping or the bot
+    /// removed) kills it (`kill_on_drop`), but a host that is killed or crashes runs no drop, so the process is left until
+    /// its stdin closes. That is why a person's process keeps a `proc-<pid>` claim between turns (`claim::take_proc`).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_dropped_agent_process_is_killed() {
+        let (acp, mut rx) = Acp::spawn(
+            r#"sh -c 'echo "{\"jsonrpc\":\"2.0\",\"method\":\"ready\"}"; sleep 300'"#,
+            "/tmp",
+            &[],
+        )
+        .unwrap();
+        let pid = acp.pid().unwrap();
+        let ready = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap();
+        assert!(matches!(ready, Some(Incoming::Notification { .. })));
+        drop(acp);
+        for _ in 0..60 {
+            if unsafe { libc::kill(pid as i32, 0) } != 0 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the agent process outlived its Acp");
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn request_response_roundtrip() {

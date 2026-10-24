@@ -369,9 +369,20 @@ impl Actor {
             lane.thread.as_deref().is_some_and(|r| self.hub.store.bot_conversation_of_thread(&lane.chat, r).is_some());
         let kind = if bot { crate::terminal::claim::Kind::Bot } else { crate::terminal::claim::Kind::App };
         // flock and `ps` block: not on an async worker thread.
-        let (st, id) = (state, sid.to_owned());
-        let taken = tokio::task::spawn_blocking(move || crate::terminal::claim::take(&st, &id, kind, pid, false))
-            .await
+        // The claim names the run's person (its bot's `person`, set by the host), so revoking them ends this process too,
+        // also when a restarted host no longer knows it. The owner's runs carry none and are never swept.
+        let (st, id, person, agent) =
+            (state, sid.to_owned(), self.cfg.person.clone(), self.cfg.hq_agent.clone());
+        let taken = tokio::task::spawn_blocking(move || {
+            if let Some(p) = &person {
+                // The warm process outlives the turn claim (and can outlive a crashed host): it stays findable.
+                if let Err(error) = crate::terminal::claim::take_proc(&st, pid, p, agent.as_deref()) {
+                    tracing::warn!(%error, "couldn't record a person's agent process");
+                }
+            }
+            crate::terminal::claim::take_as(&st, &id, kind, pid, false, person.as_deref(), agent.as_deref())
+        })
+        .await
             .unwrap_or_else(|e| Err(std::io::Error::other(e)));
         match taken {
             Ok(Ok(())) => self.turn_claim = Some((sid.to_owned(), pid)),

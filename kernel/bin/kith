@@ -786,6 +786,9 @@ print(json.dumps({
 }
 # Codex (or another harness the launch JSON covers): the same facts, without Claude's settings.
 if [[ $launch -eq 1 && $harness != claude ]]; then emit_launch; exit 0; fi
+# Every run with someone else's profile is findable by the revoke sweep (kith-sessions proc): its pid is the one that execs
+# claude below, so the claim lives as long as claude (or, for an interactive run, the launcher claude runs under).
+[[ $p_owner == 1 || $launch -eq 1 ]] || python3 "$KITH/bin/kith-sessions" proc "$$" "$p_id" "$agent" 2>/dev/null || true
 # Another harness: the same run, handed to its adapter (prompt in a file, directories and MCP configs as lists).
 if [[ $harness != claude ]]; then
   printf '%s\n' "$prompt" > "$runs/$$.prompt.md"
@@ -853,7 +856,9 @@ if [[ $# -gt 0 ]]; then
     [[ $a == --resume=* ]] && csid=${a#--resume=}
     prev=$a
   done
-  [[ -z $csid || $harness != claude ]] || python3 "$KITH/bin/kith-sessions" claim "$csid" "$$" || exit 1
+  # The claim names the person kith-auth resolved (never anything the run can change), so revoking them ends this run.
+  claim_person=""; [[ $p_owner == 1 ]] || claim_person=$p_id
+  [[ -z $csid || $harness != claude ]] || python3 "$KITH/bin/kith-sessions" claim "$csid" "$$" ${claim_person:+"$claim_person" "$agent"} || exit 1
   # A permission prompt in this run asks for approval through a card (--permission-prompt-tool) instead of being refused.
   # A guest run was given KITH_RUN_TOKEN/KITH_RUN_SOCKET by the host, an owner run KITH_ASK_*, or gets them here: the
   # host binds the token to this pid (exec keeps it) and to the session the run continues, or a --session-id chosen now.
