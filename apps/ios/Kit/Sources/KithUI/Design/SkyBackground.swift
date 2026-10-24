@@ -55,7 +55,9 @@ public struct SkyBackground: View {
                     .clipped()
                     // Night clouds sit close to the ground colour; lift them so they read.
                     .brightness(variant == .home && isNight ? 0.14 : 0)
-                    .contrast(variant == .home && isNight ? 1.25 : 1)
+                    .contrast(variant == .home && isNight ? 1.25 : (isNight ? 1 : 1.1))
+                    // Day: a touch more colour so the blue and clouds read against the white page.
+                    .saturation(isNight ? 1 : 1.35)
             }
         }
         // The strip is only its own height; the ground behind it comes from the screen.

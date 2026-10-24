@@ -167,6 +167,8 @@
   background-position: top center;
   background-size: 100% auto;
   background-color: var(--kith-ground);
+  /* Day only: a touch more colour so the blue and clouds read against the white page. Matches iOS. */
+  filter: saturate(1.35) contrast(1.1);
 }
 /* Home: fills the top and is gone into the ground by mid-height. */
 .kith-sky-home {
@@ -185,15 +187,19 @@
 }
 @media (prefers-color-scheme: dark) {
   .kith-sky-home:not(.kith-sky-day) {
+    filter: none;
     background-image: url('../assets/sky/sky-home-night.webp');
   }
   .kith-sky-header:not(.kith-sky-day) {
+    filter: none;
     background-image: url('../assets/sky/sky-header-night.webp');
   }
 }
 .kith-sky-home.kith-sky-night {
+  filter: none;
   background-image: url('../assets/sky/sky-home-night.webp');
 }
 .kith-sky-header.kith-sky-night {
+  filter: none;
   background-image: url('../assets/sky/sky-header-night.webp');
 }
