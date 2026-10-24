@@ -58,6 +58,8 @@ struct RepliesView: View {
         }
         .background(Palette.background)
         .task(id: rootId) { await model.loadThread(botId, root: rootId) }
+        // Back in the main chat, the next message is not a reply here.
+        .onDisappear { if chat?.usesTasks == true { model.leftThread.insert(botId) } }
         // A thread is read on its own: having it open reads its replies.
         .readingConversation(botId, thread: rootId)
         .kithSheet(item: Binding<FileDownloads.Export?>(get: {

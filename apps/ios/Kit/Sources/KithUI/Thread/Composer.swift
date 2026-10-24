@@ -40,7 +40,13 @@ struct Composer: View {
     private var tasks: Bool { thread == nil && bot?.usesTasks == true }
     /// In a bot's chat a message goes on with the current task: Stop and "working" are that task's.
     private var place: String? { thread ?? (tasks ? Tasks.current(in: model.chat(botId))?.id : nil) }
-    private var working: Bool { !newTask && bot?.isWorking(in: botId, thread: place) == true }
+    /// The next message starts a task of its own: asked for, or the reader just left a thread (see `BotStore.leftThread`).
+    private var startsNew: Bool {
+        model.startsNewTask(botId, thread: thread, requested: newTask, currentOpen: tasks ? model.isCurrentTaskOpen(botId) : nil)
+    }
+    /// The chip is for a task asked for or one reached by leaving a thread; a folded task just changes the placeholder.
+    private var showsNewTaskChip: Bool { startsNew && (newTask || model.leftThread.contains(botId)) }
+    private var working: Bool { !startsNew && bot?.isWorking(in: botId, thread: place) == true }
 
     private var isEmpty: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty }
 
@@ -56,8 +62,9 @@ struct Composer: View {
         let name = bot?.name ?? ""
         if thread != nil { return "Reply…" }
         if bot?.isGroup == true { return "Message everyone · @ to ask one bot" }
-        if newTask { return "New task for \(name)" }
-        return working ? "Queue a message for \(name)" : "Tell \(name)…"
+        if startsNew { return "Tell \(name)…" }
+        if working { return "Queue a message for \(name)" }
+        return tasks && place != nil ? "Reply in task…" : "Tell \(name)…"
     }
 
     /// The `@partial` being typed at the end, if any.
@@ -129,7 +136,7 @@ struct Composer: View {
             accessory
         }
         .animation(Motion.layout, value: files.map(\.id))
-        .animation(Motion.layout, value: newTask)
+        .animation(Motion.layout, value: startsNew)
         .dropDestination(for: PickedFile.self) { picked, _ in
             guard canAttach else { return false }
             append(picked.map(\.file))
@@ -174,7 +181,7 @@ struct Composer: View {
         if UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs {
             items.append(ChatDockAction("Paste", systemImage: "doc.on.clipboard") { pasteFiles() })
         }
-        if tasks && !newTask {
+        if tasks && !startsNew {
             items.append(ChatDockAction("New task", systemImage: "square.and.pencil") {
                 newTask = true
                 focused = true
@@ -186,7 +193,7 @@ struct Composer: View {
     /// Above the field, inside the dock: the new-task chip, the files going out, and Stop / Interrupt / Stop dictating.
     private var accessory: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if newTask {
+            if showsNewTaskChip {
                 newTaskChip.transition(.move(edge: .bottom).combined(with: .opacity))
             }
             if !files.isEmpty {
@@ -242,7 +249,13 @@ struct Composer: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Starting folder: \(startFolderName)")
-            IconButton("Go on with the current task", systemImage: "xmark") { newTask = false; startFolder = nil }
+            IconButton("Go on with the current task", systemImage: "xmark") {
+                newTask = false
+                model.leftThread.remove(botId)
+                startFolder = nil
+                // Going on means the current task, even if it was folded: open it again.
+                if let root = Tasks.current(in: model.chat(botId)) { model.taskChoices[root.id] = true }
+            }
         }
         .kithSheet(isPresented: $pickingFolder) {
             PlaceFolderPicker(current: nil, offersDefault: startFolder != nil) { startFolder = $0 }
@@ -334,11 +347,12 @@ struct Composer: View {
         if files.isEmpty, let command = SlashCommands.builtIn(for: bot, draft: draft) { return run(command) }
         guard canSend else { return }
         withAnimation(Motion.reduced(Motion.conversation, reduceMotion)) {
-            guard model.sendComposerDraft(to: botId, thread: thread, files: files, newTask: newTask,
-                                           start: newTask ? startFolder : nil) else { return }
+            guard model.sendComposerDraft(to: botId, thread: thread, files: files, newTask: startsNew,
+                                           start: startsNew ? startFolder : nil) else { return }
             draft = ""
             files = []
             newTask = false
+            model.leftThread.remove(botId)
             startFolder = nil
         }
     }
