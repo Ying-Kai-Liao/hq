@@ -9,6 +9,7 @@ import { CrewBoardSwitch, NewChatButton, SkyPatch, type CrewBoard } from '../../
 import { AnchoredMenu, type MenuItem } from '../../components/Overlay'
 import { Text } from '../../components/Text'
 import { START_CALL_EVENT } from '../../lib/call-event'
+import { callBlockedReason } from '../call/call-availability'
 import { useAccount } from '../../store/account'
 import { refKey, type BotRef, type RosterItem } from '../../store/app-model'
 import { useApp } from '../../store/context'
@@ -159,6 +160,8 @@ export function CrewSidebar({ compact, roster, items, listRef, onListKey, onCont
     </>
   )
   const callShown = !searching && !!app.selection
+  // Blocked calls say why instead of doing nothing (the chat's own phone button does the same).
+  const callBlocked = callShown && app.selection ? (() => { const item = byKey.get(refKey(app.selection!)); return item ? callBlockedReason(item.store) : null })() : null
   return (
     <>
       <div className="cs-top drag">
@@ -200,7 +203,7 @@ export function CrewSidebar({ compact, roster, items, listRef, onListKey, onCont
           ) : null}
         </div>
         <div className={`cs-call-slot ${callShown ? 'shown' : ''}`} aria-hidden={!callShown} inert={!callShown}>
-          <button className="cs-call kith-glass" aria-label="Call" title="Call" tabIndex={callShown ? 0 : -1} onClick={() => window.dispatchEvent(new Event(START_CALL_EVENT))}>
+          <button className="cs-call kith-glass" aria-label={callBlocked ?? 'Call'} title={callBlocked ?? 'Call'} disabled={!!callBlocked} tabIndex={callShown ? 0 : -1} onClick={() => window.dispatchEvent(new Event(START_CALL_EVENT))}>
             <Icon name="phone.fill" size={16} />
           </button>
         </div>

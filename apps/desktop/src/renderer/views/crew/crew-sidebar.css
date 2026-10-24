@@ -340,6 +340,11 @@ html:not([data-platform='darwin']) .cs-profile {
   color: var(--kith-ink);
   box-shadow: inset 0 0 0 0.5px var(--kith-glass-edge), 0 2px 14px rgba(20, 22, 27, 0.08);
 }
+/* Blocked: dimmed, still a target so a click can't land on the row beneath; the tooltip says why. */
+.cs-call:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 @media (prefers-reduced-motion: reduce) {
   .cs-call-slot {
     transition: opacity 0.12s ease;

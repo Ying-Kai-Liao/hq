@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { draftOf, isGroup, isWorkingIn, type Bot, type BotDraft, type Entry } from '@shared/models'
 import { currentTask } from '@shared/tasks'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
@@ -20,6 +20,7 @@ import { InlineThread } from './InlineThread'
 import { TaskRow } from './TaskRow'
 import { TraceView } from './TraceView'
 import { useReading } from './reading'
+import { routesOf, type TaskRoutes } from './task-routing'
 import { PlaceFolderControl } from '../bots/PlaceFolderPicker'
 import { GroupEditorView } from '../bots/GroupEditorView'
 import { BotTemplateView } from '../bots/BotTemplateView'
@@ -44,6 +45,13 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   const [showTrace, setShowTrace] = useState(false)
   const [openThread, setOpenThread] = useState<string | null>(null)
   const [botChat, setBotChat] = useState<string | null>(null)
+  // Back in the main chat after a thread, the next message is not a reply there (see task-routing).
+  const routes = routesOf(store)
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (wasOpen.current && !openThread && bot?.tasks && !isGroup(bot)) routes.leave(botId)
+    wasOpen.current = !!openThread
+  }, [openThread, routes, botId, bot])
   const [editingGroup, setEditingGroup] = useState(false)
   const [templateDraft, setTemplateDraft] = useState<BotDraft | null>(null)
   const [showSettings, setShowSettings] = useState(false)
@@ -305,7 +313,7 @@ const Transcript = memo(function Transcript({ botId, openId, closeThread, openTr
   // Rebuilt only when this chat changes: the store replaces a chat's list on every change.
   const entries = store.allEntries(botId)
   const all = useMemo(() => buildChat(store.chat(botId), true), [store, botId, entries])
-  const tasks = useTasks(store.chat(botId))
+  const tasks = useTasks(store.chat(botId), routesOf(store))
   // The newest 40 items first; older pages come in near the top.
   const [firstShown, setFirstShown] = useState<string | null>(null)
   const [loadingEarlier, setLoadingEarlier] = useState(false)
@@ -423,6 +431,7 @@ const Transcript = memo(function Transcript({ botId, openId, closeThread, openTr
                   choice={tasks.choices.get(item.entry.id)}
                   setChoice={(open) => {
                     tasks.choose(item.entry.id, open)
+                    if (open && item.entry.id === tasks.newest) routesOf(store).stay(botId)
                     if (!open && openId === item.entry.id) closeThread()
                   }}
                   openTrace={openTrace}
@@ -462,15 +471,15 @@ const Transcript = memo(function Transcript({ botId, openId, closeThread, openTr
  * The chat's tasks on this device: the newest, which ones the user opened or folded, and the time, ticking so an
  * idle task folds on its own.
  */
-function useTasks(chat: Entry[]) {
-  const [choices, setChoices] = useState(() => new Map<string, boolean>())
+function useTasks(chat: Entry[], routes: TaskRoutes) {
+  useSyncExternalStore(routes.subscribe, routes.getVersion)
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 30_000)
     return () => clearInterval(tick)
   }, [])
-  const choose = useCallback((id: string, open: boolean) => setChoices((c) => new Map(c).set(id, open)), [])
-  return { newest: currentTask(chat)?.id ?? null, now, choices, choose }
+  const choose = useCallback((id: string, open: boolean) => routes.choose(id, open), [routes])
+  return { newest: currentTask(chat)?.id ?? null, now, choices: routes.choices, choose }
 }
 
 function Row({ item, chat, openId, closeThread, openTrace, openThread, replyInThread, openRoutine, openBotChat }: { item: ChatItem; chat: Bot | null; openId: string | null; closeThread: () => void; openTrace: () => void; openThread: (e: { id: string }) => void; replyInThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
