@@ -11,8 +11,10 @@ use prop::sample::select;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestCaseError, TestRunner};
 
+const ALLOWED: [&str; 3] = ["recall", "memorySearch", "projectId"];
 const PEOPLE: [&str; 4] = ["sam", "eve", "bot-ab12", "kai"];
 const AGENTS: [&str; 2] = ["echo", "fox"];
+const PROJECTS: [Option<&str>; 3] = [None, Some("alpha"), Some("beta")];
 const ROOMS: [Option<&str>; 4] = [None, Some("1:1:echo:sam"), Some("1:1:echo:eve"), Some("g1")];
 /// Run `i` is started as pid `BASE + i * SPACING`; a peer descends from it when it is within `WINDOW` above it.
 const BASE: u32 = 1000;
@@ -64,6 +66,7 @@ fn build(specs: &[(usize, usize, usize)], bind: bool) -> (Arc<TokenTable>, Vec<L
                 run_id: format!("r{i}"),
                 scope: TokenScope::Guest,
                 session: format!("run:s{i}"),
+                project: PROJECTS[(p + i) % PROJECTS.len()].map(Into::into),
             };
             let grant = RunGrant::issue(&table, identity.clone()).unwrap();
             let pid = BASE + u32::try_from(i).unwrap() * SPACING;
@@ -240,6 +243,25 @@ pub fn prop_identity_is_the_tokens() -> Result<(), String> {
             prop_assert_eq!(&got.identity, &r.identity);
             prop_assert_eq!(Some(got.identity), t.resolve(&r.token, peer));
             prop_assert_eq!(Ok(got.args), recall_args(&render(&items)).map_err(String::from));
+            // The same for the two tool methods: who, and which project, is the token's whatever the line claims.
+            let line = request(&json!(r.token), &json!("memorySearch"), render(&items), &extras);
+            let got = authorize(&t, &line, peer).map_err(|e| TestCaseError::fail(format!("refused: {e:?}")));
+            if let Ok(got) = got {
+                prop_assert_eq!(&got.identity, &r.identity);
+                prop_assert_eq!(got.run, Run::MemorySearch);
+            } else {
+                // Only a dash word among the generated items may refuse it.
+                prop_assert!(memory_args(&render(&items)).is_err());
+            }
+            let own = r.identity.project.clone();
+            let info = own.iter().flat_map(|p| [json!("--info"), json!(p)]).collect::<Vec<_>>();
+            for args in [vec![], info] {
+                let line = request(&json!(r.token), &json!("projectId"), args.clone(), &extras);
+                let got = authorize(&t, &line, peer).map_err(|e| TestCaseError::fail(format!("refused: {e:?}")))?;
+                prop_assert_eq!(&got.identity, &r.identity);
+                prop_assert_eq!(got.identity.project, own.clone());
+                prop_assert_eq!(got.run, Run::ProjectId);
+            }
         }
         Ok(())
     })
@@ -401,7 +423,94 @@ pub fn prop_recall_args_caps_and_types() -> Result<(), String> {
     })
 }
 
-/// P5: only `recall` is ever authorized, whatever the token, peer and args.
+/// P4c: `memory_args` passes only the query words, `-n N` and `--json`; `--all`, `--agent` and every other dash argument
+/// are refused; the result starts with `search`, so no word reaches another subcommand.
+pub fn prop_memory_args_allow_list() -> Result<(), String> {
+    check(
+        (prop::collection::vec(prop_oneof![3 => good_item(), 1 => bad_item()], 0..10), any::<bool>()),
+        |(items, tail_word)| {
+            let mut items = items;
+            if tail_word {
+                items.push(Item::Word("zebra".into()));
+            }
+            let args = render(&items);
+            let got = memory_args(&args);
+            // Here only `--json` and `-n <digits>` are allowed, so a generated flag with a value is mostly refused.
+            let allowed = |a: &Value| a == "--json";
+            let mut ok = true;
+            let mut words = Vec::new();
+            let mut it = args.iter();
+            while let Some(a) = it.next() {
+                if allowed(a) {
+                    continue;
+                }
+                if a == "-n" {
+                    ok &= it.next().and_then(Value::as_str).is_some_and(|v| !v.is_empty() && v.len() <= 6 && v.bytes().all(|b| b.is_ascii_digit()));
+                } else if a.as_str().is_some_and(|s| s.starts_with('-')) {
+                    ok = false;
+                } else {
+                    words.push(a.as_str().unwrap().to_owned());
+                }
+            }
+            if !ok || words.is_empty() {
+                prop_assert!(got.is_err(), "{:?} should be refused, got {:?}", args, got);
+                return Ok(());
+            }
+            let out = got.map_err(|e| TestCaseError::fail(format!("refused a good request: {e}")))?;
+            prop_assert_eq!(out[0].as_str(), "search");
+            let mut i = 1;
+            while out[i].starts_with('-') {
+                i += if out[i] == "-n" { 2 } else { 1 };
+            }
+            for flag in &out[1..i] {
+                prop_assert!(flag == "-n" || flag == "--json" || flag.bytes().all(|b| b.is_ascii_digit()), "{flag} passed");
+            }
+            let (mut rest, mut want) = (out[i..].to_vec(), words);
+            rest.sort();
+            want.sort();
+            prop_assert_eq!(rest, want, "the query words are exactly the input's");
+            Ok(())
+        },
+    )
+}
+
+/// P4d: `project_args` allows nothing, or `--info` of the token's own project; every other argument list is refused.
+pub fn prop_project_args_allow_list() -> Result<(), String> {
+    let verbs = &["--list", "--children", "--where", "--register", "--root", "--info", "--all", "--home", "--in", "."][..];
+    check(
+        (
+            prop_oneof![Just(None), Just(Some("alpha")), Just(Some("beta"))],
+            prop::collection::vec(prop_oneof![select(verbs).prop_map(String::from), word(), Just("alpha".to_owned()), Just("beta".to_owned())], 0..4),
+        ),
+        |(project, args)| {
+            let given: Vec<Value> = args.iter().map(|a| json!(a)).collect();
+            let got = project_args(&given, project);
+            let allowed = args.is_empty()
+                || (args.len() == 2 && args[0] == "--info" && Some(args[1].as_str()) == project);
+            prop_assert_eq!(got.is_ok(), allowed, "{:?} for {:?}", args, project);
+            if let Ok(out) = got {
+                prop_assert_eq!(out, args);
+            }
+            Ok(())
+        },
+    )
+}
+
+/// P4e: caps and types of both new parsers.
+pub fn prop_tool_args_caps_and_types() -> Result<(), String> {
+    check((MAX_ARGS + 1..MAX_ARGS + 20, 0..4usize), |(n, kind)| {
+        prop_assert!(memory_args(&vec![json!("a"); n]).is_err());
+        let odd = [json!(1), json!(null), json!(["a"]), json!({"a": 1})][kind].clone();
+        prop_assert!(memory_args(&[json!("a"), odd.clone()]).is_err());
+        prop_assert!(memory_args(&[json!("x".repeat(MAX_ARG_LEN + 1))]).is_err());
+        prop_assert!(project_args(&[odd], Some("alpha")).is_err());
+        prop_assert!(project_args(&[json!("--info"), json!("a".repeat(MAX_ARG_LEN + 1))], Some("alpha")).is_err());
+        Ok(())
+    })
+}
+
+/// P5: only `recall`, `memorySearch` and `projectId` are ever authorized for a guest token (the card methods are
+/// refused here for want of their fields), whatever the token, peer and args; an owner token gets none of the three.
 pub fn prop_only_recall_is_authorized() -> Result<(), String> {
     check(
         (
@@ -430,7 +539,9 @@ pub fn prop_only_recall_is_authorized() -> Result<(), String> {
                     ][..]
                 )
                 .prop_map(|m| json!(m)),
-                ".{0,12}".prop_filter("not recall", |m| m != "recall").prop_map(|m| json!(m)),
+                ".{0,12}".prop_filter("not an allowed method", |m| !ALLOWED.contains(&m.as_str())).prop_map(|m| json!(m)),
+                select(&["memorysearch", "MemorySearch", "memory_search", "projectid", "ProjectId", "project-id", "memorySearch "][..])
+                    .prop_map(|m| json!(m)),
                 Just(json!(1)),
                 Just(json!(null)),
                 Just(json!(["recall"])),
@@ -443,6 +554,18 @@ pub fn prop_only_recall_is_authorized() -> Result<(), String> {
                 prop_assert!(authorize(&t, &line, peer_in(r, 0)).is_err(), "method {method} was authorized");
                 let line = request(&json!(r.token), &json!("recall"), render(&items), &[]);
                 prop_assert!(authorize(&t, &line, peer_in(r, 0)).is_ok(), "the allowed method is refused");
+                // The new methods are authorized too (so refusing everything cannot pass), with args each accepts.
+                let line = request(&json!(r.token), &json!("memorySearch"), vec![json!("zebra")], &[]);
+                prop_assert!(authorize(&t, &line, peer_in(r, 0)).is_ok(), "memorySearch is refused");
+                let line = request(&json!(r.token), &json!("projectId"), vec![], &[]);
+                prop_assert!(authorize(&t, &line, peer_in(r, 0)).is_ok(), "projectId is refused");
+            }
+            // An owner token (cards only) is refused all three.
+            let owner = Arc::new(TokenTable::with_ancestry(descends_window));
+            let token = owner.insert_ask(ask_identity("echo", "s"), BASE, Duration::from_secs(60)).unwrap();
+            for m in ["recall", "memorySearch", "projectId"] {
+                let line = request(&json!(token), &json!(m), vec![json!("zebra")], &[]);
+                prop_assert!(authorize(&owner, &line, PeerInfo { pid: Some(BASE) }).is_err(), "owner token got {m}");
             }
             Ok(())
         },
@@ -506,6 +629,13 @@ fn p3_revoked_and_unknown_are_denied() {
 fn p4_recall_args_allow_list() {
     assert_eq!(prop_recall_args_allow_list(), Ok(()));
     assert_eq!(prop_recall_args_caps_and_types(), Ok(()));
+}
+
+#[test]
+fn p4_tool_args_allow_lists() {
+    assert_eq!(prop_memory_args_allow_list(), Ok(()));
+    assert_eq!(prop_project_args_allow_list(), Ok(()));
+    assert_eq!(prop_tool_args_caps_and_types(), Ok(()));
 }
 
 #[test]

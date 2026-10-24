@@ -437,7 +437,8 @@ impl Actor {
             // is theirs alone; the owner's process gets none.
             let session = format!("acp:{}:{}", self.lane.chat, self.lane.thread.as_deref().unwrap_or_default());
             let mut grant = person.as_deref().and_then(|p| {
-                crate::runauth::grant_for(p, &agent, launch.env.get("KITH_ROOM").map(String::as_str), &session)
+                let room = launch.env.get("KITH_ROOM").map(String::as_str);
+                crate::runauth::grant_for(p, &agent, room, &session, launch.env.get("KITH_PROJECT").map(String::as_str))
             });
             if let Some((_, vars)) = &grant {
                 env.extend(vars.iter().cloned());

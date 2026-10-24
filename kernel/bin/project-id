@@ -16,6 +16,10 @@
   project-id --where ID            the folder to work in for ID on this Mac: its first checkout or path that exists,
                                    else its home; prints nothing and exits 1 when it isn't here
 
+In a run for someone other than the owner (KITH_RUN_TOKEN and KITH_RUN_SOCKET set) only the first and the --info form
+work, asked of the host over the run socket: the bare form prints the project the run was launched in (nothing and exit
+1 without one), and --info takes that same project only.
+
 A project is a named thing; remotes and paths are aliases that point to it. Add a remote or path to keep a
 project's memory after a rename, move or re-clone. A project may sit in a parent (a client, a company, a line of
 research holding several repos), and may have a home: a folder of the user's own, anywhere, for its files. kith only
@@ -27,6 +31,10 @@ import json, os, re, subprocess, sys
 HOME = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 # The registry is state: <home>/state (lib/kith_paths.py).
 sys.path.insert(0, os.path.join(HOME, "lib"))
+import kith_runsocket  # noqa: E402
+# A guest run asks the host, which answers about the project the run was launched in only (bare, or --info of it).
+if kith_runsocket.guest_run():
+    sys.exit(kith_runsocket.ask('project-id', 'projectId', sys.argv[1:]))
 from kith_paths import paths  # noqa: E402
 STATE = str(paths()["KITH_STATE"])
 REG = os.path.join(STATE, "projects.json")

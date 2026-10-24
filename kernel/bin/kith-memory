@@ -29,13 +29,19 @@ search, which also finds text FTS doesn't split into words (Chinese, for one).
 
 In a run for someone other than the owner (KITH_PERSON, checked with kith-auth) it searches only that agent's shared
 memory and theirs (memory/shared/, memory/people/<id>/), its learned skills, their people/<id>.md and the current
-project's shared files: never user.md, the owner's memory, other people, other agents, --agent or --all.
+project's shared files: never user.md, the owner's memory, other people, other agents, --agent or --all. A search in
+such a run (KITH_RUN_TOKEN and KITH_RUN_SOCKET set) is asked of the host over the run socket and only takes words, -n N
+and --json.
 """
 import datetime as dt, json, os, re, sqlite3, subprocess, sys
 from pathlib import Path
 
 KITH = Path(__file__).resolve().parent.parent
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+import kith_runsocket  # noqa: E402
+# A guest run's search goes to the host, which runs it as the token's person: nothing below reads a memory folder.
+if sys.argv[1:2] == ['search'] and kith_runsocket.guest_run():
+    sys.exit(kith_runsocket.ask('kith-memory', 'memorySearch', sys.argv[2:]))
 from kith_paths import paths, kith_bin  # noqa: E402  the one place that knows where kith's folders are
 STATE = paths()['KITH_STATE']
 
