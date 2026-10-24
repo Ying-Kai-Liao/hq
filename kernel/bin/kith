@@ -193,7 +193,7 @@ if [[ $src_pkg == */role ]]; then home=${src_pkg%/role}; else home="$KITH_STATE/
 # access follows the person who asked however deep the calls go. Unset is the owner and changes nothing. A helper is
 # checked as one (--via the agent that called it). Fails closed: no answer from kith-auth, no run.
 nested=0; [[ -n ${KITH_AGENT:-} ]] && nested=1   # started by another run (KITH_AGENT is exported further down)
-caller=${KITH_AGENT:-}; [[ $caller == "$agent" ]] && caller=""; p_owner=1 p_mode="" p_model="" p_deny="" p_line="" p_env_names="" p_rooms=""
+caller=${KITH_AGENT:-}; [[ $caller == "$agent" ]] && caller=""; p_owner=1 p_trusted=0 p_mode="" p_model="" p_deny="" p_line="" p_env_names="" p_rooms=""
 if [[ -n ${KITH_PERSON:-} ]]; then
   res=$("$KITH/bin/kith-auth" resolve "$agent" ${caller:+--via "$caller"}) \
     || { echo "kith: can't check whether ${KITH_PERSON} may use $agent (kith-auth resolve failed)" >&2; exit 1; }
@@ -202,6 +202,7 @@ import json, os, re, shlex, sys
 r = json.loads(os.environ["RES"])
 q = lambda v: shlex.quote(str(v))
 print("p_allowed=%d p_why=%s p_owner=%d p_id=%s" % (r["allowed"], q(r["why"]), r["owner"], q(r.get("person", ""))))
+print("p_trusted=%d" % bool(r.get("trusted")))
 print("p_mode=%s p_model=%s p_deny=%s" % (q(r.get("mode", "")), q(r.get("model", "")), q("\n".join(r.get("deny", [])))))
 # Anyone but the owner: a name goes into the <session/> tag, so it loses what could close or forge a tag.
 clean = (lambda v: re.sub("[<>\"\\x00-\\x1f\\x7f]", "", v)) if not r["owner"] else (lambda v: v.replace("\"", ""))
@@ -511,7 +512,7 @@ else
 fi
 [[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
   || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
-fill < "$pkg/settings.json" | P_OWNER=$p_owner API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post LEDGER_PRE=$ledger_pre LEDGER_POST=$ledger_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
+fill < "$pkg/settings.json" | P_OWNER=$p_owner P_TRUSTED=$p_trusted API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post LEDGER_PRE=$ledger_pre LEDGER_POST=$ledger_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
 $learned
 $state_projects" python3 -c '
 import json, os, re, sys
@@ -587,6 +588,10 @@ if os.environ["P_OWNER"] == "0":
         "filesystem": {"denyRead": list(dict.fromkeys(deny_read)), "allowWrite": list(dict.fromkeys(allow_write))},
         "network": {"allowUnixSockets": list(dict.fromkeys(socks))}}
 allow = s["permissions"].setdefault("allow", [])
+if os.environ["P_OWNER"] == "0":   # no broad Bash rule for the run of an invited person unless the membership is trusted (F11)
+    sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
+    from kith_settings import strip_broad_bash
+    allow[:] = strip_broad_bash(allow, os.environ["P_TRUSTED"] == "1")
 # A role rule for a kernel tool, Bash({{KITH}}/bin/tool...), names the path bare; the path may have a space, and then a
 # working call quotes it and only Bash("{{KITH}}/bin/tool"...) matches. Add that spelling next to each such rule.
 kbin = "Bash(%s/bin/" % os.environ["KITH_ROOT"]

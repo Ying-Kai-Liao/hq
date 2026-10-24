@@ -45,7 +45,7 @@ People (who may use which agent, and how; the run's person is KITH_PERSON, unset
   kith-auth member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b budget=USD env.VAR=..] [--trusted] [--rm]
                                           let a person use an agent, with their own settings on top of the agent's;
                                           <id> '*' is everyone kith knows (not unknown senders); their own row wins.
-                                          mode=bypassPermissions is a free shell on this Mac as you: refused unless
+                                          mode=bypassPermissions or auto is a free shell on this Mac as you: refused unless
                                           --trusted (a row or preset without it runs in default mode).
                                           budget=20: at most $20 a calendar month of their runs of that agent
                                           (helpers they reach through it included; kith cost people shows it)
@@ -574,7 +574,7 @@ def cmd_set(profile, var):
 PRESETS = {'guest': {'mode': 'default'}, 'member': {'mode': 'acceptEdits'}}
 # Modes that run any command without asking: a free shell on this Mac, as the owner. Only the owner has one, unless
 # a membership or preset was set with --trusted.
-FREE_SHELL = {'bypassPermissions'}
+FREE_SHELL = {'bypassPermissions', 'auto'}
 
 
 def preset(auth, name):
@@ -602,6 +602,10 @@ def resolve(auth, agent, person, via=None):
                model=row.get('model', ''), env=row.get('env', {}), helpers=row.get('helpers', []),
                budget=row.get('budget', ''), budget_agent=agent if row_of(auth, agent, person) is not None else via,
                was=auth['people'].get(person, {}).get('was', []))
+    out['trusted'] = bool(row.get('trusted') or p.get('trusted'))
+    asked = row.get('mode') or p.get('mode')
+    if asked in FREE_SHELL and out['mode'] != asked:
+        out['downgraded'] = asked   # shown in the listing, so the fall back to default isn't silent
     return out
 
 
@@ -767,7 +771,8 @@ def cmd_people(args):
         if not reach:
             print(f'  {"agents":<9} none (kith-auth member <agent> {pid})')
         for agent, how, r in reach:
-            bits = [] if how == 'owner' else [r['preset'], r['mode']]
+            mode = r['mode'] + (f' (mode={r["downgraded"]} runs as default: set with --trusted to allow)' if r.get('downgraded') else '')
+            bits = [] if how == 'owner' else [r['preset'], mode]
             bits += [f'deny {",".join(r["deny"])}'] if r.get('deny') else []
             bits += [f'model {r["model"]}'] if r.get('model') else []
             bits += [f'budget ${r["budget"]}/month'] if r.get('budget') and not how.startswith('helper') else []

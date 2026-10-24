@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# kith-trusted-allow-check — a run for anyone but the owner loses every broad Bash allow rule (Bash, Bash(*), Bash(:*),
+# a shell or interpreter prefix such as python3 or uv run) from its generated settings unless the membership is
+# trusted; narrow rules stay and the owner's run keeps all. Inspects the JSON of `--launch-json`; fake `claude`.
+#
+#   kernel/tests/kith-trusted-allow-check     a few seconds; exits 1 when a check fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-guest-sandbox-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME="$T/real root" KITH_AUTH=$T/auth.json
+unset KITH_STATE HQ_STATE KITH_PROJECT KITH_PERSON KITH_AGENT KITH_CLAUDE_ARGS KITH_HARNESS KITH_PERMISSION_MODE CLAUDE_CONFIG_DIR CODEX_HOME HQ_HOME KITH_SERVE_HOME KITH_RUN_TOKEN KITH_RUN_SOCKET
+mkdir -p "$HOME" "$KITH_HOME/agents/echo/role" "$KITH_HOME/agents/other/role" "$T/bin" "$T/real state/projects" "$T/real state/logs"
+ln -s "$T/real state" "$T/linked state"   # the state folder as a link, with a space in the target
+export KITH_STATE="$T/linked state"
+printf -- '---\nname: echo\ndescription: test agent\n---\nYou echo.\n' > "$KITH_HOME/agents/echo/role/agent.md"
+printf -- '---\nname: other\ndescription: another agent\n---\nYou other.\n' > "$KITH_HOME/agents/other/role/agent.md"
+printf '#!/bin/sh\n[ "$1" = "--version" ] && echo "2.1.309 (Claude Code)"\n[ "$1 $2" = "plugin list" ] && echo "[]"\nexit 0\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
+# A guest run refuses to start without a kith program that answers `memory hook` (fail closed, no unchecked memory writes);
+# CI has no host build, so a stub stands in for it (macOS dev machines pass without one only because a real kith is installed).
+printf '#!/bin/sh\n[ "$1 $2 $3" = "memory hook --help" ] && echo "usage: kith memory hook <phase>"\nexit 0\n' > "$T/bin/kith-stub"; chmod +x "$T/bin/kith-stub"
+export KITH_BIN=$T/bin/kith-stub
+export PATH=$T/bin:$PATH
+
+KITH=$KERNEL/bin/kith
+AUTH=$KERNEL/bin/kith-auth
+fails=0
+expect() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (got $2, want $3)"; fails=$((fails + 1)); fi; }
+
+"$AUTH" person guest name=Guest >/dev/null 2>&1
+"$AUTH" member echo guest mode=default 'deny=Read(//data/private/**),Read(//data/notes/*.md),Read(//data/exact.txt)' >/dev/null 2>&1
+"$AUTH" bot bot-3f9a1c2e --of guest name=Bot >/dev/null 2>&1
+"$AUTH" member echo bot-3f9a1c2e mode=default >/dev/null 2>&1
+
+
+cat > "$KITH_HOME/agents/echo/role/settings.json" <<'JSON'
+{"permissions": {"allow": ["Bash", "Bash(*)", "Bash(:*)", "Bash(python3:*)", "Bash(uv run:*)", "Bash(npx foo)", "Bash(ls:*)", "Bash(git status)"]}}
+JSON
+"$AUTH" person plain name=Plain >/dev/null 2>&1
+"$AUTH" member echo plain mode=default >/dev/null 2>&1
+"$AUTH" bot bot-3f9a1c2e --of plain name=Bot >/dev/null 2>&1
+"$AUTH" member echo bot-3f9a1c2e mode=default >/dev/null 2>&1
+"$AUTH" person trusty name=Trusty >/dev/null 2>&1
+"$AUTH" member echo trusty mode=auto --trusted >/dev/null 2>&1
+
+allow() { (cd "$KITH_HOME/agents/echo" && "$KITH" echo --launch-json 2>/dev/null) | python3 -c '
+import json,sys
+j=json.load(sys.stdin)
+s=j.get("settings") or {}
+if isinstance(s,str): s=json.load(open(s))
+print(" ".join(r for r in s.get("permissions",{}).get("allow",[]) if r.startswith("Bash")  and "/bin/" not in r))'; }
+ALL="Bash Bash(*) Bash(:*) Bash(python3:*) Bash(uv run:*) Bash(npx foo) Bash(ls:*) Bash(git status)"
+expect "owner keeps every rule" "$(allow)" "$ALL"
+expect "a plain member loses the broad ones, keeps the narrow" "$(KITH_PERSON=plain allow)" "Bash(ls:*) Bash(git status)"
+expect "a trusted membership keeps them" "$(KITH_PERSON=trusty allow)" "$ALL"
+expect "a bot guest loses the broad ones" "$(KITH_PERSON=bot-3f9a1c2e allow)" "Bash(ls:*) Bash(git status)"
+
+for r in 'Bash:1' 'Bash(*):1' 'Bash(:*):1' 'Bash(sh -c:*):1' 'Bash(/bin/bash:*):1' 'Bash(zsh:*):1' 'Bash(python:*):1' 'Bash(node:*):1' 'Bash(env:*):1' 'Bash(perl:*):1' 'Bash(ruby:*):1' 'Bash(osascript:*):1' 'Bash(deno:*):1' 'Bash(bun:*):1' 'Bash(shasum:*):0' 'Bash(bundle:*):0' 'Bash(/x/bin/kith-who:*):0' 'Edit(/x/**):0' 'Read(/x):0'; do
+  rule=${r%:*}; want=${r##*:}
+  got=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from kith_settings import is_broad_bash; print(int(is_broad_bash(sys.argv[2])))' "$KERNEL/lib" "$rule")
+  expect "is_broad_bash $rule" "$got" "$want"
+done
+exit $((fails > 0))

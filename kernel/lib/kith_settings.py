@@ -46,6 +46,32 @@ CHOICES = {'permission_mode': ('default', 'acceptEdits', 'plan', 'auto', 'bypass
 RETIRED = {'manual': 'default', 'dontAsk': 'auto'}
 
 
+# A Bash allow rule for a shell or interpreter lets the model run anything: broad. `Bash`, `Bash(*)`, `Bash(:*)` and a
+# prefix of these programs (F11).
+BROAD_SHELLS = ("sh", "bash", "zsh", "python", "python3", "node", "env", "perl", "ruby", "osascript", "uv run", "npx", "deno", "bun")
+
+
+def is_broad_bash(rule):
+    """Whether an allow rule lets a run execute arbitrary code: bare Bash, a wildcard, or a shell/interpreter prefix."""
+    r = rule.strip()
+    if r == "Bash":
+        return True
+    if not (r.startswith("Bash(") and r.endswith(")")):
+        return False
+    body = r[5:-1].strip().strip("\"'")
+    if body in ("", "*", ":*", "**"):
+        return True
+    prog = re.split(r"[:*]", body)[0].strip()
+    first = prog.split(" ")[0].rsplit("/", 1)[-1]   # /usr/bin/python3 counts as python3
+    rest = (first + " " + " ".join(prog.split(" ")[1:])).strip()
+    return not prog or any(rest == b or rest.startswith(b + " ") for b in BROAD_SHELLS)
+
+
+def strip_broad_bash(rules, trusted):
+    """The allow rules a non-owner run keeps: a trusted membership keeps all, anyone else loses every broad Bash rule."""
+    return list(rules) if trusted else [r for r in rules if not is_broad_bash(r)]
+
+
 def current(mode):
     """The mode a run starts in for a mode from any source: a retired one as the mode that replaced it."""
     return RETIRED.get(mode, mode) if isinstance(mode, str) else mode
