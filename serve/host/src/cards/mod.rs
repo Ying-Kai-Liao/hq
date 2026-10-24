@@ -156,12 +156,16 @@ fn chat_for(hub: &Hub, person: &str, agent: &str) -> Option<crate::store::BotCon
     rows.iter().filter(of_agent).find(|c| c.person.is_none()).cloned()
 }
 
-/// Whom a card goes to for a run of `who`: the owner for the owner's own run, else whoever kith-auth names now.
-async fn approver_of(who: &RunIdentity) -> &'static str {
+/// Whom a card goes to for a run of `who`: the owner for the owner's own run, else whoever kith-auth names now, and always the owner for a tool that runs code.
+async fn approver_of(who: &RunIdentity, tool: &str) -> &'static str {
     if who.scope == TokenScope::OwnerAsk || who.person.is_empty() {
         return "owner";
     }
-    if crate::api::roles::approves_own(&who.person, &who.agent).await { "member" } else { "owner" }
+    if crate::api::roles::approves_own(&who.person, &who.agent, tool, tool_kind(tool)).await {
+        "member"
+    } else {
+        "owner"
+    }
 }
 
 /// The host half of `--permission-prompt-tool` for a -p run (A5, A6, A9). Never panics, never blocks past the window.
@@ -189,7 +193,7 @@ async fn request_card(
     shown: &str,
 ) -> Decision {
     let cfg = settings(&hub.store);
-    let approver = approver_of(who).await;
+    let approver = approver_of(who, tool).await;
     let now = now_ms();
     let new = NewCard {
         session: who.session.clone(),

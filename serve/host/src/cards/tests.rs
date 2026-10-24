@@ -220,8 +220,8 @@ async fn a_guests_card_goes_to_the_owner_a_members_to_themself_and_a_revoke_appl
         .to_owned();
     window(&r.hub, 20);
 
-    // A member's own run: the card is theirs to answer, in their chat.
-    let call = ask(&r.hub, guest_run("sam", "1:1:house:sam"), "Bash", ls());
+    // A member's own run: the card is theirs to answer, in their chat (a tool that doesn't run code: F11).
+    let call = ask(&r.hub, guest_run("sam", "1:1:house:sam"), "WebFetch", json!({"url": "https://example.com"}));
     let card = shown(&r.hub).await;
     assert_eq!((card.approver.as_str(), card.person.as_str()), ("member", "sam"));
     let entry = r.hub.store.entry(card.entry_id.as_ref().unwrap()).unwrap();
@@ -262,6 +262,55 @@ async fn a_guests_card_goes_to_the_owner_a_members_to_themself_and_a_revoke_appl
     assert!(e.is::<crate::api::devices::NotAllowed>(), "{e:#}");
     answer(&r.hub, card.entry_id.as_ref().unwrap(), Some("allow"), "owner").unwrap();
     assert!(call.await.unwrap().allow);
+}
+
+/// F11: an invited person's run executes as the owner's macOS user, so a card for a tool that runs code is the
+/// owner's even in a member's own run, and the member's answer is refused by the approver stored on the card.
+#[tokio::test]
+async fn a_members_own_card_for_code_goes_to_the_owner() {
+    let r = Rig::new().await;
+    r.owner_bot("house");
+    let sam = joined(&r, "member").await;
+    dispatch(&r.hub, &sam, "startChat", json!({"agent": "house"})).await.unwrap();
+    window(&r.hub, 20);
+    let cases: [(&'static str, Value, &str); 6] = [
+        ("Bash", ls(), "owner"),
+        ("mcp__x__y", json!({"a": 1}), "owner"),
+        ("BashOutput", json!({"bash_id": "1"}), "member"),
+        ("KillShell", json!({"shell_id": "1"}), "member"),
+        ("WebFetch", json!({"url": "https://example.com"}), "member"),
+        ("Edit", json!({"file_path": "/tmp/f11-x", "old_string": "a", "new_string": "b"}), "member"),
+    ];
+    for (tool, input, approver) in cases {
+        let call = ask(&r.hub, guest_run("sam", "1:1:house:sam"), tool, input);
+        let card = shown(&r.hub).await;
+        assert_eq!(card.approver, approver, "{tool}");
+        let b = json!({"entryId": card.entry_id});
+        let said = roles::guard(&r.hub, "sam", true, "respondPermission", &b).await;
+        if approver == "owner" {
+            assert!(said.unwrap_err().is::<crate::api::devices::NotAllowed>(), "{tool}: the member is refused");
+        } else {
+            said.unwrap_or_else(|e| panic!("{tool}: the member may answer: {e:#}"));
+        }
+        answer(&r.hub, card.entry_id.as_ref().unwrap(), Some("allow"), "owner").unwrap();
+        assert!(call.await.unwrap().allow, "{tool}");
+    }
+    // The predicate itself: code is the owner's whoever the member is.
+    assert!(!roles::approves_own("sam", "house", "Bash", "execute").await);
+    assert!(!roles::approves_own("sam", "house", "Run", "execute").await, "a shell tool of another harness");
+    assert!(!roles::approves_own("sam", "house", "mcp__x__y", "other").await);
+    assert!(roles::approves_own("sam", "house", "BashOutput", "execute").await);
+    assert!(roles::approves_own("sam", "house", "Edit", "edit").await);
+    // An ACP request with no toolName: only a kind that clearly runs no code stays the member's.
+    for kind in ["read", "edit", "search", "fetch", "think"] {
+        assert!(roles::approves_own("sam", "house", "", kind).await, "{kind}");
+    }
+    for kind in ["execute", "other", "delete", "move", "switch_mode", "", "made-up"] {
+        assert!(!roles::approves_own("sam", "house", "", kind).await, "{kind} with no tool name");
+    }
+    let call = ask(&r.hub, owner_run("s1"), "Bash", ls());
+    assert_eq!(shown(&r.hub).await.approver, "owner");
+    call.abort();
 }
 
 #[tokio::test]
