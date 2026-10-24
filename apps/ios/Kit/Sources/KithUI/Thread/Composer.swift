@@ -85,7 +85,8 @@ struct Composer: View {
     /// The bot's `/` commands while the draft is `/partial`; skills only from hosts that run them.
     private var commands: [SlashCommand] {
         guard let query = SlashCommands.query(draft) else { return [] }
-        let skillsShown = !AppVersion.isBelow(model.hello?.version ?? "", SlashCommands.minSkillsHost)
+        let skillsShown = VersionMismatch.hostHas(
+            version: model.hello?.version, protocolLevel: model.hello?.protocolLevel, since: SlashCommands.minSkillsHost)
         return SlashCommands.list(for: bot, query: query, skills: skillsShown ? model.installedSkills : [])
     }
 

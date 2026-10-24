@@ -381,15 +381,17 @@ public struct Hello: Codable, Sendable {
     public var computerId: ComputerID?
     public var signKey: String?
     public var boxKey: String?
-    /// The oldest app version this host serves (missing from hosts that predate the check).
-    public var minApp: String?
+    /// The host's protocol level and the oldest client level it serves (docs/reference/compatibility.md);
+    /// both missing from a host before 0.1.0.
+    public var protocolLevel: Int?
+    public var minProtocol: Int?
     /// The cloud relay the host uses; nil = cloud off.
     public var cloud: String?
     /// For an invited person: the agents the owner gave them. Missing from a host before it, and from an owner's hello.
     public var grantedAgents: [GrantedAgent]?
 
     private enum CodingKeys: String, CodingKey {
-        case grantedAgents, hostId, name, version, os, device, home, backends, rev, screen, urls, computerId, signKey, boxKey, minApp, cloud
+        case grantedAgents, hostId, name, version, os, device, home, backends, rev, screen, urls, computerId, signKey, boxKey, protocolLevel = "protocol", minProtocol, cloud
     }
 
     public init(from decoder: Decoder) throws {
@@ -408,7 +410,8 @@ public struct Hello: Codable, Sendable {
         computerId = try c.decodeIfPresent(ComputerID.self, forKey: .computerId)
         signKey = try c.decodeIfPresent(String.self, forKey: .signKey)
         boxKey = try c.decodeIfPresent(String.self, forKey: .boxKey)
-        minApp = try c.decodeIfPresent(String.self, forKey: .minApp)
+        protocolLevel = try c.decodeIfPresent(Int.self, forKey: .protocolLevel)
+        minProtocol = try c.decodeIfPresent(Int.self, forKey: .minProtocol)
         cloud = try c.decodeIfPresent(String.self, forKey: .cloud)
         // Only a convenience for New chat: a list in a shape this version can't read is the same as none.
         grantedAgents = try? c.decodeIfPresent([GrantedAgent].self, forKey: .grantedAgents)

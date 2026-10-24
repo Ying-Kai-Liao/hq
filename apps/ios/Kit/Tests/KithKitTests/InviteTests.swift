@@ -137,10 +137,12 @@ private func link(_ query: String, scheme: String = "kith") -> URL { URL(string:
 }
 
 @Test func anInvitedPersonsTrimmedHelloStillDecodes() throws {
-    // roles.rs `shape`: hostId, computerId, signKey, boxKey, name, version, minApp, os, rev. No backends, no paths.
-    let json = #"{"hostId":"h1","computerId":"c1","name":"Mac","version":"3.0.0","minApp":"2.5.0","os":"macos","rev":4}"#
+    // roles.rs `shape`: hostId, computerId, signKey, boxKey, name, version, protocol, minProtocol, os, rev.
+    // No backends, no paths.
+    let json = #"{"hostId":"h1","computerId":"c1","name":"Mac","version":"0.1.0","protocol":1,"minProtocol":1,"os":"macos","rev":4}"#
     let hello = try JSONDecoder().decode(Hello.self, from: Data(json.utf8))
     #expect(hello.backends.isEmpty && hello.home == nil && hello.rev == 4)
+    #expect(hello.protocolLevel == 1 && hello.minProtocol == 1)
     // A list of the wrong shape is still an error, which BotStore reads as "the host changed".
     #expect(throws: DecodingError.self) {
         _ = try JSONDecoder().decode(Hello.self, from: Data(#"{"hostId":"h","name":"M","version":"1","os":"macos","rev":0,"backends":"changed shape"}"#.utf8))

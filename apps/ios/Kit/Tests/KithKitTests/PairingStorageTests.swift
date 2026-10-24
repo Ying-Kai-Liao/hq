@@ -58,6 +58,9 @@ private func link(_ overrides: [String: String?] = [:], scheme: String = "kith")
     #expect(LabelFamily.forHost(version: "2.19.1") == .legacy)
     #expect(LabelFamily.forHost(version: "2.20.0") == .kith)
     #expect(LabelFamily.forHost(version: "3.0") == .kith)
+    // Kith's own line restarts at 0.1.0: every release of it verifies `kith/*`.
+    #expect(LabelFamily.forHost(version: "0.1.0") == .kith)
+    #expect(LabelFamily.forHost(version: "1.4.2") == .kith)
 }
 
 @Test func rejectsBadPairingLinks() {

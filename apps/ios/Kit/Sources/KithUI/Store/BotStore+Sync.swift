@@ -77,7 +77,7 @@ extension BotStore {
         do {
             h = try await client.hello()
         } catch let error as DecodingError {
-            // Its version and `minApp` still say which side to update.
+            // Its version and protocol levels still say which side to update.
             let version: HostVersion = try await client.call("hello")
             guard !Task.isCancelled, !retired else { return }
             log.error("undecodable hello from host \(version.version)")
@@ -89,7 +89,7 @@ extension BotStore {
         guard !Task.isCancelled, !retired else { return }
         // hello first: whatever the version change shows (notices, reminders) reads it.
         hello = h
-        noteHostVersion(HostVersion(version: h.version, minApp: h.minApp))
+        noteHostVersion(HostVersion(version: h.version, protocolLevel: h.protocolLevel, minProtocol: h.minProtocol))
     }
 
     private func noteHostVersion(_ new: HostVersion) {

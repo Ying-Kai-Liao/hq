@@ -93,13 +93,27 @@ import Testing
     #expect(!AppVersion.isBelow("2.0.0", "garbage"))
 }
 
-@Test func mismatchNamesTheSideToUpdate() {
-    #expect(VersionMismatch.check(app: "2.4.0", minHost: "2.3.0", hostVersion: "2.4.0", minApp: "2.3.0") == nil)
-    #expect(VersionMismatch.check(app: "2.4.0", minHost: "2.3.0", hostVersion: "2.6.0", minApp: "2.5.0") == .updateApp(minimum: "2.5.0"))
-    #expect(VersionMismatch.check(app: "2.6.0", minHost: "2.5.0", hostVersion: "2.4.0", minApp: "2.3.0") == .updateHost(version: "2.4.0", minimum: "2.5.0"))
-    // Hosts from before minApp: only this app's floor applies.
-    #expect(VersionMismatch.check(app: "2.4.0", minHost: "2.3.0", hostVersion: "2.3.1", minApp: nil) == nil)
-    #expect(VersionMismatch.check(app: "2.4.0", minHost: "2.3.0", hostVersion: "2.2.3", minApp: nil) == .updateHost(version: "2.2.3", minimum: "2.3.0"))
-    #expect(VersionMismatch.check(app: "", minHost: "2.3.0", hostVersion: "2.6.0", minApp: "2.5.0") == nil)
+@Test func mismatchNamesTheSideToUpdate() throws {
+    // A 0.1.0 host, as it says hello.
+    let current = try JSONDecoder().decode(HostVersion.self, from: Data(#"{"version":"0.1.0","protocol":1,"minProtocol":1}"#.utf8))
+    #expect(current == HostVersion(version: "0.1.0", protocolLevel: 1, minProtocol: 1))
+    #expect(VersionMismatch.check(current) == nil)
+    #expect(VersionMismatch.check(HostVersion(version: "0.4.0", protocolLevel: 3, minProtocol: 2)) == .updateApp)
+    #expect(VersionMismatch.check(HostVersion(version: "0.2.0", protocolLevel: 2, minProtocol: 1)) == nil)
+    #expect(VersionMismatch.check(current, client: 1, minHost: 2) == .updateHost(version: "0.1.0"))
+    // Hosts from before protocol levels: their version against the old floor. Their `minApp` is
+    // a 2.x that every app with a level is newer than, so it isn't read.
+    let legacy = try JSONDecoder().decode(HostVersion.self, from: Data(#"{"version":"2.20.0","minApp":"2.18.0"}"#.utf8))
+    #expect(legacy.protocolLevel == nil)
+    #expect(VersionMismatch.check(legacy) == nil)
+    #expect(VersionMismatch.check(HostVersion(version: "2.12.0")) == nil)
+    #expect(VersionMismatch.check(HostVersion(version: "2.11.3")) == .updateHost(version: "2.11.3"))
+}
+
+@Test func featuresLegacyHostsGotLateAreOnEveryHostWithAProtocolLevel() {
+    #expect(VersionMismatch.hostHas(version: "0.1.0", protocolLevel: 1, since: "2.14.1"))
+    #expect(VersionMismatch.hostHas(version: "2.14.1", protocolLevel: nil, since: "2.14.1"))
+    #expect(!VersionMismatch.hostHas(version: "2.13.0", protocolLevel: nil, since: "2.14.1"))
+    #expect(VersionMismatch.hostHas(version: nil, protocolLevel: nil, since: "2.14.1"))
 }
 

@@ -61,7 +61,7 @@ public final class BotStore {
     /// Accepted calls already told to greet, so the agent speaks first only once.
     @ObservationIgnored var greeted: Set<String> = []
     public internal(set) var hello: Hello?
-    /// The host's version and `minApp`, kept even when the rest of its `hello` can't be read.
+    /// The host's version and protocol levels, kept even when the rest of its `hello` can't be read.
     public internal(set) var hostVersion: HostVersion?
     public internal(set) var bots: [String: Bot] = [:]
     public internal(set) var entries: [String: [Entry]] = [:]
@@ -152,7 +152,7 @@ public final class BotStore {
     var rewound = false
     /// Events stayed undecodable after the rewind.
     var unreadable = false
-    /// This app's marketing version, compared with the host's `minApp`.
+    /// This app's marketing version, compared with a host's when the host sends data this app can't read.
     private let appVersion: String
     /// While one side needs an update there's nothing to sync; `hello` is asked again this often.
     static let mismatchRecheck: Duration = .seconds(30)
@@ -215,13 +215,12 @@ public final class BotStore {
     /// a version can't be read: an unknown is never a reason to lock someone out.
     public var mismatch: VersionMismatch? {
         guard let hostVersion else { return nil }
-        if let found = VersionMismatch.check(app: appVersion, hostVersion: hostVersion.version, minApp: hostVersion.minApp) {
-            return found
-        }
-        // The host sends data this app can't read and is newer: this app is behind,
-        // whatever the host's `minApp` says.
-        if unreadable, AppVersion.isBelow(appVersion, hostVersion.version) {
-            return .updateApp(minimum: hostVersion.version)
+        if let found = VersionMismatch.check(hostVersion) { return found }
+        // The host sends data this app can't read and is newer: this app is behind, whatever
+        // the host's `minProtocol` says. Only a host with a protocol level shares this app's
+        // version line; a legacy host's 2.x says nothing about this app.
+        if unreadable, hostVersion.protocolLevel != nil, AppVersion.isBelow(appVersion, hostVersion.version) {
+            return .updateApp
         }
         return nil
     }
