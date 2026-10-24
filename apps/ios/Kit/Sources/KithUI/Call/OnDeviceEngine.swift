@@ -22,6 +22,8 @@ class OnDeviceEngine: VoiceEngine {
     private(set) var heard = ""
     /// The reply being read aloud.
     private(set) var said = ""
+    /// The bot's recent words: the recognizer restarts after the voice ends and can hear its tail.
+    private var recentSpoken = ""
     /// What was said on this call, for the call screen's captions.
     var transcript = CallTranscript()
     var captions: [CallCaption] { transcript.lines }
@@ -191,6 +193,7 @@ class OnDeviceEngine: VoiceEngine {
         guard !ended, !text.isEmpty, phase != .starting, !(phase.isFailed) else { return }
         stopListening()
         said = text
+        recentSpoken = SpeechEcho.remember(recentSpoken, adding: text)
         transcript.bot(text)
         phase = .speaking
         let utterance = AVSpeechUtterance(string: text)
@@ -263,7 +266,7 @@ class OnDeviceEngine: VoiceEngine {
     }
 
     /// The transcript as the user's words (a subclass drops the bot's own voice from it).
-    func heardText(_ text: String) -> String { text }
+    func heardText(_ text: String) -> String { SpeechEcho.stripEcho(text, spoken: recentSpoken) }
 
     /// Words heard while the voice speaks: true if the user is talking over it (the subclass has then cut the voice).
     func talkOver(_ words: String) -> Bool { false }
@@ -299,6 +302,8 @@ class OnDeviceEngine: VoiceEngine {
         stopListening()
         if !text.isEmpty {
             transcript.you(text)
+            // The user's words are new; the bot's earlier words must not eat a deliberate repeat later.
+            if phase != .speaking { recentSpoken = "" }
             send(text)
         }
         // Keep listening while the bot works: more messages fold into its next turn.

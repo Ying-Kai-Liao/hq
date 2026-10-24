@@ -128,3 +128,19 @@ private let spoken = "The build finished without errors. Three tests were skippe
     q.add(["a", "b"])
     #expect(await q.take() == nil)
 }
+
+@Test func onDeviceTranscriptDropsTheBotsGreetingButKeepsTheUsersWords() {
+    let greeting = "Hello, what can I do for you today?"
+    // the exact case from the house session: the greeting comes back, then the user speaks
+    #expect(SpeechEcho.stripEcho("Hello, what can I do for you today? check what's expiring", spoken: greeting) == "check what's expiring")
+    #expect(SpeechEcho.stripEcho("Hello what can I do for you today", spoken: greeting) == "")
+    // fewer than three words in a row from the bot is the user's own
+    #expect(SpeechEcho.stripEcho("yes check the pantry", spoken: "Should I check the pantry or the fridge?") == "yes check the pantry")
+}
+
+@Test func rememberKeepsOnlyTheLatestWindow() {
+    let long = String(repeating: "word ", count: 400)
+    let kept = SpeechEcho.remember("old", adding: long)
+    #expect(kept.count == SpeechEcho.windowChars)
+    #expect(SpeechEcho.remember("", adding: "hi").hasSuffix("hi"))
+}
