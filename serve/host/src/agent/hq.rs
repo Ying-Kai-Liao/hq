@@ -532,6 +532,7 @@ pub async fn project_add(id: &str, path: &str) -> Result<()> {
 /// `person`: an invited person's kith-auth id when the run is theirs. The kernel then resolves their membership (mode,
 /// deny rules, model, budget, memory folder) and fails closed: a refusal comes back as [`Refused`], never as a run of
 /// the owner's. `None` is the owner's run.
+#[allow(clippy::too_many_arguments)]
 pub async fn launch(
     bin: &Path,
     agent: &str,
