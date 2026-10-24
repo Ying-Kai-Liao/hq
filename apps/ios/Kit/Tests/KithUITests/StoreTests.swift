@@ -638,25 +638,25 @@ private func helloJSON(version: String, protocolLevel: Int? = nil, minProtocol: 
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.relay))
-    await fake.setHello(helloJSON(version: "2.2.0"))
+    await fake.setHello(helloJSON(version: "0.1.0"))
     let store = BotStore(computer: randomComputer("Mac"), storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { store.mismatch == .updateHost })
-    // The host updates to Kith 0.1.0 and restarts: the link drops and comes back at protocol level 1.
-    await fake.setHello(helloJSON(version: "0.1.0", protocolLevel: 1, minProtocol: 1))
+    // The host updates to Kith 0.2.0 and restarts: the link drops and comes back at protocol level 1.
+    await fake.setHello(helloJSON(version: "0.2.0", protocolLevel: 1, minProtocol: 1))
     await fake.set(.connecting)
     await fake.set(.ready(.relay))
     #expect(await until { store.mismatch == nil })
     #expect(await until { await fake.subscribed })
-    #expect(store.hostVersion == HostVersion(version: "0.1.0", protocolLevel: 1, minProtocol: 1))
+    #expect(store.hostVersion == HostVersion(version: "0.2.0", protocolLevel: 1, minProtocol: 1))
 }
 
 @MainActor @Test func aHostWithoutAProtocolLevelNeedsAnUpdateWhateverItsMinApp() async throws {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.relay))
-    await fake.setHello(#"{"hostId":"h1","name":"Mac","version":"2.20.0","minApp":"2.18.0","os":"macos","backends":[],"rev":0}"#)
+    await fake.setHello(#"{"hostId":"h1","name":"Mac","version":"0.0.1","minApp":"0.0.1","os":"macos","backends":[],"rev":0}"#)
     let store = BotStore(computer: randomComputer("Mac"), storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)

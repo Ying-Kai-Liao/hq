@@ -77,7 +77,7 @@ async function main() {
   const computerId = ref.computerId(hostKey.pub);
   const reg = await cloud("POST", "/v1/host/register", {
     key: hostKey,
-    body: { boxKey: ref.b64url(hostBox.pub), name: "Test Mac", platform: "macos", device: "e2e", version: "2.2.0" },
+    body: { boxKey: ref.b64url(hostBox.pub), name: "Test Mac", platform: "macos", device: "e2e", version: "0.1.0" },
   });
   check(reg.status === 200 && reg.body.computerId === computerId, "the fake host registered");
   let ver = 0;

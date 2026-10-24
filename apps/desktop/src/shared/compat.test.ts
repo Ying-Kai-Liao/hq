@@ -13,9 +13,9 @@ test('protocol levels decide the side that must update', () => {
 })
 
 test('a host without a protocol level is level 0, whatever its version', () => {
-  assert.deepEqual(checkHost({ version: '2.20.0' }), { kind: 'updateHost' })
+  assert.deepEqual(checkHost({ version: '0.0.1' }), { kind: 'updateHost' })
   assert.deepEqual(checkHost({ version: '' }), { kind: 'updateHost' })
-  assert.equal(checkHost({ version: '2.20.0' }, 1, 0), null)
+  assert.equal(checkHost({ version: '0.0.1' }, 1, 0), null)
 })
 
 test('a missing minProtocol is no floor on the app', () => {

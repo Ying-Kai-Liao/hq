@@ -11,7 +11,7 @@ import '../../src/renderer/views/thread/chat-controls.css'
 
 // Actual store and component, with no connection to the user's host or account.
 const store = new BotStore({ id: 'composer-check', name: 'Fixture', signKey: '', urls: [] }, true,
-  () => { throw new Error('Fixture must not connect to a host') }, 'mac', '2.7.0', 'composer-check')
+  () => { throw new Error('Fixture must not connect to a host') }, 'mac', '0.1.0', 'composer-check')
 store.connection = { kind: 'online' }
 for (const id of ['first', 'second', 'group']) store.bots.set(id, normalizeBot({ id, name: id, kind: id === 'group' ? 'group' : 'agent', members: ['first', 'second'] }))
 const sent: unknown[] = []

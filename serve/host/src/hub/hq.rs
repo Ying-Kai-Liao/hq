@@ -18,7 +18,7 @@ pub(crate) fn gone_key(bot: &str) -> String {
     format!("hq.gone.{bot}")
 }
 
-/// Kv key: the bot's `tasks: false`, which every hq bot was created with until 2.21, was turned on once.
+/// Kv key: the bot's `tasks: false`, which every hq bot was created with until tasks became the default, was turned on once.
 fn tasks_key(bot: &str) -> String {
     format!("hq.tasks.{bot}")
 }
@@ -225,7 +225,7 @@ mod tests {
         let bot = bots(&hub).remove(0);
         assert!(bot.uses_tasks(), "a new hq bot starts a task per burst");
 
-        // A bot made before 2.21 has tasks off; the first sync turns it on, and the user's choice after that stays.
+        // A bot made before tasks were on by default has tasks off; the first sync turns it on, and the user's choice after that stays.
         hub.update_bot(&json!({"id": bot.id, "tasks": false})).unwrap();
         hub.apply_hq_agents(std::slice::from_ref(&house)).unwrap();
         assert!(bots(&hub)[0].uses_tasks());
