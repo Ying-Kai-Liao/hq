@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# kith-install-drain-check — after an upgrade swap, no old-code long-lived process can touch settings.json / auth.json:
+# a stale writer whose command line names neither kith-auth nor kith_settings is stopped, a loaded KeepAlive launchd job
+# is restarted with launchctl (not killed bare), a job that runs the installer itself is left alone, a process that
+# starts after the swap is left alone, and both locks are free afterwards. Throwaway HOME and PREFIX, a fake launchctl.
+#
+#   kernel/tests/kith-install-drain-check     about 10 seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$KERNEL/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-drain.XXXXXX"); T=$(cd "$T" && pwd -P)
+pids=()
+trap 'for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done; rm -rf "$T"' EXIT
+export HOME=$T/home PREFIX=$T/prefix
+unset KITH_HOME KITH_AUTH KITH_STATE HQ_HOME KITH_QUIESCE_MATCH
+LA=$HOME/Library/LaunchAgents
+K=$PREFIX/share/kith/kernel
+mkdir -p "$LA" "$K/bin" "$T/bin" "$T/ls" "$T/locks"
+fail=0
+check() { if eval "$2" >/dev/null 2>&1; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi; }
+
+awk "/<<'QUIESCE'/{on=1; next} /^QUIESCE\$/{on=0} on" "$ROOT/scripts/install.sh" > "$T/quiesce.py"
+check "the installer carries the swap helper" "[ -s '$T/quiesce.py' ]"
+
+# A writer that imported the old kith_settings: it keeps appending to settings.json and ignores the lock. Its command
+# line names the installed kernel but not kith_settings or kith-auth.
+cat > "$K/bin/stale-writer" <<'PY'
+import sys, time
+tag, out = sys.argv[1], sys.argv[2]
+while True:
+    with open(out, 'a') as f:
+        f.write(tag + '\n')
+    time.sleep(0.1)
+PY
+cat > "$T/spawn.py" <<'PY'
+import subprocess, sys   # detached like a daemon: own session, no terminal
+p = subprocess.Popen(sys.argv[1:], start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+print(p.pid)
+PY
+spawn() { python3 "$T/spawn.py" python3 "$K/bin/stale-writer" "$1" "$T/settings.json"; }
+
+# fake launchctl: `print` shows the pid of a loaded job (exit 113 for an unloaded one); `kickstart -k` records the call,
+# kills the old process and starts a new one at once, as launchd does for a KeepAlive job
+cat > "$T/bin/launchctl" <<'PY'
+#!/usr/bin/env python3
+import os, signal, subprocess, sys
+ls = os.environ['FAKE_LS']
+a = sys.argv[1:]
+open(ls + '/calls', 'a').write(' '.join(a) + '\n')
+label = a[-1].rsplit('/', 1)[-1] if a else ''
+pidfile = '%s/%s.pid' % (ls, label)
+if a[0] == 'print':
+    if not os.path.exists(pidfile):
+        sys.exit(113)
+    print('%s = {\n\tpid = %s\n}' % (label, open(pidfile).read().strip()))
+elif a[0] == 'kickstart' and '-k' in a:
+    try:
+        os.kill(int(open(pidfile).read()), signal.SIGKILL)
+    except OSError:
+        pass
+    p = subprocess.Popen([sys.executable, os.environ['FAKE_NEW'], 'new', os.environ['FAKE_OUT']], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    open(pidfile, 'w').write(str(p.pid))
+else:
+    sys.exit(1)
+PY
+chmod +x "$T/bin/launchctl"
+export FAKE_LS=$T/ls FAKE_NEW=$K/bin/stale-writer FAKE_OUT=$T/settings.json
+mkplist() { python3 -c "import plistlib,sys; plistlib.dump({'Label': sys.argv[1], 'KeepAlive': True, 'ProgramArguments': ['x']}, open(sys.argv[2], 'wb'))" "$1" "$LA/$1.plist"; }
+mkplist dev.kith.fake; mkplist dev.kith.idle; mkplist dev.kith.self
+
+job=$(spawn old);   echo "$job" > "$T/ls/dev.kith.fake.pid"; pids+=("$job")        # the loaded KeepAlive job, running
+stale=$(spawn old); pids+=("$stale")                                                 # a stale writer launchd does not know
+# an agent run: the kernel path is in a late argument (its system prompt), not its program; it must survive
+python3 "$T/spawn.py" python3 -c "import time; time.sleep(300)" "see $K/bin/project-id" > "$T/agent.pid"; pids+=("$(cat "$T/agent.pid")")
+sleep 1.5                                                                            # all of them started before the swap
+printf 'true\n' > "$T/swap.sh"
+before=$(grep -c old "$T/settings.json")
+check "before the upgrade the stale writers are writing" "[ $before -gt 5 ] && kill -0 $job && kill -0 $stale"
+
+# the installer runs inside dev.kith.self: its parent (a wrapper shell standing for install.sh) is the job's pid
+sh -c 'echo $$ > "$1/ls/dev.kith.self.pid"; PATH="$1/bin:$PATH" KITH_QUIESCE_ROOTS="$2" python3 "$1/quiesce.py" "$1/locks/auth.json.lock" "$1/locks/settings.json.lock" 1 sh "$1/swap.sh" 2>"$1/err"; echo $? > "$1/rc"; sleep 2' sh "$T" "$K" &
+wrapper=$!
+while [ ! -e "$T/rc" ]; do sleep 0.2; done
+rc=$(cat "$T/rc")
+check "the swap helper returns 0" "[ $rc = 0 ]"
+sleep 0.3
+after=$(grep -c old "$T/settings.json"); sleep 0.6
+check "the stale writer is gone" "! kill -0 $stale"
+check "the old job process is gone" "! kill -0 $job"
+check "nothing old writes settings.json any more" "[ \$(grep -c old '$T/settings.json') = $after ]"
+check "launchctl restarted the loaded KeepAlive job" "grep -q 'kickstart -k gui/$(id -u)/dev.kith.fake' '$T/ls/calls'"
+check "the job was restarted, not left to a bare kill" "! grep -q 'bootout' '$T/ls/calls'"
+check "a job that is not loaded is not restarted" "! grep -q 'kickstart.*dev.kith.idle' '$T/ls/calls'"
+check "a job the installer runs inside is not restarted" "! grep -q 'kickstart.*dev.kith.self' '$T/ls/calls'"
+check "that job is named in a note" "grep -q 'dev.kith.self runs this installer' '$T/err'"
+check "an agent run that only names the kernel in its arguments is left alone" "kill -0 \$(cat '$T/agent.pid')"
+wait "$wrapper"; sleep 2.5
+check "once the installer is done the job it ran inside is restarted" "grep -q 'kickstart.*dev.kith.self' '$T/ls/calls'"
+pids+=("$(cat "$T/ls/dev.kith.self.pid")")
+new=$(cat "$T/ls/dev.kith.fake.pid"); pids+=("$new")
+check "the process started after the swap is left alone" "kill -0 $new && [ \$(grep -c new '$T/settings.json') -gt 3 ]"
+check "both locks are free afterwards" "python3 -c \"
+import fcntl
+for n in ('auth', 'settings'):
+    f = open('$T/locks/%s.json.lock' % n, 'a'); fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)\""
+
+exit $fail
