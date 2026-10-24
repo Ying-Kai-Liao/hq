@@ -42,6 +42,8 @@ export interface PendingLink {
   computerId: string
   inviteId: string
   token: string
+  /** The Clerk user who first signed in with it waiting: nobody else may use it (null until then). */
+  forUser?: string | null
 }
 
 export const PENDING = 'pending'
@@ -149,9 +151,20 @@ export class KeyStore {
     await this.kv.put('invites', PENDING, await this.seal(PENDING, link))
   }
 
-  /** The waiting link, left in place: a reload mid-join resumes from it. `clearPending` removes it once the join is kept. */
-  async pending(): Promise<PendingLink | null> {
-    return this.open<PendingLink>(PENDING, (await this.kv.get('invites', PENDING)) as Sealed | undefined)
+  /**
+   * The waiting link, left in place: a reload mid-join resumes from it. `clearPending` removes it once the join is kept.
+   * With a user, the first one to ask owns it; a link that belongs to someone else is dropped, so signing in as another
+   * account never joins with the earlier person's invite.
+   */
+  async pending(userId: string | null = null): Promise<PendingLink | null> {
+    const link = await this.open<PendingLink>(PENDING, (await this.kv.get('invites', PENDING)) as Sealed | undefined)
+    if (!link || userId === null) return link
+    if (link.forUser && link.forUser !== userId) {
+      await this.clearPending()
+      return null
+    }
+    if (!link.forUser) await this.savePending({ ...link, forUser: userId })
+    return { ...link, forUser: userId }
   }
 
   async clearPending(): Promise<void> {

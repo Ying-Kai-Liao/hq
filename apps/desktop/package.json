@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --test --experimental-strip-types src/shared/*.test.ts src/shared/relay-core/*.test.ts src/renderer/web/*.test.ts src/renderer/lib/*.test.ts src/renderer/components/kith/*.test.ts src/renderer/views/thread/*.test.ts src/renderer/views/call/*.test.ts",
     "test:browser": "node tools/browser-vectors.mjs",
-    "test:web": "node tools/web-e2e.mjs",
+    "test:web": "node tools/web-e2e.mjs && node tools/web-confirm.mjs",
     "e2e:relay": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/relay-e2e.ts",
     "e2e:relay:host": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/relay-e2e-host.ts",
     "icons": "swift tools/export-symbols.swift",
