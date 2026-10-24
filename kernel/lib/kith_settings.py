@@ -33,7 +33,7 @@ unattended Mac may do is decided per Mac. Without the file, or for a key it leav
 
   kith_settings.py backups [AGENT]   the chain that applies, one id per line
 """
-import json, os, re, sys
+import contextlib, fcntl, json, os, re, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from kith_paths import paths  # noqa: E402  the one place that knows where kith's folders are
@@ -125,43 +125,84 @@ def call_model(agent=None):
 
 def choose_global(key, value):
     """Record this Mac's choice for every agent; 'default' or '' forgets it. Keeps the rest of the file."""
-    s, why = read()
-    if why:
-        raise ValueError(why)
-    if key == 'call_model' and value and not valid_call_model(value):
-        raise ValueError(f'call model {value!r} is not sonnet, haiku, opus, a claude-* model id, own or default')
-    if value in ('', 'default'):
-        s.pop(key, None)
-    else:
-        s[key] = value
-    write(s)
+    with locked():
+        s, why = read()
+        if why:
+            raise ValueError(why)
+        if key == 'call_model' and value and not valid_call_model(value):
+            raise ValueError(f'call model {value!r} is not sonnet, haiku, opus, a claude-* model id, own or default')
+        if value in ('', 'default'):
+            s.pop(key, None)
+        else:
+            s[key] = value
+        write(s)
 
 
 def choose(agent, key, value):
     """Record this Mac's choice for one agent, keeping the rest of the file."""
-    s, why = read()
-    if why:
-        raise ValueError(why)
-    if key in CHOICES and value not in CHOICES[key] + ('',):
-        raise ValueError(f'{key} {value!r} is not one of {", ".join(CHOICES[key])}')
-    agents = s.setdefault('agents', {})
-    if key == 'call_model' and value == 'default':
-        value = ''
-    if key == 'call_model' and value and not valid_call_model(value):
-        raise ValueError(f'call model {value!r} is not sonnet, haiku, opus, a claude-* model id, own or default')
-    if value == '':   # forgetting the choice: the agent's own suggestion and kith's default apply again
-        agents.get(agent, {}).pop(key, None)
-    else:
-        agents.setdefault(agent, {})[key] = value
-    write(s)
+    with locked():
+        s, why = read()
+        if why:
+            raise ValueError(why)
+        if key in CHOICES and value not in CHOICES[key] + ('',):
+            raise ValueError(f'{key} {value!r} is not one of {", ".join(CHOICES[key])}')
+        agents = s.setdefault('agents', {})
+        if key == 'call_model' and value == 'default':
+            value = ''
+        if key == 'call_model' and value and not valid_call_model(value):
+            raise ValueError(f'call model {value!r} is not sonnet, haiku, opus, a claude-* model id, own or default')
+        if value == '':   # forgetting the choice: the agent's own suggestion and kith's default apply again
+            agents.get(agent, {}).pop(key, None)
+        else:
+            agents.setdefault(agent, {})[key] = value
+        write(s)
+
+
+_held = False
+
+
+@contextlib.contextmanager
+def locked():
+    """Exclusive lock on a sibling file around a read-modify-write, so two writers (the host, a CLI) never lose each
+    other's change. Reentrant in this process; flock goes with the process, so a crash leaves nothing behind."""
+    global _held
+    if _held:
+        yield
+        return
+    FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(FILE.with_name(FILE.name + '.lock'), 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _held = True
+        try:
+            yield
+        finally:
+            _held = False
 
 
 def write(s):
     """The whole file, atomically (a reader never sees half of it)."""
-    FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = FILE.with_name(FILE.name + '.tmp')
-    tmp.write_text(json.dumps(s, indent=2) + '\n')
-    os.replace(tmp, FILE)
+    with locked():
+        fd, tmp = tempfile.mkstemp(prefix=FILE.name + '.', suffix='.tmp', dir=FILE.parent)
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(json.dumps(s, indent=2) + '\n')
+                f.flush()
+                os.fsync(f.fileno())
+            umask = os.umask(0)
+            os.umask(umask)
+            os.chmod(tmp, 0o666 & ~umask)   # as a plain write_text made it, not mkstemp's 0600
+            os.replace(tmp, FILE)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        dfd = os.open(FILE.parent, os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
 
 
 def backups(agent=None):
@@ -175,25 +216,27 @@ def backups(agent=None):
 
 def set_backups(agent, ids):
     """Record the chain: one agent's override, or with agent None the global one. Keeps the rest of the file."""
-    s, why = read()
-    if why:
-        raise ValueError(why)
-    if agent:
-        s.setdefault('agents', {}).setdefault(agent, {})['backups'] = list(ids)
-    else:
-        s['backups'] = list(ids)
-    write(s)
+    with locked():
+        s, why = read()
+        if why:
+            raise ValueError(why)
+        if agent:
+            s.setdefault('agents', {}).setdefault(agent, {})['backups'] = list(ids)
+        else:
+            s['backups'] = list(ids)
+        write(s)
 
 
 def clear_backups(agent):
     """Drop one agent's own chain, so it follows the global one again. Keeps the rest of the file."""
-    s, why = read()
-    if why:
-        raise ValueError(why)
-    own = s.get('agents', {}).get(agent)
-    if own is not None and 'backups' in own:
-        del own['backups']
-        write(s)
+    with locked():
+        s, why = read()
+        if why:
+            raise ValueError(why)
+        own = s.get('agents', {}).get(agent)
+        if own is not None and 'backups' in own:
+            del own['backups']
+            write(s)
 
 
 if __name__ == '__main__':

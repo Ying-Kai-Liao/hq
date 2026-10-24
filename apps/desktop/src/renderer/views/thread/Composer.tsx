@@ -13,6 +13,7 @@ import { useStore } from '../../store/context'
 import { MAX_FILE_SIZE, type OutgoingFile } from '../../store/bot-store'
 import { StartingFolderChip, type StartingPick } from '../bots/PlaceFolderPicker'
 import { pluginsFor } from '../marketplace/plugins'
+import { currentTaskOpen, routesOf, startsNewTask } from './task-routing'
 import { composerEnter } from './composer-keyboard'
 import { CommandMenu, useCommandMenu } from './CommandMenu'
 import { ComposerAttachment } from './ComposerAttachment'
@@ -59,16 +60,26 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
   const tasks = !thread && !!bot && bot.tasks
   const place = thread ?? (tasks ? currentTask(store.chat(botId))?.id ?? null : null)
   const [newTask, setNewTask] = useState(false)
+  // Out of the current task (left its thread, or it is folded): the next message starts a task of its own.
+  const routes = routesOf(store)
+  useSyncExternalStore(routes.subscribe, routes.getVersion)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(tick)
+  }, [])
+  const currentOpen = (at: number) => (tasks && bot ? currentTaskOpen(bot, store.chat(botId), (id) => store.replies(botId, id), at, (id) => routes.choices.get(id)) : null)
+  const startsNew = tasks && startsNewTask({ requested: newTask, thread, left: routes.hasLeft(botId), currentOpen: currentOpen(now) })
   // The folder the next new task starts in; the chat's own shows until one is picked.
   const [taskFolder, setTaskFolder] = useState<StartingPick | null>(null)
-  const working = !!bot && isWorkingIn(bot, botId, place) && !newTask
+  const working = !!bot && isWorkingIn(bot, botId, place) && !startsNew
   const empty = !draft.trim() && !files.length
   const canSend = !empty && (store.connection.kind === 'online' || (store.canQueue && !files.length))
   const canAttach = !!bot
 
   const threadRoot = thread ? store.allEntries(botId).find((e) => e.id === thread) : undefined
   const threadName = threadRoot?.data.text?.replace(/\s+/g, ' ').trim().slice(0, 28)
-  const placeholder = thread ? (threadName ? `Reply to ${threadName}…` : 'Reply in thread…') : bot && isGroup(bot) ? 'Message everyone · @ to ask one bot' : newTask ? `New task for ${bot?.name ?? ''}` : working ? `Queue a message for ${bot?.name ?? ''}` : `Tell ${bot?.name ?? ''}…`
+  const placeholder = thread ? (threadName ? `Reply to ${threadName}…` : 'Reply in thread…') : bot && isGroup(bot) ? 'Message everyone · @ to ask one bot' : startsNew ? `Tell ${bot?.name ?? ''}…` : working ? `Queue a message for ${bot?.name ?? ''}` : tasks && place ? 'Reply in task…' : `Tell ${bot?.name ?? ''}…`
 
   // A routine's "Try it" fills the box.
   const routineDraft = store.routineDrafts.get(botId)
@@ -155,8 +166,11 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
     const command = files.length ? null : builtInCommand(bot, draft)
     if (command) return run(command)
     if (!canSend) return
-    store.send(draft, botId, thread, files, undefined, pasted.current, newTask, newTask ? (taskFolder?.start ?? null) : null)
+    // Decided again at the moment of sending: the task may have folded since the box last drew.
+    const fresh = tasks && startsNewTask({ requested: newTask, thread, left: routes.hasLeft(botId), currentOpen: currentOpen(Date.now()) })
+    store.send(draft, botId, thread, files, undefined, pasted.current, fresh, newTask ? (taskFolder?.start ?? null) : null)
     pasted.current = []
+    if (tasks) routes.stay(botId)
     setNewTask(false)
     setTaskFolder(null)
     setDraft('')
@@ -219,16 +233,21 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
             ) : null}
             {tasks ? (
               <button
-                className={`press composer-add ${newTask ? 'on' : ''}`}
+                className={`press composer-add ${startsNew ? 'on' : ''}`}
                 aria-label="New task"
-                title={newTask ? 'Your next message starts a new task' : 'New task'}
-                aria-pressed={newTask}
+                title={startsNew ? 'Your next message starts a new task' : 'New task'}
+                aria-pressed={startsNew}
                 onClick={() => {
-                  setNewTask((on) => !on)
+                  if (startsNew && !newTask) {
+                    // Out of the task without having asked: this goes back to it, even if it had folded.
+                    routes.stay(botId)
+                    const root = currentTask(store.chat(botId))
+                    if (root) routes.choose(root.id, true)
+                  } else setNewTask((on) => !on)
                   field.current?.focus()
                 }}
               >
-                <Icon name="square.and.pencil" size={12} weight="medium" color={newTask ? 'var(--accent)' : 'var(--text)'} />
+                <Icon name="square.and.pencil" size={12} weight="medium" color={startsNew ? 'var(--accent)' : 'var(--text)'} />
               </button>
             ) : null}
             <div className="composer-field">

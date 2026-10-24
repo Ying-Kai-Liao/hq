@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
     @AppStorage(Analytics.enabledKey) private var analyticsEnabled = true
     @AppStorage(TextSizePreference.key) private var textSize = TextSizePreference.system.rawValue
+    @AppStorage(AppearancePreference.key) private var appearance = AppearancePreference.system.rawValue
     @State private var addingComputer = false
     @State private var confirmForget: Computer?
     @State private var confirmRevoke: CloudComputer?
@@ -127,13 +128,15 @@ struct SettingsView: View {
                 }
             }
 
-            CardSection("Notifications, display", footer: "Get a result summary, a request for input, or a failure notice. Default text size follows iOS Settings; Small, Large and Extra large replace it inside Kith.") {
+            CardSection("Notifications, display", footer: "Get a result summary, a request for input, or a failure notice. Default text size and appearance follow iOS Settings; Small, Large and Extra large replace it inside Kith.") {
                 Toggle("Push notifications", isOn: $notificationsEnabled)
                     .toggleStyle(.kithGreen)
                     .onChange(of: notificationsEnabled) { PushRegistrar.shared.resync() }
                 notificationsRow
                 MenuRow("Text size", systemImage: "textformat.size", selection: $textSize,
                         options: TextSizePreference.allCases.map { ($0.rawValue, $0.label) })
+                MenuRow("Appearance", systemImage: "circle.lefthalf.filled", selection: $appearance,
+                        options: AppearancePreference.allCases.map { ($0.rawValue, $0.label) })
             }
 
             CardSection("Privacy", footer: "Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Kith better for you.") {
@@ -731,4 +734,59 @@ struct LinkChatSection: View {
             self.error = error.localizedDescription
         }
     }
+}
+
+/// The in-app appearance: System follows iOS; Light and Dark replace it for the whole app.
+enum AppearancePreference: String, CaseIterable {
+    case system, light, dark
+
+    static let key = "appearance"
+
+    var label: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    /// .unspecified means no override. An unknown stored value (from a newer version) falls back to System.
+    var interfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .system: .unspecified
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+
+    init(stored: String) { self = AppearancePreference(rawValue: stored) ?? .system }
+}
+
+private struct AppearanceOverride: ViewModifier {
+    @AppStorage(AppearancePreference.key) private var stored = AppearancePreference.system.rawValue
+
+    // Set on the UIWindows, not with .preferredColorScheme: SwiftUI's modifier often fails to go back to
+    // System after Light/Dark until relaunch, and it is flaky inside presentations. A window-level style
+    // is inherited by every sheet and cover, and .unspecified hands control back to the phone.
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: apply)
+            .onChange(of: stored) { apply() }
+            .onReceive(NotificationCenter.default.publisher(for: UIWindow.didBecomeKeyNotification)) { _ in apply() }
+            .onReceive(NotificationCenter.default.publisher(for: UIScene.didActivateNotification)) { _ in apply() }
+    }
+
+    private func apply() {
+        let style = AppearancePreference(stored: stored).interfaceStyle
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            for window in scene.windows where window.overrideUserInterfaceStyle != style {
+                window.overrideUserInterfaceStyle = style
+            }
+        }
+    }
+}
+
+extension View {
+    /// Applies the Appearance setting; put it once at the app root.
+    func appAppearance() -> some View { modifier(AppearanceOverride()) }
 }

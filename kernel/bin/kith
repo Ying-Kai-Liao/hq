@@ -197,21 +197,35 @@ if [[ -n ${KITH_PERSON:-} ]]; then
   res=$("$KITH/bin/kith-auth" resolve "$agent" ${caller:+--via "$caller"}) \
     || { echo "kith: can't check whether ${KITH_PERSON} may use $agent (kith-auth resolve failed)" >&2; exit 1; }
   eval "$(RES=$res python3 -c '
-import json, os, shlex
+import json, os, re, shlex, sys
 r = json.loads(os.environ["RES"])
 q = lambda v: shlex.quote(str(v))
 print("p_allowed=%d p_why=%s p_owner=%d p_id=%s" % (r["allowed"], q(r["why"]), r["owner"], q(r.get("person", ""))))
 print("p_mode=%s p_model=%s p_deny=%s" % (q(r.get("mode", "")), q(r.get("model", "")), q("\n".join(r.get("deny", [])))))
-attrs = " ".join("%s=\"%s\"" % (k, str(r[k]).replace("\"", "")) for k in ("person", "name", "lang", "tz") if r.get(k))
+# Anyone but the owner: a name goes into the <session/> tag, so it loses what could close or forge a tag.
+clean = (lambda v: re.sub("[<>\"\\x00-\\x1f\\x7f]", "", v)) if not r["owner"] else (lambda v: v.replace("\"", ""))
+attrs = " ".join("%s=\"%s\"" % (k, clean(str(r[k]))) for k in ("person", "name", "lang", "tz") if r.get(k))
 print("p_line=%s" % q(" " + attrs))
 print("p_budget=%s p_budget_agent=%s p_was=%s" % (q(r.get("budget", "")), q(r.get("budget_agent") or ""), q(",".join(r.get("was", [])))))
 print("p_rooms=%s" % q(" ".join(x for x in r.get("rooms", []) if isinstance(x, str))))
+# Anyone but the owner: a membership env key must be a plain variable name that cannot change how the run starts or
+# which kith it talks to; others are skipped with a warning.
+env = {}
 for k, v in r.get("env", {}).items():
+    if not r["owner"] and (not re.fullmatch("[A-Z_][A-Z0-9_]*", k) or k in ("PATH", "HOME", "SHELL") or re.match("(DYLD_|LD_|KITH_|HQ_)", k)):
+        print("kith: skipping membership env %r (not allowed)" % k, file=sys.stderr)
+        continue
+    env[k] = v
     print("export %s=%s" % (k, q(v)))
-print("p_env_names=%s" % q(" ".join(r.get("env", {}))))')"
+print("p_env_names=%s" % q(" ".join(env)))')"
   [[ $p_allowed == 1 ]] || { echo "kith: $p_why (kith-auth member $agent ${KITH_PERSON})" >&2; exit 3; }
   if [[ -n $p_budget ]]; then   # the membership's monthly cap, for the agent they reached (the caller, for a helper)
-    spent=$(KITH_PERSON_WAS=$p_was "$KITH/bin/kith-cost" spent "$KITH_PERSON" "$p_budget_agent" 2>/dev/null || echo 0)
+    # Fails closed for anyone but the owner: a spend that can't be read is not $0.
+    if ! spent=$(KITH_PERSON_WAS=$p_was "$KITH/bin/kith-cost" spent "$KITH_PERSON" "$p_budget_agent" 2>/dev/null); then
+      [[ $p_owner == 1 ]] && spent=0 || { echo "kith: can't read what ${KITH_PERSON} has spent this month (kith-cost failed); not running without the budget check" >&2; exit 3; }
+    elif [[ $p_owner == 0 && ! $spent =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      echo "kith: can't read what ${KITH_PERSON} has spent this month (kith-cost gave '$spent'); not running without the budget check" >&2; exit 3
+    fi
     if python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)' "$spent" "$p_budget"; then
       printf 'kith: %s has used $%.2f of their $%s this month on %s; the owner can raise it (kith auth member %s %s budget=..)\n' \
         "$KITH_PERSON" "$spent" "$p_budget" "$p_budget_agent" "$p_budget_agent" "$KITH_PERSON" >&2
@@ -229,6 +243,8 @@ if [[ $p_owner == 0 ]]; then
   [[ $p_id =~ ^[a-z][a-z0-9-]*$ ]] || { echo "kith: bad person id '$p_id' from kith-auth" >&2; exit 3; }
   mem=$home/memory/people/$p_id files=$home/files/people/$p_id person_file=$KITH_STATE/people/$p_id.md
   mkdir -p "$mem/projects" "$mem/sessions" "$files" "$KITH_STATE/people"
+  # Their own uv cache: the shared one is the owner's too, and a package planted in it would run in the owner's next `uv run`.
+  export UV_CACHE_DIR=$files/.uv-cache; mkdir -p "$UV_CACHE_DIR"
 fi
 shared=$home/memory/shared
 
@@ -381,6 +397,20 @@ if [[ -n $r_sid ]]; then
   [[ $harness == claude ]] || { echo "kith: --resume continues Claude sessions; $agent runs on $harness" >&2; exit 1; }
   resume=$r_sid
 fi
+# Anyone but the owner continues only a session the cost ledger has as theirs (this person or their old ids, this agent):
+# a session id is not a secret, and another person's conversation holds their memory.
+if [[ $p_owner == 0 && -n $resume && $resume != *:* ]]; then
+  PERSONS="$p_id,$p_was" SID=$resume AGENT=$agent DB="$KITH_MACHINE/cost.db" python3 -c '
+import os, sqlite3, sys
+try:
+    c = sqlite3.connect(os.environ["DB"]) if os.path.exists(os.environ["DB"]) else None   # not creating the ledger here
+    ids = [x for x in os.environ["PERSONS"].split(",") if x]
+    ok = c.execute("select 1 from runs where session = ? and agent = ? and person in (%s)" % ",".join("?" * len(ids)),
+                   [os.environ["SID"], os.environ["AGENT"], *ids]).fetchone()
+except Exception:
+    ok = None
+sys.exit(0 if ok else 1)' || { echo "kith: session $resume is not one of ${KITH_PERSON}'s with $agent; starting a new one" >&2; resume=""; }
+fi
 # These two belong to one run (listing a terminal session, and where it was resumed from): a helper this agent starts must not inherit them.
 unset KITH_TERMINAL_SESSION KITH_RESUMED_FROM
 if [[ $launch -eq 1 ]]; then
@@ -428,6 +458,15 @@ if [[ $p_owner == 0 ]]; then
       p_deny+=$'\n'"Read(/$p)"$'\n'"Edit(/$p)"
     done
   done
+  # Nothing an owner run executes or follows may be written from here: the kernel, this agent's package (the pinned
+  # snapshot and the live role), and the people files. A folder that holds their own memory or outputs is not listed.
+  for d in "$KITH" "$pkg" "$src_pkg" "$KITH_STATE/people"; do
+    [[ -d $d ]] || continue
+    for p in "$d" "$(cd "$d" && pwd -P)"; do
+      [[ $mem/ == "$p"/* || $files/ == "$p"/* || $shared/ == "$p"/* ]] && continue
+      p_deny+=$'\n'"Edit(/$p/**)"
+    done
+  done
 fi
 # A mode kith no longer offers, from whichever source, starts as the one that replaced it (kith_settings.RETIRED).
 case $perm_mode in manual) perm_mode=default ;; dontAsk) perm_mode=auto ;; esac
@@ -440,7 +479,10 @@ case $perm_mode in manual) perm_mode=default ;; dontAsk) perm_mode=auto ;; esac
 # Shared project files are writable for the owner; for anyone else only the current project's. A run no one chose a
 # mode for (no KITH_PERMISSION_MODE, no defaultMode in the agent's settings) starts in kith's default mode.
 state_projects="$KITH_STATE/projects"$'\n'"$KITH_STATE_REAL/projects"
-[[ $p_owner == 0 ]] && state_projects=${project:+"$KITH_STATE/projects/$project"$'\n'"$KITH_STATE_REAL/projects/$project"}
+# Anyone but the owner reads the current project's files and writes none: owner runs follow what is in them (verify.md).
+[[ $p_owner == 0 ]] && state_projects=""
+learned="$src_pkg/skills/learned"$'\n'"$(cd "$src_pkg" && pwd -P)/skills/learned"
+[[ $p_owner == 0 ]] && learned=""
 if [[ $harness == claude ]]; then
 plugins=$(claude plugin list --json 2>/dev/null || echo '[]')
 # Memory checks: before a Write/Edit/MultiEdit of a memory file the host's `kith memory hook pre` runs kith-mem's
@@ -453,14 +495,16 @@ if mbin=$(python3 "$KITH/lib/kith_paths.py" --bin) && [[ -n $mbin ]]; then
   # Claude Code blocks a tool call on exit 2, which an older kith binary's usage error also exits with; the hook says
   # "deny" in JSON instead, and any failure of its own lets the write through.
   mem_pre+=" || true" mem_post+=" || true"
+  # Anyone but the owner: a hook that fails (the binary gone, a usage error, a crash) denies the write instead of letting it through.
+  [[ $p_owner == 0 ]] && mem_pre="out=\$(${mem_pre% || true}) || out='{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"the memory check could not run, so this write is refused\"}}'; printf '%s\\n' \"\$out\""
 else
   echo "kith: no kith binary found, so memory writes by $agent are not checked or versioned (kith serve start builds it)" >&2
+  [[ $p_owner == 0 ]] && { echo "kith: runs for anyone but the owner need the memory check; not running $agent for ${KITH_PERSON}" >&2; exit 3; }
 fi
 [[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
   || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
 fill < "$pkg/settings.json" | P_OWNER=$p_owner API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
-$src_pkg/skills/learned
-$(cd "$src_pkg" && pwd -P)/skills/learned
+$learned
 $state_projects" python3 -c '
 import json, os, re, sys
 s = json.load(sys.stdin)
@@ -603,10 +647,15 @@ fi
 # what uv and python need to start); the file tools from blockReadsOutsideWorkingDirectories, which already limits them to
 # the working directory and the --add-dir folders.
 if [[ $p_owner == 0 && $harness == claude ]]; then
+  # A working directory that is the home folder, or holds one of the folders above, would be readable whole (the bridge
+  # runs people's turns from the home folder): they work in their own files folder instead.
+  wide=0; [[ $PWD == "$HOME" || $PWD == "$(cd "$HOME" && pwd -P)" ]] && wide=1
+  for ((i = 1; i < ${#dirs[@]}; i += 2)); do [[ ${dirs[i]} == "$PWD" || ${dirs[i]} == "$PWD"/* ]] && wide=1; done
+  [[ $wide == 1 && $PWD != "$files" ]] && { echo "kith: working directory $PWD is wider than a guest may read; working in $files" >&2; cd "$files"; }
   read_dirs=$PWD
   for ((i = 1; i < ${#dirs[@]}; i += 2)); do read_dirs+=$'\n'"${dirs[i]}"; done
   READ_DIRS=$read_dirs python3 -c '
-import json, os, sys
+import json, os, re, sys
 f = sys.argv[1]
 s = json.load(open(f))
 def both(p):
@@ -640,11 +689,24 @@ for a in list(allow):
         d = os.path.dirname(d)
 fs = s["sandbox"]["filesystem"]
 fs["denyRead"] = list(dict.fromkeys(fs["denyRead"] + both(home)))
+# The Kith folder and the agents folder, dotfiles included (agents/.git holds the memory of every agent in its history), and,
+# when they sit on an external volume, the whole volume: the allowlist below opens back only what the run was given.
+for r in ("KITH_HOME", "KITH_AGENTS"):
+    if os.environ.get(r):
+        for p in both(os.path.abspath(os.environ[r])):
+            m = re.match("/Volumes/[^/]+", p)
+            for x in ([m.group()] if m else []) + [p]:
+                if x not in fs["denyRead"]:
+                    fs["denyRead"].append(x)
+# the host socket sits among the machine things, which may be on that volume: allowing it to be read costs nothing
+allow += s["sandbox"]["network"].get("allowUnixSockets", [])
 fs["allowRead"] = [a for a in dict.fromkeys(allow)]
 s["permissions"]["blockReadsOutsideWorkingDirectories"] = True
 # The tool reads the owner global config (name, email, credential helpers), which sits in the closed home folder and
 # makes it fail outright when it cannot be read: point it at nothing instead.
 s.setdefault("env", {})["GIT_CONFIG_GLOBAL"] = "/dev/null"
+if os.environ.get("UV_CACHE_DIR"):   # their own cache, also for a launch-json run whose environment comes from the host
+    s["env"]["UV_CACHE_DIR"] = os.environ["UV_CACHE_DIR"]
 json.dump(s, open(f, "w"), indent=1)' "$runs/$$.settings.json"
 fi
 # The read-only kernel commands PROTOCOL tells agents to run, allowed without a prompt. Under every path the kernel
@@ -678,9 +740,9 @@ print(json.dumps({"mcpServers": servers}))' "${f[@]}"
 }
 # The launch JSON for kith serve, from the lists built above: dirs[] holds --add-dir pairs; the arguments are the argv to give
 # claude (none for Codex, which the host builds itself: settings and claude_args are then null).
-# Claude Code turns the Artifact tools off under the SDK and -p; the owner's runs get them (their artifacts publish to
-# their own claude.ai account). Not a guest's run: whether guests may publish is open.
-[[ $harness == claude && $p_owner == 1 ]] && export CLAUDE_CODE_ARTIFACT=1
+# Claude Code turns the Artifact tools off under the SDK and -p; every Claude run gets them, guests' included (a guest's
+# artifacts publish to the owner's claude.ai account, which is accepted).
+[[ $harness == claude ]] && export CLAUDE_CODE_ARTIFACT=1
 export KITH_OWNER=$p_owner   # the plugin's answer to "is this run the owner's": KITH_PERSON can name the owner too
 emit_launch() {
   # Only a Claude run on the agent's own model: a person's membership picks their model, and another harness names its own.

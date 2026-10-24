@@ -6,7 +6,7 @@ import UIKit
 
 /// A voice call with a bot, full screen over its chat: the bot's living avatar, what is being
 /// said, and the call's buttons. What you say goes out as ordinary messages, its final replies
-/// are read aloud, and the chat gets a "Voice chat · 00:16" line when the call ends.
+/// are read aloud, and the chat gets a "Voice chat" line when the call connects, with its length ("· 00:16") filled in at the end.
 struct CallScreen: View {
     let botId: String
     let close: () -> Void
@@ -19,6 +19,8 @@ struct CallScreen: View {
     @State private var session: (any VoiceEngine)?
     @State private var callID = UUID()
     @State private var startedAt = Date.now
+    /// The chat's "Voice chat" line, made once the call connects (nil until then, or never).
+    @State private var record: Task<String?, Never>?
     /// When the current cloud engine started, for this month's minutes.
     @State private var cloudStartedAt: Date?
     /// One line under the captions, e.g. why the call fell back to on-device voice.
@@ -98,9 +100,11 @@ struct CallScreen: View {
             session?.end()
             countCloudMinutes()
             model.endVoiceCall(callID)
-            model.logCall(botId, seconds: Int(Date.now.timeIntervalSince(startedAt)))
+            model.finishCall(botId, started: record, seconds: Int(Date.now.timeIntervalSince(startedAt)))
         }
         .onChange(of: session?.phase) { _, phase in
+            // The line is written once the call really connects, so a call that never does leaves none.
+            if phase?.isActive == true, record == nil { record = model.startCall(botId) }
             // A cloud engine that can't start or drops mid-call hands over to on-device voice.
             if case .failed(let message) = phase, let provider = session?.provider {
                 countCloudMinutes()

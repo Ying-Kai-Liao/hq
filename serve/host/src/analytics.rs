@@ -154,7 +154,7 @@ pub fn observe(caller: &Caller, method: &str, b: &Value) -> Option<(Event, Map<S
         "saveRoutine" => Event::RoutineSaved,
         "deleteRoutine" => Event::RoutineDeleted,
         "runRoutine" => Event::RoutineRun,
-        "logCall" => {
+        "logCall" | "endCall" => {
             p.insert("seconds".into(), b["seconds"].as_u64().unwrap_or(0).into());
             Event::VoiceCallFinished
         }

@@ -279,6 +279,8 @@ export interface EntryData {
   attachments?: Attachment[]
   files?: SharedFile[]
   callSeconds?: number
+  /** notice: a voice call that began and may still be going; `callSeconds` replaces it at the end. */
+  callLive?: boolean
 }
 
 export interface Entry {

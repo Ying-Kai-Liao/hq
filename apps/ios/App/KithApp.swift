@@ -28,6 +28,7 @@ struct KithApp: App {
                 .environment(app.account)
                 .tint(Palette.accent)
                 .appTextSize()
+                .appAppearance()
                 // No scroll indicators anywhere in the app.
                 .scrollIndicators(.never)
                 .kithSheet(isPresented: Binding(

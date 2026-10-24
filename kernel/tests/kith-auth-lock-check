@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# kith-auth-lock-check — writes to auth.json and settings.json can't lose a change; a wrong link code writes nothing;
+# a membership can't set a variable that changes how a run starts. Throwaway files, never ~/.kith.
+#
+#   kernel/tests/kith-auth-lock-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-auth-lock-check.XXXXXX")
+trap 'rm -rf "$T"' EXIT
+export KITH_AUTH=$T/auth.json HOME=$T/home KITH_HOME=$T/kith
+unset KITH_STATE HQ_STATE KITH_PERSON KITH_AGENT HQ_HOME
+mkdir -p "$HOME"
+mkdir -p "$KITH_HOME/agents/house/role"
+printf -- '---\nname: house\ndescription: test\n---\nbody\n' > "$KITH_HOME/agents/house/role/agent.md"
+A() { python3 "$KERNEL/bin/kith-auth" "$@"; }
+fail=0
+check() { if eval "$2" >/dev/null 2>&1; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi; }
+
+N=20
+A person kai owner >/dev/null
+for i in $(seq 1 $N); do
+  ( A person "p$i" "name=P$i" >/dev/null 2>&1 ; A member house "p$i" preset=guest >/dev/null 2>&1 ) &
+done
+wait
+counts=$(python3 -c "import json; d=json.load(open('$KITH_AUTH')); print(len(d['people']), len(d['members']['house']))")
+check "$N parallel person+member writes: none lost ($counts)" "[ '$counts' = '$((N + 1)) $N' ]"
+check "auth.json stays 0600" "[ \"\$(python3 -c \"import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])\" '$KITH_AUTH')\" = 600 ]"
+check "no tmp files left behind" "[ -z \"\$(ls $T | grep '[.]tmp\$')\" ]"
+
+# settings.json: parallel choices for different agents (its path comes from kith_paths: find it from the module)
+S=$(python3 -c "import sys; sys.path.insert(0, '$KERNEL/lib'); import kith_settings as s; print(s.FILE)")
+for i in $(seq 1 $N); do
+  python3 "$KERNEL/lib/kith_settings.py" set permission_mode "a$i" plan >/dev/null 2>&1 &
+done
+wait
+check "$N parallel settings writes: none lost" \
+  "[ \"\$(python3 -c \"import json; print(len(json.load(open('$S'))['agents']))\")\" = $N ]"
+
+# a wrong link code writes nothing
+cp "$KITH_AUTH" "$T/before"
+check "a wrong link code is refused" "! A link telegram 123 NOPE12"
+check "a wrong link code leaves auth.json byte for byte" "cmp -s '$KITH_AUTH' '$T/before'"
+
+# membership env keys
+check "a membership may set a plain variable" "A member house p1 env.FOO_BAR=1"
+for k in PATH HOME SHELL DYLD_INSERT_LIBRARIES LD_PRELOAD KITH_AUTH HQ_HOME lower 1X; do
+  check "a membership may not set env.$k" "! A member house p1 env.$k=x"
+done
+exit $fail
