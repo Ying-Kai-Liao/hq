@@ -29,6 +29,7 @@
   .kc-switch-item,
   .kc-glass-button,
   .kc-banner-button,
+  .kc-held-stop,
   .kc-link,
   .kc-confirm button
 ) {
@@ -54,6 +55,7 @@
 .kc-switch-item:focus-visible,
 .kc-glass-button:focus-visible,
 .kc-banner-button:focus-visible,
+.kc-held-stop:focus-visible,
 .kc-link:focus-visible,
 .kc-confirm button:focus-visible {
   outline: 2px solid var(--kith-ink);
@@ -933,4 +935,77 @@
   .kc-crew-with {
     display: none;
   }
+}
+
+/* ---- Held run: an old run still holds an approved card's session (design: app-style/held-run) ---- */
+.kc-held {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--kith-line);
+}
+.kc-held-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  flex: none;
+  color: var(--kith-muted);
+}
+.kc-held-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.kc-held-title {
+  color: var(--kith-ink);
+  font-weight: 500;
+}
+.kc-held-sentence {
+  color: var(--kith-muted);
+}
+.kc-held-sentence.failed {
+  color: var(--kith-negative);
+}
+.kc-held-stop {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 56px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--kith-radius-chip);
+  background: var(--kith-panel);
+  box-shadow: inset 0 0 0 1px var(--kith-line);
+  color: var(--kith-ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* 44 pt hit target around the 32 pt capsule. */
+.kc-held-stop::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+.kc-held-stop:disabled {
+  cursor: default;
+}
+.kc-held-stop-spinner {
+  position: absolute;
+}
+.kc-held-stop.stopping .kc-held-stop-label {
+  opacity: 0;
+}
+.kc-stopped {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 0;
+  color: var(--kith-muted);
 }

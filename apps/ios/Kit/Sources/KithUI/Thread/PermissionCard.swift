@@ -14,7 +14,14 @@ struct PermissionCard: View {
     /// Set when the owner has to answer (a guest's chat): "Waiting for <name>" in place of the buttons.
     var waiting: String?
     let respond: (String?) -> Void
+    /// Answered, with an old run still holding the session: the row under the outcome (nil when not held).
+    var held: HeldRunModel?
+    var stop: () -> Void = {}
+    /// The divider after the owner stopped the old run from this card.
+    var stopped: StoppedRun?
     @State private var expanded = false
+    @State private var confirming = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var d: EntryData { entry.data }
     private var pending: Bool { d.status == "pending" }
@@ -51,11 +58,19 @@ struct PermissionCard: View {
                     if let title = d.title, !title.isEmpty {
                         Text(title).kithText(.code).foregroundStyle(Palette.muted).lineLimit(expanded ? nil : 3)
                     }
-                    Text(waiting ?? outcome).kithText(.secondary).fontWeight(.medium).foregroundStyle(Palette.muted)
+                    Text(waiting ?? outcome + (held == nil ? "" : " · waiting to go on"))
+                        .kithText(.secondary).fontWeight(.medium).foregroundStyle(Palette.muted)
+                    if let held {
+                        HeldRunRow(model: held, onStop: { confirming = true })
+                            .transition(.opacity)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)
                 .background(Palette.panel, in: RoundedRectangle(cornerRadius: KithRadius.card, style: .continuous))
+            }
+            if let stopped {
+                StoppedRunDivider(text: HeldRunModel.stoppedDivider(kind: stopped.kind, at: stopped.at), symbol: HeldRunModel.symbol(stopped.kind))
             }
             if hasDetail {
                 Disclosure(isExpanded: $expanded) {
@@ -76,6 +91,12 @@ struct PermissionCard: View {
             }
         }
         .padding(.trailing, 40)
+        .animation(Motion.reduced(Motion.layout, reduceMotion), value: held)
+        .kithDialog(held?.confirmTitle ?? "", isPresented: $confirming, message: held?.confirmMessage(agent: d.agent ?? "the agent")) {
+            [DialogAction("Stop", destructive: true) { stop() }]
+        }
+        // The old run ended by itself (or another device stopped it): the open confirm has nothing left to ask.
+        .onChange(of: held == nil) { _, gone in if gone { confirming = false } }
     }
 
     private var hasDetail: Bool {

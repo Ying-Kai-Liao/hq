@@ -15,6 +15,7 @@ import type { HostClient, HostRoute, HostTransport } from '../client/host-client
 import { Observable } from '../lib/observable'
 import { ComposerDrafts } from '@shared/composer-drafts'
 import { canLoadHistory } from '@shared/mirror-window'
+import type { HeldPhase } from '@shared/held-run'
 import { guestPrompts, macRole, visibleBots, type GrantedAgent, type GuestPrompt, type MacRole } from '@shared/mac-role'
 
 export type Connection =
@@ -52,6 +53,10 @@ export class BotMirror extends Observable {
   selection: string | null = null
   /** Permission cards whose answer is on its way, with the chosen option. */
   answering = new Map<string, string>()
+  /** Per session, how a Stop of the old run holding it stands (the cards of one session share it). Absent while idle. */
+  holderPhases = new Map<string, HeldPhase>()
+  /** Per approved card, the old run its owner stopped from it: the transcript's "Stopped the old … run" divider. */
+  stoppedRuns = new Map<string, { kind: string; at: Date }>()
 
   /** How a relayed Mac is reached (set by whoever builds the store); loopback stores say so themselves. */
   fixedRoute: HostRoute | null = null

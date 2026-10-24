@@ -76,6 +76,17 @@ impl Actor {
         hq::room_of(agent, self.cfg.person.as_deref(), self.memory_room().as_deref())
     }
 
+    /// The people in a group room's run, as `KITH_ROOM_MEMBERS`: the person each member bot runs as (an invitee, or a
+    /// bot guest), read now so a change between turns counts. The owner is always there and needs no entry; a 1:1 or a
+    /// group nobody but the owner is in has none, which the kernel reads as shared only.
+    pub(super) fn run_members(&self) -> Vec<String> {
+        let Some(group) = self.active_group.as_ref().and_then(|g| self.hub.store.bot(&g.lane.chat).ok().flatten())
+        else {
+            return Vec::new();
+        };
+        group_people(&self.hub.store, &group.config.members)
+    }
+
     /// The notes to put before the first user message of a thread. Once per thread: the session is new only for its
     /// first message, and a resumed one is not.
     pub(super) async fn first_message_recall(&self, text: &str) -> Option<String> {
@@ -85,7 +96,16 @@ impl Actor {
         let agent = self.cfg.hq_agent.clone()?;
         let bin = tokio::task::spawn_blocking(hq::bin).await.ok().flatten()?;
         let project = self.project_turn.as_ref().and_then(|t| t.projects.first()).map(String::as_str);
-        hq::recall_for_first_message(&bin, &agent, self.cfg.person.as_deref(), &self.run_room(), text, project).await
+        hq::recall_for_first_message(
+            &bin,
+            &agent,
+            self.cfg.person.as_deref(),
+            &self.run_room(),
+            &self.run_members(),
+            text,
+            project,
+        )
+        .await
     }
 
     /// Decides the project set of a person's message (see `agent::project`) and saves it. A pinned project
@@ -148,7 +168,10 @@ impl Actor {
         let say = self.project_turn.as_mut()?.say.take()?;
         let agent = self.cfg.hq_agent.clone()?;
         let bin = tokio::task::spawn_blocking(hq::bin).await.ok().flatten()?;
-        Some(hq::project_context(&bin, &agent, self.cfg.person.as_deref(), &self.run_room(), &say).await)
+        Some(
+            hq::project_context(&bin, &agent, self.cfg.person.as_deref(), &self.run_room(), &self.run_members(), &say)
+                .await,
+        )
     }
 
     /// What the prompt of an hq bot's turn is: the user's words, with the notes the host owes the agent (an earlier
@@ -347,6 +370,7 @@ impl Actor {
                 backup.as_deref(),
                 person.as_deref(),
                 &room,
+                &self.run_members(),
             )
             .await
             {
@@ -541,6 +565,20 @@ impl Actor {
     }
 }
 
+/// The person each of these bots runs as (an invitee's, or a bot guest's), sorted and without repeats; deleted and
+/// unknown bots count for nobody.
+fn group_people(store: &crate::store::Store, members: &[String]) -> Vec<String> {
+    let mut ids: Vec<String> = members
+        .iter()
+        .filter_map(|id| store.bot(id).ok().flatten())
+        .filter(|r| !r.deleted)
+        .filter_map(|r| r.config.person)
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -585,5 +623,20 @@ mod tests {
         assert_eq!(codex_mode("auto"), Some("auto"));
         assert_eq!(codex_mode("bypassPermissions"), Some("full-access"));
         assert_eq!(codex_mode("surprise"), None);
+    }
+
+    #[test]
+    fn a_group_rooms_people_are_the_persons_its_member_bots_run_as() {
+        let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+        for (id, person) in
+            [("m1", json!("sam")), ("m2", json!("sam")), ("m3", json!(null)), ("m4", json!("bot-1234abcd"))]
+        {
+            let cfg = json!({"id": id, "name": id, "backend": "claude", "cwd": "/tmp", "person": person});
+            store.save_bot(&serde_json::from_value(cfg).unwrap()).unwrap();
+        }
+        let all: Vec<String> = ["m1", "m2", "m3", "m4", "gone"].map(String::from).to_vec();
+        // The owner's bot (no person) and an unknown bot add nobody; a person in two bots counts once.
+        assert_eq!(group_people(&store, &all), ["bot-1234abcd", "sam"]);
+        assert!(group_people(&store, &["m3".to_owned()]).is_empty(), "owner only: none, so shared only");
     }
 }

@@ -1,3 +1,4 @@
+import { taskLabel } from '@shared/held-run'
 import { useEffect } from 'react'
 import { type Bot, type Entry } from '@shared/models'
 import { taskLastAt, taskOpen, taskStatus, taskTitle, type TaskStatus } from '@shared/tasks'
@@ -38,6 +39,7 @@ export function TaskRow({ root, bot, newest, now, choice, setChoice, openTrace, 
   const status = taskStatus(bot, root, replies)
   const open = taskOpen(status, newest, taskLastAt(root), now, choice)
   const count = root.data.thread?.count ?? 0
+  const statusLabel = taskLabel(STATUS[status].label, replies)
   // An older reply can be missing when only live ones arrived: load the whole thread.
   const missing = open && replies.length < count
   // The composer goes on with this task; any other one goes on in its thread.
@@ -48,7 +50,7 @@ export function TaskRow({ root, bot, newest, now, choice, setChoice, openTrace, 
 
   if (!open) {
     return (
-      <button className="press task-card" onClick={() => setChoice(true)} aria-label={`Open task: ${taskTitle(root)}, ${STATUS[status].label}`}>
+      <button className="press task-card" onClick={() => setChoice(true)} aria-label={`Open task: ${taskTitle(root)}, ${statusLabel}`}>
         <HStack gap={8}>
           <TaskStatusIcon status={status} />
           <Text size="subheadline" weight="medium" tone="text" truncate>{taskTitle(root)}</Text>
@@ -65,7 +67,7 @@ export function TaskRow({ root, bot, newest, now, choice, setChoice, openTrace, 
       <ReadingTask botId={bot.id} root={root.id} />
       <HStack gap={6} className="task-header">
         <TaskStatusIcon status={status} />
-        <Text size="caption" tone="secondary">{STATUS[status].label}</Text>
+        <Text size="caption" tone="secondary">{statusLabel}</Text>
         <Spacer />
         {working ? (
           <button className="press task-action" title="Stop this task" aria-label="Stop this task" onClick={() => store.stop(bot.id, root.id)}>

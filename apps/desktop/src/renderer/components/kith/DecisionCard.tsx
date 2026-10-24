@@ -22,6 +22,8 @@ interface Common {
   details?: ReactNode
   /** The card was answered or expired: the outcome replaces the buttons. */
   outcome?: string
+  /** An old run still holds the session this approved card resumes in: the held row, under the outcome. */
+  held?: ReactNode
   /** A guest's prompt that is the owner's to answer: the buttons give way to "Waiting for <name>". */
   waiting?: string | null
   /** The option id being sent (or true for permission buttons): all buttons disable, that one shows a spinner. */
@@ -34,7 +36,7 @@ export type DecisionCardProps =
 
 /** A question waiting on you, or a permission prompt. Buttons are tinted with the agent's pair; no amber. */
 export function DecisionCard(props: DecisionCardProps) {
-  const { pair, title, subject, place, details, outcome, waiting, pending = null } = props
+  const { pair, title, subject, place, details, outcome, held, waiting, pending = null } = props
   const busy = pending !== null && pending !== false
   const buttons =
     props.kind === 'question'
@@ -56,7 +58,10 @@ export function DecisionCard(props: DecisionCardProps) {
       ) : null}
       {details}
       {outcome ? (
-        <div className="kc-decision-outcome kith-text-secondary">{outcome}</div>
+        <>
+          <div className="kc-decision-outcome kith-text-secondary">{held ? `${outcome} · waiting to go on` : outcome}</div>
+          {held}
+        </>
       ) : waiting ? (
         <div className="kc-decision-outcome kith-text-secondary">{`Waiting for ${waiting}`}</div>
       ) : (

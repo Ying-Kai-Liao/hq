@@ -51,9 +51,9 @@ struct ChatRow: View {
                 if chat?.isGroup == true { AuthorLabel(botId: entry.data.author) }
                 PermissionCard(entry: entry, hostName: model.hostName, tint: tint, answering: model.answering[entry.id],
                                waiting: heldElsewhere ? "Open in the terminal: answer it there."
-                                   : GuestPrompt.waitingText(for: entry, activity: chat?.activity)) { option in
-                    model.respond(entry, option: option)
-                }
+                                   : GuestPrompt.waitingText(for: entry, activity: chat?.activity),
+                               respond: { option in model.respond(entry, option: option) },
+                               held: heldModel, stop: { model.stopHolder(for: entry) }, stopped: model.stoppedRuns[entry.id])
             }
             .padding(.top, 12)
         default:
@@ -65,6 +65,12 @@ struct ChatRow: View {
                 NoticeRow(entry: entry).padding(.top, 10)
             }
         }
+    }
+
+    /// The held row of an approved card whose session an old run still holds; Stop is the owner's.
+    private var heldModel: HeldRunModel? {
+        guard entry.data.status == "answered", let held = entry.data.held else { return nil }
+        return HeldRunModel(held: held, mac: model.hostName, owner: model.isOwner, phase: model.holderPhases[held.session] ?? .idle)
     }
 
     /// The prompt is in a thread a terminal holds: read-only here.

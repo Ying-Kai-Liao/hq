@@ -2,6 +2,7 @@ import { parseCall, type IncomingCall } from '@shared/incoming-call'
 import type { CallError } from '@shared/ipc'
 import type { RelayCallError } from '@shared/relay'
 import { parseBackups, type Backups } from '@shared/backups'
+import type { StopHolderResult } from '@shared/held-run'
 import {
   parseDiff, parseHistory, parseMemoryList, parseRead, parseSave, parseTidyUps, parseUndo,
   type HqMemoryDiff, type HqMemoryList, type HqMemoryRead, type HqMemoryVersion, type HqSaveResult, type HqTidyUp, type HqUndoResult,
@@ -269,6 +270,11 @@ export class HostClient {
     } catch (e) {
       throw typedWriterError(e)
     }
+  }
+
+  /** Ends the old run holding a card's session so its approved resume can go on. Owner only (a member gets 403); nothing live is `stopped: null`. */
+  stopHolder(session: string) {
+    return this.call<StopHolderResult>('stopHolder', { session }, 20_000)
   }
 
   /** Kith's project registry; without Kith the host answers `projects: []` and an `error` line. */

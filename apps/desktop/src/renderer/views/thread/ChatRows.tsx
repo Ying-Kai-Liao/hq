@@ -14,7 +14,8 @@ import { AttachmentList } from './Attachments'
 import { relativeTime } from './chat-items'
 import { MarkdownText } from './Markdown'
 import { ownerNameFrom, waitingFor } from '@shared/mac-role'
-import { PermissionCard } from './PermissionCard'
+import { PermissionCard, type HeldCardProps } from './PermissionCard'
+import { confirmMessage, confirmTitle, heldIcon, heldRowOf, stoppedDivider } from '@shared/held-run'
 import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
 import { HandoffNotice } from './HandoffNotice'
 import { AnsweredBy } from './AnsweredBy'
@@ -88,7 +89,23 @@ function ContextHint({ contextPercent }: { contextPercent: unknown }) {
 /** Follows the store: the card shows a spinner while its answer is on its way. */
 function LivePermission({ entry }: { entry: Entry }) {
   const store = useLiveStore()
-  return <PermissionCard entry={entry} hostName={store.hostName} answering={store.answering.get(entry.id) ?? null} respond={(o) => store.respond(entry, o)} waiting={waitingFor(entry, ownerNameFrom(store.bots.get(entry.botId)?.activity))} pair={pairOf(store.bots.get(entry.data.author ?? entry.botId)?.avatarColor)} />
+  const ownerName = ownerNameFrom(store.bots.get(entry.botId)?.activity)
+  return <PermissionCard entry={entry} hostName={store.hostName} answering={store.answering.get(entry.id) ?? null} respond={(o) => store.respond(entry, o)} waiting={waitingFor(entry, ownerName)} pair={pairOf(store.bots.get(entry.data.author ?? entry.botId)?.avatarColor)} held={heldFor(entry, store, ownerName)} />
+}
+
+/** An approved card's held row (an old run holds its session): Stop is the owner's, others read who can stop it. */
+function heldFor(entry: Entry, store: BotStore, ownerName: string | null): HeldCardProps | null {
+  const held = entry.data.held
+  const stopped = store.stoppedRuns.get(entry.id)
+  const divider = stopped ? { text: stoppedDivider(stopped.kind, stopped.at), icon: heldIcon(stopped.kind) } : null
+  if (!held || entry.data.status !== 'answered') return divider ? { model: null, confirm: { title: confirmTitle, message: '' }, stop: () => {}, stopped: divider } : null
+  const agent = entry.data.agent || 'the agent'
+  return {
+    model: heldRowOf({ held, owner: store.isOwner, ownerName, phase: store.holderPhases.get(held.session) }),
+    confirm: { title: confirmTitle, message: confirmMessage({ held, mac: store.hostName, agent }) },
+    stop: () => store.stopHolder(entry),
+    stopped: divider,
+  }
 }
 
 /** Who wrote a message in a group: their avatar and name in their color. */
