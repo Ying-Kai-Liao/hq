@@ -43,6 +43,19 @@ def secret_paths(roots, secrets_dir, machine):
     return list(dict.fromkeys(out))
 
 
+def whole_secret_paths(roots, secrets_dir, machine):
+    """`secret_paths` for a grant of access: when the secrets folder is the machine folder itself (the shared layout, with no
+    ~/.kith), the whole folder counts, not just env and auth.json: no guest needs it."""
+    return list(dict.fromkeys(secret_paths(roots, secrets_dir, machine) + both(secrets_dir)))
+
+
+def holds(path, inner):
+    """Whether `path` is `inner` or a folder above it (a grant of `path` would reach `inner`). Case-folded on macOS."""
+    if os.uname().sysname == "Darwin":
+        path, inner = path.lower(), inner.lower()
+    return inner == path or inner.startswith(path.rstrip("/") + "/")
+
+
 def rule_w(home, folders, trees=(), files=()):
     """(trees, files) the run may not write: below each of `folders`, below `home`, the PATH folders, and the extra
     `trees` / `files` (the kernel, the agent's package, ...). Both spellings of each."""
@@ -129,7 +142,7 @@ def apply_grants(s, grants, home, secrets):
     for kind in ("read", "write"):
         for p in dict.fromkeys(grants.get(kind, [])):
             p = real(p)
-            if not p or any(covers(d, p) for d in never_read):
+            if not p or any(covers(d, p) for d in never_read) or any(holds(p, d) for d in secrets):
                 continue
             if kind == "write":
                 if any(covers(d, p) for d in never_write):

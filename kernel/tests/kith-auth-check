@@ -138,6 +138,21 @@ check "access: a folder, a folder to write and a domain go in" "A access house a
 check "access: resolve lists them" "[ \"\$(ACC)\" = \"{'read': ['$TR/docs'], 'write': ['$TR/more'], 'domains': ['pypi.org']}\" ]"
 check "access: the same entry twice is one" "A access house ann read '$TR/docs' && [ \"\$(R ann 'len(d[\"access\"][\"read\"])')\" = 1 ]"
 check "access: a secret is refused" "! A access house ann read \"\$(python3 \$KERNEL/lib/kith_paths.py --sh | sed -n \"s/^export KITH_SECRETS=//p\" | tr -d \"'\")\""
+# Both layouts: ~/.config/kith is the secrets folder itself in the shared one (this fake home has no ~/.kith), ~/.kith/secrets in the other.
+refused() { [[ "$(A access house ann "$@" 2>&1)" == *'never granted' ]]; }
+CFG=$HOME/.config/kith
+mkdir -p "$CFG"
+for tgt in "$CFG" "$CFG/anything" "$HOME/.config" "$HOME"; do
+  for kind in read write; do
+    check "access: shared layout, $kind of ${tgt#$T/} is refused as a secret" "refused $kind '$tgt'"
+  done
+done
+H2=$T/home2
+mkdir -p "$H2/.kith/secrets"
+for tgt in "$H2/.kith/secrets" "$H2/.kith/secrets/env" "$H2/.kith" "$H2"; do
+  check "access: ~/.kith layout, read of ${tgt#$T/} is refused as a secret" "HOME='$H2' refused read '$tgt'"
+done
+check "access: a folder beside the secrets is still granted" "mkdir -p '$T/docs2' && A access house ann read '$T/docs2'"
 check "access: rule W is refused (a project's .claude, the shell rc)" "! A access house ann write '$TR/docs/.claude/settings.json' && ! A access house ann write '$HOME/.zshrc'"
 check "access: a relative path, a wildcard domain, an address are refused" "! A access house ann read docs && ! A access house ann domain '*.org' && ! A access house ann domain 1.2.3.4"
 check "access: the owner needs none" "! A access house kai read '$TR/docs'"

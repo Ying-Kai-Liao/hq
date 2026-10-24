@@ -96,6 +96,7 @@ pub fn never(path: &Path) -> Option<&'static str> {
     if resource::is_sensitive(path, &roots)
         || resource::holds_sensitive(path, &roots)
         || resource::touches_secret_dirs(path, &roots)
+        || resource::holds_secrets_folder(path, &roots)
     {
         return Some(
             "That is a secret or a login, or holds one. It can't be approved; don't try another way to reach it.",

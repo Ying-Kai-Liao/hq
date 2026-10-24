@@ -267,6 +267,16 @@ is "the activation after: nothing, the grant was one use" "$(set_ok "'$T/granted
 printf '{"read": ["%s", "%s/x"], "write": ["%s", "%s"], "domains": []}' "$KITH_STATE/secrets" "$KITH_STATE/serve" "$T/work/.claude" "$HOME/.zshrc" > "$T/grants.json"
 grun
 is "build-time re-check: secrets and rule W are never added, whatever the host said" "$(set_ok "not any(x in fs['allowRead'] + fs['allowWrite'] for x in ['$KITH_STATE/secrets', '$KITH_STATE/serve', '$T/work/.claude', '$HOME/.zshrc'])")" True
+# a folder that holds the secrets is refused too (a grant of $KITH_STATE would reach secrets/)
+printf '{"read": ["%s"], "write": ["%s"], "domains": []}' "$KITH_STATE" "$KITH_STATE" > "$T/grants.json"
+grun
+is "build-time re-check: a folder that holds the secrets is never added" "$(set_ok "'$KITH_STATE' not in fs['allowRead'] + fs['allowWrite']")" True
+# the shared layout (no ~/.kith, KITH_STATE unset): the secrets folder is ~/.config/kith itself, all of it
+mkdir -p "$HOME/.config/kith"
+printf '{"read": ["%s", "%s/x", "%s", "%s"], "write": ["%s"], "domains": []}' "$HOME/.config/kith" "$HOME/.config/kith" "$HOME/.config" "$HOME" "$HOME/.config/kith" > "$T/grants.json"
+mkdir -p "$KITH_HOME/kernel"   # the Kith folder around a kernel/: the link layout, so the machine folder is ~/.config/kith
+(unset KITH_STATE HQ_STATE; grun)
+is "shared layout: the whole config folder, below it and the folders above it are never added" "$(set_ok "not any(x in fs['allowRead'] + fs['allowWrite'] for x in ['$HOME/.config/kith', '$HOME/.config/kith/x', '$HOME/.config', '$HOME'])")" True
 ln -sfn "$T/granted" "$T/moved"; printf '{"read": ["%s"], "write": [], "domains": []}' "$T/moved" > "$T/grants.json"
 grun
 is "build-time re-check: a grant that is a link now (it resolves elsewhere) is dropped" "$(set_ok "'$T/moved' not in fs['allowRead'] and '$T/granted' not in fs['allowRead']")" True

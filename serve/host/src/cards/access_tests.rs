@@ -300,3 +300,42 @@ async fn kith_auth_refuses_secrets_rule_w_the_owner_and_non_members_for_an_alway
     let held = roles::resolve("sam", "house").await.unwrap();
     assert_eq!(held["access"]["read"], json!([docs]), "only the plain folder was written");
 }
+
+/// The shared layout (no `~/.kith`): the secrets folder is the config folder itself. The kernel (`whole_secret_paths`) and the
+/// host (`holds_secrets_folder`) must refuse the same grants: the folder, below it, and any folder above it.
+#[test]
+fn the_shared_config_folder_is_refused_whole_by_both_sides() {
+    let cfg = "/home/u/.config/kith";
+    let roots = resource::Roots {
+        kith: vec![PathBuf::from(cfg)],
+        secrets_folder: vec![PathBuf::from(cfg)],
+        ..Default::default()
+    };
+    let probes = [
+        (cfg, true),
+        ("/home/u/.config/kith/anything", true),
+        ("/home/u/.config", true),
+        ("/home/u", true),
+        ("/", true),
+        ("/home/u/.config/kithx", false),
+        ("/home/u/.config/other", false),
+        ("/home/u/docs", false),
+    ];
+    let script = format!(
+        "import sys, json; sys.path.insert(0, 'kernel/lib'); import kith_guard as g\n\
+         s = g.whole_secret_paths(['{cfg}'], '{cfg}', '{cfg}')\n\
+         print(json.dumps([any(g.covers(x, p) or g.holds(p, x) for x in s) for p in json.loads(sys.argv[1])]))"
+    );
+    let paths: Vec<&str> = probes.iter().map(|p| p.0).collect();
+    let out = std::process::Command::new("python3")
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .args(["-I", "-c", &script, &serde_json::to_string(&paths).unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let kernel: Vec<bool> = serde_json::from_slice(&out.stdout).unwrap();
+    for ((p, want), k) in probes.iter().zip(kernel) {
+        assert_eq!(resource::holds_secrets_folder(Path::new(p), &roots), *want, "host: {p}");
+        assert_eq!(k, *want, "kernel: {p}");
+    }
+}

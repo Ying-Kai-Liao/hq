@@ -122,12 +122,15 @@ pub struct Roots {
     /// Folders that are secret all the way down: the secrets folder (when it is a folder of its own) and the host's
     /// own data folder (serve token, identity, databases).
     pub whole: Vec<PathBuf>,
+    /// The secrets folder even when it is the machine folder itself (the shared layout, no `~/.kith`): a grant of access
+    /// never reaches it, though tool calls inside it are judged by the patterns. See [`holds_secrets_folder`].
+    pub secrets_folder: Vec<PathBuf>,
 }
 
 impl Roots {
     #[cfg(test)]
     pub fn new(kith: Vec<PathBuf>) -> Self {
-        Self { kith, whole: Vec::new() }
+        Self { kith, whole: Vec::new(), secrets_folder: Vec::new() }
     }
 
     fn add(list: &mut Vec<PathBuf>, p: PathBuf) {
@@ -166,6 +169,9 @@ pub fn roots() -> Roots {
                     if let Some(p) = v[key].as_str() {
                         Roots::add(&mut r.kith, PathBuf::from(p));
                     }
+                }
+                if let Some(sec) = v["KITH_SECRETS"].as_str() {
+                    Roots::add(&mut r.secrets_folder, PathBuf::from(sec));
                 }
                 // The older layout keeps the secrets among the machine things: the patterns cover `env` and
                 // `auth.json` there, and the folder is only secret whole when it is a folder of its own.
@@ -220,6 +226,13 @@ pub fn is_sensitive(path: &Path, roots: &Roots) -> bool {
                 .and_then(|rel| rel.to_str())
                 .is_some_and(|rel| !rel.is_empty() && sensitive_rel(rel))
         })
+}
+
+/// Whether `path` is, is inside, or holds the secrets folder, whichever layout the kernel reports: a grant of access is
+/// refused for all of it (`kith-auth access` does the same with `kith_guard.whole_secret_paths`).
+pub fn holds_secrets_folder(path: &Path, roots: &Roots) -> bool {
+    let p = fold(path);
+    roots.secrets_folder.iter().map(|s| fold(s)).any(|s| p.starts_with(&s) || s.starts_with(&p))
 }
 
 /// Whether a folder (or file) `path` is, or holds, something never carded: a request to search it would read it.
@@ -427,6 +440,7 @@ mod tests {
         Roots {
             kith: vec![PathBuf::from("/Users/x/.kith"), PathBuf::from("/Volumes/ssd/kith-state")],
             whole: vec![PathBuf::from("/Users/x/.kith/serve-data"), PathBuf::from("/Volumes/ssd/secretsdir")],
+            secrets_folder: Vec::new(),
         }
     }
 

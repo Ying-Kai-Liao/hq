@@ -679,8 +679,9 @@ def cmd_access(args):
         value = os.path.realpath(value)
         home = os.path.expanduser('~')
         roots = [str(paths()[k]) for k in ('KITH_STATE', 'KITH_MACHINE')]
-        secrets = kith_guard.secret_paths(roots, str(paths()['KITH_SECRETS']), str(paths()['KITH_MACHINE']))
-        if any(kith_guard.covers(s, value) for s in secrets):
+        secrets = kith_guard.whole_secret_paths(roots, str(paths()['KITH_SECRETS']), str(paths()['KITH_MACHINE']))
+        # inside a secret, or a folder that holds one (~/.config, ~): a grant of it would reach the secret
+        if any(kith_guard.covers(s, value) or kith_guard.holds(value, s) for s in secrets):
             die(f'{value} is a secret: it is never granted', 2)
         if kith_guard.is_rule_w(home, value, trees=[str(KITH)]):
             die(f'{value} is somewhere a boxed run never writes or loads from (rule W): it is never granted', 2)

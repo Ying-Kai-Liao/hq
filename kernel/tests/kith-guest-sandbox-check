@@ -113,6 +113,13 @@ expect "launch JSON env carries KITH_RUN_SOCKET and KITH_RUN_TOKEN" "$ENVJ" "Tru
 OWNER2=$(cd "$KITH_HOME/agents/echo" && KITH_RUN_SOCKET=$SOCK "$KITH" echo --launch-json 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin)["settings"]; print("sandbox" in s)')
 expect "owner with a socket set: still no sandbox" "$OWNER2" False
 
+# The shared layout (no ~/.kith; the Kith folder around a kernel/): the secrets are two files among the machine things in
+# ~/.config/kith, and the sandbox denies both there as well as the named folders.
+mkdir -p "$KITH_HOME/kernel" "$HOME/.config/kith"
+S=$(unset KITH_STATE HQ_STATE; KITH_PERSON=guest settings)
+expect "shared layout: guest denyRead holds env and auth.json of ~/.config/kith" "$(q "$S" "'$HOME/.config/kith/env' in dr and '$HOME/.config/kith/auth.json' in dr")" True
+rmdir "$KITH_HOME/kernel" 2>/dev/null
+
 # KITH_SERVE_HOME elsewhere is denied too
 mkdir -p "$T/elsewhere"
 S=$(KITH_PERSON=guest KITH_SERVE_HOME=$T/elsewhere settings)

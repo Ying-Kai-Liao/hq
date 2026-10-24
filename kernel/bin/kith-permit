@@ -148,8 +148,8 @@ def apply(settings_file, env=os.environ):
         s = json.load(open(settings_file))
         done = kith_guard.apply_grants(
             s, {k: [x for x in grants.get(k, []) if isinstance(x, str)] for k in ('read', 'write', 'domains')},
-            os.path.expanduser('~'), kith_guard.secret_paths([str(p['KITH_STATE']), str(p['KITH_MACHINE'])],
-                                                             str(p['KITH_SECRETS']), str(p['KITH_MACHINE'])))
+            os.path.expanduser('~'), kith_guard.whole_secret_paths([str(p['KITH_STATE']), str(p['KITH_MACHINE'])],
+                                                                   str(p['KITH_SECRETS']), str(p['KITH_MACHINE'])))
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(settings_file))
         with os.fdopen(fd, 'w') as f:
             json.dump(s, f, indent=1)
