@@ -86,9 +86,58 @@ check "a channel group chat with no KITH_ROOM is a group (like recall)" \
 # KITH_ROOM_MEMBERS: the members of a group room, from the environment (kith_facets.py load)
 LM() { env "$@" python3 "$KERNEL/lib/kith_facets.py" load --agent echo --home "$KITH_HOME/agents/echo" \
   --person-file "$KITH_STATE/people/sam.md" --kind person --person sam --rooms "${RM-grp1}" --room grp1; }
+# The write-time record: the room-note ledger kith-room-ledger keeps (the hook of every run, from the host's env)
+LEDGER=$KERNEL/bin/kith-room-ledger
+# W <pre|post> <note under memory/> VAR=value...: the hook as the run with that env writes the note
+W() { local mode=$1 rel=$2; shift 2; printf '{"tool_input":{"file_path":"%s/%s"}}' "$M" "$rel" \
+  | env "$@" python3 "$LEDGER" "$mode" --agent echo --home "$KITH_HOME/agents/echo"; }
+LO() { env "$@" python3 "$KERNEL/lib/kith_facets.py" load --agent echo --home "$KITH_HOME/agents/echo" \
+  --person-file "$KITH_STATE/user.md" --kind owner --rooms '' --room "${ROOM-grp1}"; }
+W post rooms/grp1/MEMORY.md KITH_OWNER=1 KITH_ROOM=grp1 KITH_ROOM_MEMBERS=sam
+echo 'grp1 solo note' > "$M/rooms/grp1/solo.md"; W post rooms/grp1/solo.md KITH_OWNER=1 KITH_ROOM=grp1 KITH_ROOM_OWNER_ONLY=1
+echo 'grp1 old note' > "$M/rooms/grp1/old.md"   # written before the ledger: no record
 check "room members: a member of the room loads the room note" "LM KITH_ROOM_MEMBERS=sam | grep -q 'grp1 room note'"
 check "room members: a reader outside the room (a stranger) gets shared only" "! RM= LM KITH_ROOM_MEMBERS=sam | grep -q 'grp1 room note'"
 check "room members: none given stays shared only" "! LM KITH_ROOM_MEMBERS= | grep -q 'grp1 room note'"
+
+# owner-only groups and the ledger
+check "owner-only marker: the owner loads the room notes written before and by the owner alone" \
+  "LO KITH_ROOM_OWNER_ONLY=1 | grep -q 'grp1 room note' && LO KITH_ROOM_OWNER_ONLY=1 | grep -q 'grp1 solo note'"
+check "owner-only marker: an old note with no record loads (nobody else is there)" "LO KITH_ROOM_OWNER_ONLY=1 | grep -q 'grp1 old note'"
+check "owner-only marker: the owner's own memory loads too" "LO KITH_ROOM_OWNER_ONLY=1 | grep -q 'owner memory zebra'"
+check "no marker and no members: shared only, as before" "! LO | grep -q 'grp1 room note'"
+check "empty members with the marker blank: shared only" "! LO KITH_ROOM_MEMBERS= | grep -q 'grp1 solo note'"
+check "marker beside a member list is ignored: the list rules" "! LO KITH_ROOM_OWNER_ONLY=1 KITH_ROOM_MEMBERS=sam | grep -q 'grp1 solo note'"
+check "marker with a channel via is ignored" "! LO KITH_ROOM_OWNER_ONLY=1 KITH_VIA=telegram | grep -q 'grp1 room note'"
+check "marker value other than 1 is ignored" "! LO KITH_ROOM_OWNER_ONLY=yes | grep -q 'grp1 room note'"
+check "spoofing: a person run that sets the marker is not widened" \
+  "! LM KITH_ROOM_OWNER_ONLY=1 | grep -q 'grp1 room note' && ! LM KITH_ROOM_OWNER_ONLY=1 | grep -q 'sam likes tea'"
+check "a note written when only the owner was there stays hidden from a member" "! LM KITH_ROOM_MEMBERS=sam | grep -q 'grp1 solo note'"
+check "an unrecorded (old) note stays hidden when a person is present" "! LM KITH_ROOM_MEMBERS=sam | grep -q 'grp1 old note'"
+check "a guest who joined later does not see what was said before" \
+  "LO KITH_ROOM_MEMBERS=sam | grep -q 'grp1 room note' && ! LO KITH_ROOM_MEMBERS=sam,eve | grep -q 'grp1 room note'"
+echo 'grp1 late note' > "$M/rooms/grp1/late.md"; W post rooms/grp1/late.md KITH_OWNER=1 KITH_ROOM=grp1 KITH_ROOM_MEMBERS=sam,eve
+check "a guest present at the write sees the note, and so does one of the members alone" \
+  "LO KITH_ROOM_MEMBERS=sam,eve | grep -q 'grp1 late note' && LO KITH_ROOM_MEMBERS=sam | grep -q 'grp1 late note'"
+check "the owner alone sees a note written with guests present" "LO KITH_ROOM_OWNER_ONLY=1 | grep -q 'grp1 late note'"
+W post rooms/grp1/late.md KITH_OWNER=1 KITH_ROOM=grp1 KITH_ROOM_MEMBERS=sam
+check "an edit with fewer people present narrows the record to the intersection" \
+  "! LO KITH_ROOM_MEMBERS=sam,eve | grep -q 'grp1 late note'"
+W post rooms/grp1/late.md KITH_OWNER=1 KITH_ROOM=grp1 KITH_ROOM_MEMBERS=sam,eve
+check "an edit with more people present never widens it" "! LO KITH_ROOM_MEMBERS=sam,eve | grep -q 'grp1 late note'"
+W pre rooms/grp1/old.md KITH_OWNER=1 KITH_ROOM=grp1 KITH_ROOM_MEMBERS=sam; W post rooms/grp1/old.md KITH_OWNER=1 KITH_ROOM=grp1 KITH_ROOM_MEMBERS=sam
+check "editing an old unrecorded note does not record it wider than owner-only" "! LM KITH_ROOM_MEMBERS=sam | grep -q 'grp1 old note'"
+echo 'grp1 shell note' > "$M/rooms/grp1/shell.md"; W post rooms/grp1/shell.md KITH_OWNER=1 KITH_ROOM=other KITH_ROOM_MEMBERS=sam
+check "a write from a run of another room records the owner alone" "! LM KITH_ROOM_MEMBERS=sam | grep -q 'grp1 shell note'"
+echo 'grp1 blind note' > "$M/rooms/grp1/blind.md"; W post rooms/grp1/blind.md KITH_OWNER=1 KITH_ROOM=grp1
+check "a write with the members unknown records the owner alone" "! LM KITH_ROOM_MEMBERS=sam | grep -q 'grp1 blind note'"
+check "the ledger lives in the state folder, not in the note" \
+  "[ -f \"$KITH_STATE/room-ledger/echo/grp1.json\" ] && ! grep -rq 'sam' \"$M/rooms/grp1/solo.md\""
+check "a note that claims its own members in frontmatter gains nothing" \
+  "printf -- '---\naudience: room:grp1\nmembers: [sam, eve]\n---\ngrp1 forged note\n' > \"$M/rooms/grp1/forged.md\" && ! LM KITH_ROOM_MEMBERS=sam | grep -q 'grp1 forged note'"
+check "the hook is silent and never fails on bad input" "echo 'not json' | python3 \"$LEDGER\" post --agent echo --home \"$KITH_HOME/agents/echo\"; [ \$? = 0 ]"
+check "a write outside rooms/ is not recorded" \
+  "W post MEMORY.md KITH_OWNER=1 KITH_ROOM=grp1 KITH_ROOM_MEMBERS=sam; python3 -c \"import json,sys; sys.exit(0 if all(k.startswith('rooms/grp1/') for k in json.load(open('$KITH_STATE/room-ledger/echo/grp1.json'))) else 1)\""
 
 # the filter itself: members known, caps, ordering, guests
 export OWNER='{"kind":"owner"}' SAMR='{"kind":"person","id":"sam","rooms":["grp1"]}' GUEST='{"kind":"guest","id":"bot-ab12","rooms":["grp1"]}' STRAY='{"kind":"guest","id":"bot-ab12"}' EVE='{"kind":"person","id":"eve"}'

@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""kith-room-ledger pre|post --agent A --home DIR — Pre/PostToolUse hook for Write, Edit and MultiEdit.
+
+Keeps the write-time record of room notes (lib/kith_facets.py, "the room-note ledger"): who was in the room when each
+note under <home>/memory/rooms/<room>/ was written, so a note never reaches someone who was not there. Reads the hook
+input on stdin and the run's members from the environment the host set (KITH_ROOM, KITH_ROOM_MEMBERS or
+KITH_ROOM_OWNER_ONLY), which the agent cannot change for its own hook. `pre` notes that the file already existed; `post`
+narrows the note's record to the people present now (the first write records them). A write outside a room folder, or
+into another room's folder than the run's, records nobody but the owner. It prints nothing and never fails the tool call.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+import kith_facets  # noqa: E402
+
+
+def target(home, data):
+    """(room, rel) for a file under <home>/memory/rooms/<room>/, links resolved on both sides, else None."""
+    path = (data.get('tool_input') or {}).get('file_path')
+    if not isinstance(path, str) or not os.path.isabs(path):
+        return None
+    mem = os.path.realpath(os.path.join(home, 'memory'))
+    real = os.path.realpath(path)
+    if not real.startswith(mem + os.sep):
+        return None
+    rel = real[len(mem) + 1:]
+    parts = rel.split('/')
+    if len(parts) < 3 or parts[0] != 'rooms' or not kith_facets.ID.match(parts[1]):
+        return None
+    return parts[1], rel
+
+
+def present_now(room):
+    """The people in this run's room, the owner implied: unknown, owner-only, or a run in another room, is nobody."""
+    if os.environ.get('KITH_ROOM', '') != room:
+        return []
+    kind = 'owner' if os.environ.get('KITH_OWNER') == '1' or not os.environ.get('KITH_PERSON') else 'person'
+    return kith_facets.env_members(kind) or []
+
+
+def main(argv):
+    import json
+    if len(argv) < 5 or argv[0] not in ('pre', 'post') or argv[1] != '--agent' or argv[3] != '--home':
+        return 0
+    mode, agent, home = argv[0], argv[2], argv[4]
+    try:
+        data = json.load(sys.stdin)
+        found = target(home, data)
+        if not found:
+            return 0
+        room, rel = found
+        if mode == 'pre':
+            existed = os.path.isfile(os.path.join(home, 'memory', rel))
+            if existed and rel not in kith_facets.read_ledger(agent, room):
+                kith_facets.record_room_write(agent, room, rel, [], True)
+            return 0
+        kith_facets.record_room_write(agent, room, rel, present_now(room), False)
+    except Exception:  # noqa: BLE001  a record that cannot be written leaves the note unrecorded: owner-only
+        pass
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
