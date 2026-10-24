@@ -1047,7 +1047,7 @@ async fn the_sweep_ends_a_left_over_guest_holder_and_its_child_and_keeps_the_own
     assert!(claim::read(&claim::path(&r.state(), "g1", false)).is_none(), "the ended holder's claim is removed");
     assert!(claim::read(&claim::path(&r.state(), "o1", false)).is_some());
     // Again: nothing left to end.
-    assert!(claim::sweep(&r.state(), &["bot-sam".into()], &|_| false, GRACE).is_empty());
+    assert_eq!(claim::sweep(&r.state(), &["bot-sam".into()], &|_| false, GRACE).len(), 0);
 }
 
 #[tokio::test]
@@ -1062,11 +1062,11 @@ async fn the_sweep_leaves_a_reused_pid_alone() {
             .to_string(),
     )
     .unwrap();
-    assert!(claim::sweep(&r.state(), &["sam".into()], &|_| false, GRACE).is_empty());
+    assert_eq!(claim::sweep(&r.state(), &["sam".into()], &|_| false, GRACE).len(), 0);
     assert!(registry::pid_runs(stranger));
     // A dead pid is stale: nothing to kill either.
     std::fs::write(&path, json!({"pid": DEAD, "at": "t", "kind": "oneshot", "person": "sam"}).to_string()).unwrap();
-    assert!(claim::sweep(&r.state(), &["sam".into()], &|_| false, GRACE).is_empty());
+    assert_eq!(claim::sweep(&r.state(), &["sam".into()], &|_| false, GRACE).len(), 0);
 }
 
 #[tokio::test]
@@ -1084,7 +1084,7 @@ async fn claim_files_from_before_the_person_field_parse_as_the_owners() {
         assert_eq!(c.person, None);
     }
     std::fs::write(&path, json!({"pid": me, "kind": "oneshot"}).to_string()).unwrap();
-    assert!(claim::sweep(&r.state(), &["sam".into()], &|_| false, GRACE).is_empty());
+    assert_eq!(claim::sweep(&r.state(), &["sam".into()], &|_| false, GRACE).len(), 0);
     assert!(registry::pid_runs(me), "an old claim is the owner's: kept");
     // The owner's claim is written without the field.
     claim::release(&r.state(), "old1", me, false);

@@ -156,7 +156,7 @@ async fn an_approval_after_the_park_resumes_the_session_exactly_once_even_with_a
     assert!(seen[0].note.contains("allowed") && seen[0].note.contains("go on"), "{}", seen[0].note);
     assert_eq!(seen[0].door, "run");
     assert!(r.hub.store.card(&card.id).unwrap().resumed_at.is_some());
-    assert!(r.hub.store.cards_awaiting_resume(now_ms()).is_empty());
+    assert_eq!(r.hub.store.cards_awaiting_resume(now_ms()).len(), 0);
     // The grant is still there for the resumed run's own ask, which uses it once (L3: no profile carries it).
     assert_eq!(r.hub.store.card(&card.id).unwrap().state, CardState::Approved);
     assert!(request_permission(&r.hub, &owner_run("once-a"), "Bash", &ls()).await.allow);
@@ -235,7 +235,7 @@ async fn a_channel_wake_whose_turn_never_started_stays_owed() {
     assert!(matches!(door_of(&card), Some(Door::Channel(_))));
     // The wake went into the channel inbox: claimed. The turn then fails to start.
     assert!(r.hub.store.card_resume_claim(&card.id, now_ms()).unwrap());
-    assert!(r.hub.store.cards_awaiting_resume(now_ms()).is_empty());
+    assert_eq!(r.hub.store.cards_awaiting_resume(now_ms()).len(), 0);
     resume::channel_failed(&r.hub, std::slice::from_ref(&card.id));
     assert_eq!(r.hub.store.cards_awaiting_resume(now_ms()).len(), 1, "owed again, so the retry can deliver it");
     // No channel core in this test: each retry finds the connection offline and waits, the card stays owed.
@@ -256,7 +256,7 @@ async fn a_person_revoked_before_the_resume_gets_none_and_their_cards_end() {
     assert_eq!(attempt(&r.hub, &card.id).await, Step::Done);
     assert!(tests_seen::of(&card.session).is_empty(), "A7: no spawn for a revoked person");
     assert_eq!(r.hub.store.card(&card.id).unwrap().state, CardState::Withdrawn);
-    assert!(r.hub.store.cards_awaiting_resume(now_ms()).is_empty());
+    assert_eq!(r.hub.store.cards_awaiting_resume(now_ms()).len(), 0);
 }
 
 #[tokio::test]
@@ -272,7 +272,7 @@ async fn an_expired_card_is_not_resumed() {
     assert!(tests_seen::of(&card.session).is_empty());
     assert_eq!(r.hub.store.card(&card.id).unwrap().state, CardState::Expired);
     // Even before the sweep runs, the deadline alone keeps a late card from being owed.
-    assert!(r.hub.store.cards_awaiting_resume(now_ms() + 25 * 3_600_000).is_empty());
+    assert_eq!(r.hub.store.cards_awaiting_resume(now_ms() + 25 * 3_600_000).len(), 0);
 }
 
 fn sweep_at(hub: &Hub, at: i64) {

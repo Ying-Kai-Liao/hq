@@ -93,7 +93,7 @@ async fn an_owner_run_gets_a_card_and_a_yes_in_the_window_continues_the_same_run
     assert_eq!(call.await.unwrap(), Decision { allow: true, message: "Approved.".into() });
     // C3: the live yes spent the grant; no resume, nothing left to use (A4).
     assert_eq!(r.hub.store.card(&card.id).unwrap().state, CardState::Used);
-    assert!(r.hub.store.cards_awaiting_resume(0).is_empty());
+    assert_eq!(r.hub.store.cards_awaiting_resume(0).len(), 0);
     assert_eq!(entry_status(&r.hub, &card), "answered");
     // A second device, a retry: nothing (A1).
     assert_eq!(answer(&r.hub, &entry.id, Some("deny"), "owner").unwrap(), Outcome::Closed);

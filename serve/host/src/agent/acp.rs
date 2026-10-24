@@ -506,8 +506,10 @@ mod tests {
         let ready = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap();
         assert!(matches!(ready, Some(Incoming::Notification { .. })));
         drop(acp);
+        let pid = libc::pid_t::try_from(pid).unwrap();
         for _ in 0..60 {
-            if unsafe { libc::kill(pid as i32, 0) } != 0 {
+            // SAFETY: signal 0 only asks whether the process still exists; it sends nothing.
+            if unsafe { libc::kill(pid, 0) } != 0 {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;

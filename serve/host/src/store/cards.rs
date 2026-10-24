@@ -593,7 +593,7 @@ mod tests {
         assert_eq!(s.cards_awaiting_resume(0).len(), 1);
         assert!(s.card_resume_claim(&a.id, 400).unwrap());
         assert!(!s.card_resume_claim(&a.id, 401).unwrap(), "one resume per card");
-        assert!(s.cards_awaiting_resume(0).is_empty());
+        assert_eq!(s.cards_awaiting_resume(0).len(), 0);
         // ... and a refused hand-over gives the claim back.
         assert!(s.card_resume_release(&a.id).unwrap());
         assert_eq!(s.cards_awaiting_resume(0).len(), 1);
@@ -639,7 +639,7 @@ mod tests {
         assert!(s.cards_withdraw_person("", None).is_err(), "never the owner's");
         // One agent only.
         let c = new(&s, "s3", "Bash:z");
-        assert!(s.cards_withdraw_person("sam", Some("fox")).unwrap().is_empty());
+        assert_eq!(s.cards_withdraw_person("sam", Some("fox")).unwrap().len(), 0);
         assert_eq!(s.cards_withdraw_person("sam", Some("echo")).unwrap()[0].id, c.id);
     }
 

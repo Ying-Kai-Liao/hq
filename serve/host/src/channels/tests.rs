@@ -300,10 +300,10 @@ async fn an_approved_cards_wake_is_its_own_turn_and_a_refusal_leaves_nothing_beh
 
     // A turn that never started (the kernel refused a held session) hands the cards back, once.
     r.core.wakes.locked().push(("[Kith] Kai allowed ls once; go on.".into(), vec!["card-1".into()]));
-    assert!(r.core.settle_wake("the same words: [Kith] Kai allowed ls once; go on.", true).is_empty());
+    assert_eq!(r.core.settle_wake("the same words: [Kith] Kai allowed ls once; go on.", true).len(), 0);
     r.core.wakes.locked().push(("[Kith] Kai allowed ls once; go on.".into(), vec!["card-1".into()]));
     assert_eq!(r.core.settle_wake("[Kith] Kai allowed ls once; go on.", false), ["card-1"]);
-    assert!(r.core.settle_wake("[Kith] Kai allowed ls once; go on.", false).is_empty());
+    assert_eq!(r.core.settle_wake("[Kith] Kai allowed ls once; go on.", false).len(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
