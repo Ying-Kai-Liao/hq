@@ -6,14 +6,18 @@ import type { EngineInterface, Register } from 'claude-code'
 //                      package version bin/kith-pkg resolves (edits made meanwhile apply to the next session)
 //   agent.spawn        resolve the project, prepend it and the agent's memory to the task
 //   turn.step          the agent's `effort:` (agent.md frontmatter) on its model requests; `model:` is set at register
-//   classic.SubagentStop  nudge once if the agent didn't write its session file
-//   /kith, mcp__kith__invoke  list agents; call one with an explicit project
+//   classic.SubagentStop  if the agent didn't write its session file, write a short stub from its last message (never
+//                      blocks: a second turn would replace the helper's report with the answer to the nudge)
+//   /kith, mcp__kith__invoke  list agents; call one with an explicit project (invoke waits for the report and returns it)
 // The kernel comes from kith_path (default ~/kith/kernel, else ~/hq/kernel, ~/.kith/kernel, ~/Workspace/kith); agents and state from the resolver, as every
 // kernel tool finds them (lib/kith_paths.py).
 
-type Spawned = { agent: string; project: string; startedMs: number; isNudged: boolean }
+type Spawned = { agent: string; project: string; isNamed: boolean; cwd: string; task: string; startedMs: number }
 
 const spawned = new Map<string, Spawned>()
+// A subagent's final report by agent id (turn.complete), for mcp__kith__invoke to hand to its caller; bounded.
+const reports = new Map<string, string>()
+const waiting = new Map<string, (report: string) => void>()
 // Reasoning effort per kith agent (from agent.md) and per running kith subagent. A spawn has no effort field, so
 // agent.spawn notes the agent and turn.step applies it to that agent's requests.
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
@@ -113,6 +117,24 @@ function liveAsk(kith: string, agent: string, task: string, project: string): st
   )
 }
 
+// What a helper keeps of its own when it runs in the owner's session: its role's permission mode (as bin/kith picks it:
+// KITH_PERMISSION_MODE, the agent's settings, else kith's default), and a PreToolUse that allows writes to `dirs`.
+async function ownPermissions($: EngineInterface, kith: string, name: string, dirs: string[]) {
+  const mode = await $.process.run(['/usr/bin/python3', `${kith}/lib/kith_settings.py`, 'permission_mode', name], { timeoutMs: 10_000 })
+  const raw = mode.exitCode === 0 ? mode.stdout.trim() : ''
+  const permissionMode = ({ manual: 'default', dontAsk: 'auto' } as Record<string, string>)[raw] ?? raw
+  const q = (v: string) => `'${v.replaceAll("'", `'\\''`)}'`
+  return {
+    ...(permissionMode ? { permissionMode } : {}),
+    hooks: {
+      PreToolUse: [{
+        matcher: 'Write|Edit|MultiEdit|NotebookEdit',
+        hooks: [{ type: 'command', command: [q(`${kith}/bin/kith-helper-allow`), ...dirs.map(q)].join(' ') }],
+      }],
+    },
+  }
+}
+
 export const register: Register = (on, options) => {
 
   // agentDir: the pinned snapshot from kith-pkg (or the live folder when versioning is unavailable).
@@ -163,6 +185,12 @@ export const register: Register = (on, options) => {
     userHome = (await $.env.get('HOME')) ?? ''
     projectLine = await projectContext($, kith, e.cwd)
     const packages = await resolvePackages($, kith)
+    // A subagent inherits the caller's permissions. For the owner's session the helper gets its own role's instead
+    // (its permission mode, and its own memory, files and notes writable). A run for anyone else (KITH_PERSON, set by
+    // bin/kith) stays capped by the caller: nothing is widened for a guest.
+    // bin/kith says whether the run is the owner's (KITH_OWNER; KITH_PERSON can name the owner too); without it, no person means owner.
+    const flag = await $.env.get('KITH_OWNER')
+    const isOwner = flag !== undefined && flag !== '' ? flag === '1' : !(await $.env.get('KITH_PERSON'))
     for (const [name, dir] of Object.entries(installed)) {
       const file = `${dir}/agent.md`
       if (!(await $.fs.exists(file))) continue
@@ -185,6 +213,13 @@ export const register: Register = (on, options) => {
           ? fill(rendered, kith, name, pkg.dir)
           : `${fill(body, kith, name)}\n${fill(protocol, kith, name)}`,
         ...(fields.model ? { model: fields.model } : {}),
+        ...(isOwner
+          ? await ownPermissions($, kith, name, [
+              lifeOf(name, kith), lifeOf(name, kith, true),
+              `${dir}/skills/learned`, ...(agentsReal ? [`${agentsReal}/${name}/role/skills/learned`] : []),
+              `${state || kith}/projects`, ...(stateReal ? [`${stateReal}/projects`] : []),
+            ])
+          : {}),
       })
     }
     await $.command.register({
@@ -257,13 +292,20 @@ export const register: Register = (on, options) => {
     const memory = (await $.fs.exists(memoryFile)) ? await $.fs.read(memoryFile) : ''
     const today = new Date().toISOString().slice(0, 10)
 
+    // The helper's report is the last thing it says: the session file goes first.
+    const sessionFile = project ? `${lifeOf(agent, kith)}/memory/sessions/${project}.md` : ''
     const prompt =
       `<session project="${project || 'none'}"${parents ? ` parents="${parents}"` : ''} cwd="${cwd}" date="${today}"/>\n` +
-      `<long-term-memory path="${memoryFile}">\n${memory}\n</long-term-memory>\n\n${task}`
+      `<long-term-memory path="${memoryFile}">\n${memory}\n</long-term-memory>\n\n${task}` +
+      (sessionFile
+        ? `\n\n(Before your final report, write ${sessionFile}: task, state, next step, open questions; max 30 lines. ` +
+          'Your final message is what the caller receives: make it the report.)'
+        : '')
 
+    const startedMs = Date.now()   // before the spawn: a spawn that waits for the run must not date its files before it
     const started = await next({ ...e, prompt })
     if (started.agentId) {
-      spawned.set(started.agentId, { agent, project, startedMs: Date.now(), isNudged: false })
+      spawned.set(started.agentId, { agent, project, isNamed: !!named, cwd, task, startedMs })
       const effort = agentEffort.get(agent)
       if (effort) runningEffort.set(started.agentId, effort)
     }
@@ -277,25 +319,60 @@ export const register: Register = (on, options) => {
     return yield* next({ ...e, effort: effort as typeof e.effort })
   })
 
-  // The session file is how the next call picks up; ask once if it wasn't written.
+  // The session file is how the next call picks up. Never block here: a second turn would make the nudge's answer the
+  // helper's last message, which is what the caller gets as its report. If the helper didn't write the file, write a short
+  // note from its last message. The project is resolved now, not at spawn (a rename in between), and a helper resumed with
+  // SendMessage is checked against its resume, not its first start.
   on('classic.SubagentStop', async ($, e, next) => {
+    // A helper that stops without a turn.complete still answers a waiting invoke.
+    const waiter = waiting.get(e.agent_id)
+    if (waiter) {
+      waiting.delete(e.agent_id)
+      waiter(e.last_assistant_message ?? '')
+    }
     const run = spawned.get(e.agent_id)
-    if (!run || !run.project || run.isNudged || e.stop_hook_active) return next(e)
+    if (!run) return next(e)
     const kith = await kithRoot($, (options.kith_path || options.hq_path))
     if (!state) state = (await kithPaths($, kith)).KITH_STATE
-    const file = `${lifeOf(run.agent, kith)}/memory/sessions/${run.project}.md`
-    const isWritten = (await $.fs.exists(file)) && (await $.fs.stat(file)).mtimeMs >= run.startedMs
-    if (isWritten) {
-      spawned.delete(e.agent_id)
-      runningEffort.delete(e.agent_id)
-      return next(e)
+    let project = run.project
+    if (!run.isNamed) {
+      const found = await $.process.run([`${kith}/bin/project-id`, run.cwd], { timeoutMs: 10_000 })
+      if (found.exitCode === 0 && found.stdout.trim()) project = found.stdout.trim()
     }
-    run.isNudged = true
-    return {
-      block:
-        `Before you finish: write ${file} (task, state, next step, open questions; max 30 lines), ` +
-        'append any decisions, and update project or long-term memory if you learned something durable.',
+    // Done with this run; a helper resumed with SendMessage comes through agent.spawn again under the same id.
+    spawned.delete(e.agent_id)
+    runningEffort.delete(e.agent_id)
+    const startedMs = run.startedMs
+    if (!project) return next(e)
+    const file = `${lifeOf(run.agent, kith)}/memory/sessions/${project}.md`
+    const exists = await $.fs.exists(file)
+    // Written when any of the agent's session files changed during the run (it may have used another project's name).
+    const dir = `${lifeOf(run.agent, kith)}/memory/sessions`
+    for (const f of (await $.fs.exists(dir)) ? await $.fs.list(dir) : []) {
+      if (f.name.endsWith('.md') && f.mtimeMs >= startedMs) return next(e)
     }
+    const date = new Date().toISOString().slice(0, 10)
+    const last = (e.last_assistant_message ?? '').trim().slice(0, 3000)
+    const note =
+      `# ${run.agent} on ${project}, ${date} (written by the kith plugin: the agent did not write its session file)\n\n` +
+      `Task: ${run.task.replace(/\s+/g, ' ').trim().slice(0, 400)}\n\nLast report:\n${last || '(none)'}\n`
+    await $.fs.write(file, exists ? `${(await $.fs.read(file)).trimEnd()}\n\n${note}` : note)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // A subagent's report, for mcp__kith__invoke below.
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId !== undefined) {
+      const wait = waiting.get(e.agentId)
+      if (wait) {
+        waiting.delete(e.agentId)
+        wait(e.answer)
+      } else {
+        reports.set(e.agentId, e.answer)
+        if (reports.size > 32) reports.delete(reports.keys().next().value as string)
+      }
+    }
+    return next(e)
   }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'kith' }, async ($, e) => {
@@ -346,10 +423,12 @@ export const register: Register = (on, options) => {
       description: `kith ${input.agent}`,
       prompt,
     })
-    return {
-      result: started.deny
-        ? `kith: could not start ${input.agent}: ${started.deny}`
-        : `kith:${input.agent} started (agent ${started.agentId}); its report arrives when it finishes.`,
-    }
+    if (started.deny) return { result: `kith: could not start ${input.agent}: ${started.deny}` }
+    // The answer is the subagent's turn.complete: the call waits for it and returns the report.
+    const id = started.agentId
+    const early = reports.get(id)
+    reports.delete(id)
+    const report = early ?? (await new Promise<string>((resolve) => waiting.set(id, resolve)))
+    return { result: report || `kith:${input.agent} finished without a report.` }
   }).catch(() => ({ result: 'kith: invoke failed inside the kith plugin.' }))
 }

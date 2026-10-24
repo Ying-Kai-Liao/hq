@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# kith-ask-check — `kith ask --bg` returns an id at once and `kith ask --wait <id>` collects the answer and exit code.
+# kith-ask runs from a copy of the kernel with a stub bin/kith (a slow agent that fails for one task), so no real agent runs.
+#
+#   kernel/tests/kith-ask-check     a few seconds; exits 1 when a check fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-ask-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith KITH_STATE=$T/state
+unset KITH_PERSON KITH_AGENT HQ_HOME HQ_STATE KITH_RESUME
+mkdir -p "$HOME" "$KITH_STATE" "$T/k/bin"
+ln -s "$KERNEL/lib" "$T/k/lib"
+cp "$KERNEL/bin/kith-ask" "$T/k/bin/kith-ask"
+cat > "$T/k/bin/kith" <<'STUB'
+#!/bin/sh
+# stub: kith <agent> [opts] -- <task>; answers like KITH_OUTPUT=json
+for last; do :; done
+sleep 2
+if [ "$last" = "boom" ]; then echo "agent failed" >&2; exit 1; fi
+printf '{"result":"answer to: %s","session_id":"s1","total_cost_usd":0.01}\n' "$last"
+STUB
+printf '#!/bin/sh\nexit 1\n' > "$T/k/bin/kith-live"   # no agent is live
+chmod +x "$T/k/bin/kith" "$T/k/bin/kith-live"
+ASK=$T/k/bin/kith-ask
+fails=0
+expect() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (got '$2', want '$3')"; fails=$((fails + 1)); fi; }
+idof() { sed -n 's/.* as \(bg-[A-Za-z0-9._-]*\);.*/\1/p'; }
+
+start=$(date +%s)
+out=$(cd "$T" && "$ASK" --bg echo "hello there")
+took=$(( $(date +%s) - start ))
+id=$(printf '%s' "$out" | idof)
+expect "--bg prints an id" "$([ -n "$id" ] && echo yes)" yes
+expect "--bg returns before the agent is done" "$([ "$took" -lt 2 ] && echo yes)" yes
+expect "--wait with no time to spare says not yet (exit 3)" "$("$ASK" --wait "$id" --timeout 0 >/dev/null 2>&1; echo $?)" 3
+expect "--wait collects the answer" "$("$ASK" --wait "$id" --timeout 30 2>/dev/null)" "answer to: hello there"
+expect "--wait twice gives it again" "$("$ASK" --wait "$id" --timeout 30 2>/dev/null)" "answer to: hello there"
+
+id2=$(cd "$T" && "$ASK" echo --bg boom | idof)
+expect "a second --bg gets its own id" "$([ -n "$id2" ] && [ "$id2" != "$id" ] && echo yes)" yes
+"$ASK" --wait "$id2" --timeout 30 >/dev/null 2>"$T/err"; code=$?
+expect "a failed run: exit code passes through" "$code" 1
+expect "a failed run: its stderr is shown" "$(grep -c 'agent failed' "$T/err")" 1
+
+[ "$fails" = 0 ] && echo "all kith-ask checks passed" || { echo "$fails check(s) failed"; exit 1; }

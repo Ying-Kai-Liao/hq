@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""kith-helper-allow DIR... — PreToolUse hook of a specialist that runs as a helper subagent in an owner's session.
+
+Reads the hook input on stdin. A Write, Edit or NotebookEdit whose file sits under one of the DIRs (the helper's own
+memory, files and learned skills, and the projects folder; symlinks resolved on both sides) is allowed outright, so a
+helper keeps its own notes whatever the calling agent's permissions are. Anything else gets no answer and goes through the
+usual permission checks. It never denies, and the plugin registers it for the owner's sessions only.
+"""
+import json
+import os
+import sys
+
+
+def under(path, root):
+    return path == root or path.startswith(root.rstrip('/') + '/')
+
+
+def main(dirs):
+    try:
+        data = json.load(sys.stdin)
+    except ValueError:
+        return 0
+    tool_input = data.get('tool_input') or {}
+    target = tool_input.get('file_path') or tool_input.get('notebook_path')
+    if not isinstance(target, str) or not os.path.isabs(target):
+        return 0
+    real = os.path.realpath(target)
+    roots = {os.path.realpath(d) for d in dirs if d}
+    if any(under(real, r) for r in roots):
+        print(json.dumps({'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse', 'permissionDecision': 'allow',
+            'permissionDecisionReason': 'kith: a helper writes its own memory, files and notes'}}))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

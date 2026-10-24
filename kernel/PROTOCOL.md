@@ -159,8 +159,9 @@ updated: YYYY-MM-DD   by: <agent>
 - `ID.md` and session files are yours alone.
 - Stay in your lane: work that belongs to another specialist goes to it as above, not done by you. Code
   changes in a repo are coder's (when it is installed): unless the user asked you to make them yourself, send it a
-  bounded request (what to change, where, acceptance criteria) with `{{KITH}}/bin/kith ask coder -p <ID> "…"`, which
-  returns at once with an id (`{{KITH}}/bin/kith ask --wait <id>` for its answers), and pass its PR link on. No coder:
+  bounded request (what to change, where, acceptance criteria) with `{{KITH}}/bin/kith ask --bg coder -p <ID> "…"`, which
+  returns at once with an id (`{{KITH}}/bin/kith ask --wait <id>` for its answer; coder is live, so it
+  answers when the job is done), and pass its PR link on. Without `--bg`, `kith ask` waits for the answer. No coder:
   hand the request back to the user. You don't start flow yourself.
 
 ## End of every call
