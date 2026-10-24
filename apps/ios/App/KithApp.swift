@@ -90,6 +90,8 @@ private struct DebugHooks: ViewModifier {
     let app: AppStore
     /// The agent sheet demo shots (`-kithDemoScreens agent`, `agent-memory`, `agent-settings`).
     @State private var agentScreen: String?
+    /// The share sheet demo shots (`share-sheet`, `share-link`).
+    @State private var shareScreen: String?
 
     func body(content: Content) -> some View {
         content
@@ -100,6 +102,12 @@ private struct DebugHooks: ViewModifier {
                 } else {
                     DemoAgentSheet(store: store, screen: screen)
                 }
+            }
+        }
+        .kithSheet(isPresented: Binding(get: { shareScreen != nil }, set: { if !$0 { shareScreen = nil } })) {
+            if let screen = shareScreen, let computer = app.accounts.computers.first, let store = app.accounts.store(for: computer.id) {
+                ShareAgentSheet(store: store, agent: "ada", name: "Ada", people: PeopleStore.demo(),
+                                created: screen == "share-link" ? DemoScreens.demoInvite : nil)
             }
         }
         .overlay {
@@ -137,6 +145,11 @@ private struct DebugHooks: ViewModifier {
                     if let computer = app.accounts.computers.first {
                         app.accounts.selection = BotReference(accountId: nil, computerId: computer.id, botId: DemoScreens.chatBotId)
                     }
+                case "share-chat":
+                    if let computer = app.accounts.computers.first {
+                        app.accounts.selection = BotReference(accountId: nil, computerId: computer.id, botId: "ada")
+                    }
+                case "share-sheet", "share-link": shareScreen = screen
                 case "agent", "agent-memory", "agent-settings", "call", "incoming-call": agentScreen = screen
                 default: break // "crew", "crew-typing" and "board" (BotListView opens its Board tab) are the root
                 }

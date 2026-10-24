@@ -183,11 +183,17 @@ private struct GuestPromptTarget: Identifiable {
 private struct ChatScreen: View {
     let ref: BotReference
     @Environment(AccountStore.self) private var accounts
+    @State private var sharing = false
 
     var body: some View {
         if let store = accounts.store(for: ref.computerId) {
-            ThreadView(botId: ref.botId)
+            ThreadView(botId: ref.botId, onShare: canShare(store) ? { sharing = true } : nil)
                 .environment(store)
+                .kithSheet(isPresented: $sharing) {
+                    if let bot = store.bots[ref.botId], let agent = bot.hqAgent {
+                        ShareAgentSheet(store: store, agent: agent, name: bot.name)
+                    }
+                }
         } else {
             VStack(spacing: 0) {
                 ScreenHeader { BackButton { accounts.selection = nil } } title: { EmptyView() } trailing: { EmptyView() }
@@ -196,6 +202,13 @@ private struct ChatScreen: View {
             .background(Palette.background)
             .hidesSystemNavigationBar()
         }
+    }
+
+    /// Share is the owner's, on a connected computer, for one agent (not a group chat).
+    private func canShare(_ store: BotStore) -> Bool {
+        guard accounts.role(for: ref.computerId) == .owner, store.connection == .online,
+              let bot = store.bots[ref.botId], !bot.isGroup else { return false }
+        return AgentShare.canShare(hqAgent: bot.hqAgent)
     }
 }
 

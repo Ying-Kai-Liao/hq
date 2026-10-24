@@ -13,6 +13,11 @@ public enum DemoScreens {
         return args[i + 1]
     }()
     public static var active: Bool { name != nil }
+    /// The invite the `share-link` demo shows.
+    public static var demoInvite: CreatedInvite? {
+        let json: [String: Any] = ["inviteId": "i2", "link": "https://kith.app/join#demo-invite-token", "expiresAt": 0, "personId": "lee"]
+        return (try? JSONSerialization.data(withJSONObject: json)).flatMap { try? JSONDecoder().decode(CreatedInvite.self, from: $0) }
+    }
     /// The bot the `chat` demo opens.
     public static let chatBotId = "coder"
     /// What the Crew dock starts with: `crew-typing` shows it mid-search.
@@ -54,6 +59,7 @@ extension AccountStore {
                 "id": id, "name": name, "kind": kind, "rev": 1, "status": status, "unread": unread,
                 "members": members, "pinned": pinned, "lastAt": now - minutesAgo * 60_000, "avatarSource": avatar,
             ]
+            if kind == "agent" { json["hqAgent"] = id }
             if !lanes.isEmpty { json["workingLanes"] = lanes.map { ["chat": id, "thread": $0] } }
             if let last { json["lastMessage"] = last }
             return (try? JSONSerialization.data(withJSONObject: json)).flatMap { try? JSONDecoder().decode(Bot.self, from: $0) }
@@ -133,7 +139,7 @@ extension AccountStore {
         }
         let minute: Int64 = 60_000
         if let coder: Bot = decode([
-            "id": id, "name": "Coder", "kind": "agent", "rev": 1, "status": "idle", "unread": 0, "members": [String](),
+            "id": id, "name": "Coder", "kind": "agent", "hqAgent": id, "rev": 1, "status": "idle", "unread": 0, "members": [String](),
             "pinned": false, "lastAt": now - 2 * minute, "avatarColor": "kith:sky", "backend": "claude", "cwd": "/Users/kai/kith",
             "folder": ["kind": "project", "project": "kith", "path": "/Users/kai/kith", "name": "kith"],
         ]) { store.bots[id] = coder }
@@ -205,4 +211,38 @@ extension AccountStore {
         store.threadFolders.merge(threads) { $1 }
     }
 }
+#endif
+
+#if DEBUG
+/// The `share-*` demos: a fixed People list for the share sheet, so nothing talks to a host.
+extension PeopleStore {
+    @MainActor
+    public static func demo() -> PeopleStore {
+        let store = PeopleStore(host: { DemoPeopleHost() })
+        return store
+    }
+}
+
+private struct DemoPeopleHost: PeopleHost {
+    func people() async throws -> [HostPerson] {
+        [HostPerson(personId: "maya", name: "Maya", agents: ["ada": .guest], joined: true),
+         HostPerson(personId: "sam", name: "Sam", agents: ["ada": .member, "remy": .guest], joined: true),
+         HostPerson(personId: "lee", name: "Lee", agents: ["ada": .guest], joined: false, openInvites: 1)]
+    }
+    func invites() async throws -> [HostInvite] {
+        let soon = Int64((Date().timeIntervalSince1970 + 20 * 3600) * 1000)
+        let json: [String: Any] = ["inviteId": "i1", "personId": "lee", "agents": ["ada": "guest"], "createdAt": 0, "expiresAt": soon]
+        return [try JSONDecoder().decode(HostInvite.self, from: JSONSerialization.data(withJSONObject: json))]
+    }
+    func createInvite(name: String?, personId: String?, agents: [String: InviteRole]) async throws -> CreatedInvite {
+        let json: [String: Any] = ["inviteId": "i2", "link": "https://kith.app/join#demo-invite-token", "expiresAt": 0]
+        return try JSONDecoder().decode(CreatedInvite.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+    func revokeInvite(_ inviteId: String) async throws {}
+    func setPersonAccess(personId: String, agents: [String: InviteRole]?, projects: [String]?) async throws {}
+    func revokePerson(_ personId: String) async throws {}
+    func audit(since: Date?, personId: String?) async throws -> [AuditRow] { [] }
+    func projectList() async throws -> [HQProject] { [] }
+}
+
 #endif
