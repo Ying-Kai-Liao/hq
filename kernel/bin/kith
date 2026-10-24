@@ -493,6 +493,9 @@ plugins=$(claude plugin list --json 2>/dev/null || echo '[]')
 # Memory checks: before a Write/Edit/MultiEdit of a memory file the host's `kith memory hook pre` runs kith-mem's
 # checks and blocks a refused write with the reason; after it, `post` records the version. Files that aren't memory
 # return at once. Without the kith binary (a kernel checkout never built) writes still go through, unchecked.
+# Room notes also get a write-time record of who was in the room (bin/kith-room-ledger); it never blocks a write.
+ledger_pre=$(printf '%q pre --agent %q --home %q || true' "$KITH/bin/kith-room-ledger" "$agent" "$home")
+ledger_post=${ledger_pre/ pre --agent / post --agent }
 mem_pre="" mem_post=""
 if mbin=$(python3 "$KITH/lib/kith_paths.py" --bin) && [[ -n $mbin ]]; then
   mem_pre=$(printf '%q memory hook pre --agent %q --state %q --agents %q' "$mbin" "$agent" "$KITH_STATE" "$KITH_AGENTS")
@@ -508,7 +511,7 @@ else
 fi
 [[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
   || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
-fill < "$pkg/settings.json" | P_OWNER=$p_owner API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
+fill < "$pkg/settings.json" | P_OWNER=$p_owner API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post LEDGER_PRE=$ledger_pre LEDGER_POST=$ledger_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
 $learned
 $state_projects" python3 -c '
 import json, os, re, sys
@@ -518,7 +521,7 @@ s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
 # Lists the session in the apps when it is a listable terminal run (kith-sessions says which); never fails the session.
 s["hooks"]["SessionStart"].append(
     {"hooks": [{"type": "command", "command": os.environ["SESSIONS_HOOK"], "timeout": 5}]})
-for event, key in (("PreToolUse", "MEM_PRE"), ("PostToolUse", "MEM_POST")):
+for event, key in (("PreToolUse", "MEM_PRE"), ("PostToolUse", "MEM_POST"), ("PreToolUse", "LEDGER_PRE"), ("PostToolUse", "LEDGER_POST")):
     if os.environ[key]:
         s["hooks"].setdefault(event, []).append(
             {"matcher": "Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": os.environ[key], "timeout": 10}]})
@@ -554,7 +557,7 @@ if os.environ["P_OWNER"] == "0":
     machine = both(os.environ["KITH_MACHINE"])
     deny_read = []
     for r in dict.fromkeys(both(os.environ["KITH_STATE"]) + machine):
-        deny_read += ["%s/%s" % (r, f) for f in ("secrets", "serve", "browsers", "bridge", "index")]
+        deny_read += ["%s/%s" % (r, f) for f in ("secrets", "serve", "browsers", "bridge", "index", "room-ledger")]
     for p in both(os.environ["KITH_SECRETS"]):   # the older layout keeps two files among the machine things
         deny_read += [p + "/env", p + "/auth.json"] if p in machine else [p]
     if os.environ.get("KITH_SERVE_HOME"):
@@ -759,7 +762,7 @@ emit_launch() {
   [[ $harness == claude ]] && settings=$(cat "$runs/$$.settings.json")
   grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null && no_slash=false || no_slash=true
   [[ $harness == claude ]] || allowed_tools=""
-  ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_RUN_TOKEN KITH_RUN_SOCKET KITH_ROOM KITH_ROOM_MEMBERS KITH_VIA KITH_PROVIDER KITH_ACCOUNT KITH_OWNER CLAUDE_CODE_ARTIFACT $backup_cfg_var $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
+  ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_RUN_TOKEN KITH_RUN_SOCKET KITH_ROOM KITH_ROOM_MEMBERS KITH_ROOM_OWNER_ONLY KITH_VIA KITH_PROVIDER KITH_ACCOUNT KITH_OWNER CLAUDE_CODE_ARTIFACT $backup_cfg_var $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
     ADD_DIRS=$add_dirs ALLOWED=$allowed_tools SETTINGS=$settings MCP=$(merged_mcp) PROMPT=$prompt PERM_MODE=$perm_mode NO_SLASH=$no_slash CALL_MODEL=$call_model \
     BACKUP=$backup HARNESS=$harness KITH_LIB=$KITH/lib \
     python3 -c '

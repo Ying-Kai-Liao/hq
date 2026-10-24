@@ -287,13 +287,19 @@ def caller():
     # A group room, or a channel run the host has not named a room for yet: shared only, for everyone, owner too, until
     # the room's members can be resolved (then the intersection of their sets, and room:<id> with it).
     if room or (os.environ.get('KITH_VIA') or '') in GROUP_VIAS:
-        members = [m.strip().lower() for m in (os.environ.get('KITH_ROOM_MEMBERS') or '').split(',')]
-        members = [m for m in members if kith_facets.ID.match(m)]
-        if not members or not room or who['audiences'] is None:
+        owner = who['audiences'] is None
+        members = kith_facets.env_members('owner' if owner else 'person')
+        if members is None or not room or not kith_facets.ID.match(room):
             return {**who, 'audiences': ['shared']}
+        if owner:
+            # known members, so the room's notes are in play: the owner's own set cut to what every member may see
+            # (no member at all: nothing is cut but other people's notes)
+            sets = [_member_audiences(m, who['agent']) for m in members]
+            base = {'owner', 'shared', 'room:' + room}
+            return {**who, 'audiences': sorted(base.intersection(*sets)), 'present': members}
         # everyone present reads the answer: the asker's set cut to what every member may also see
         sets = [_member_audiences(m, who['agent']) for m in members]
-        return {**who, 'audiences': sorted(set(who['audiences']).intersection(*sets))}
+        return {**who, 'audiences': sorted(set(who['audiences']).intersection(*sets)), 'present': members}
     return who
 
 
@@ -328,7 +334,8 @@ def _caller():
     if r.get('owner'):
         return {'who': 'owner', 'agent': agent, 'audiences': None}
     rooms = [x for x in r.get('rooms', []) if isinstance(x, str) and kith_facets.ID.match(x)]
-    return {**nobody, 'who': pid, 'audiences': ['shared', 'person:' + pid, *('room:' + x for x in rooms)]}
+    return {**nobody, 'who': pid, 'present': [pid],
+            'audiences': ['shared', 'person:' + pid, *('room:' + x for x in rooms)]}
 
 
 # ---- the query
@@ -339,10 +346,30 @@ def fts_query(words):
     return ' '.join('"%s"' % w.replace('"', '""') for w in words.split())
 
 
+ROOM_NOTE = re.compile(r'/memory/(rooms/([^/]+)/.+)$')
+
+
+def _room_note_ok(who, aud, src, ledgers):
+    """A room note (audience room:<its folder>) reaches `who` only if everyone present was in the room when it was
+    written (the ledger, lib/kith_facets.py). Anyone but the owner outside a group counts as themselves alone."""
+    m = ROOM_NOTE.search(src)
+    if not m or aud != 'room:' + m.group(2):
+        return True   # not a room note, or one Tidy moved to another audience with the owner's approval
+    present = who.get('present')
+    if present is None:
+        return who['audiences'] is None   # the owner outside any group, or a caller we can't place: owner only
+    key = (who['agent'], m.group(2))
+    if key not in ledgers:
+        ledgers[key] = kith_facets.read_ledger(*key)
+    return kith_facets.room_note_ok(ledgers[key], m.group(1), present)
+
+
 def recall(db, who, query, project='', room='', thread='', tier='2', limit=8):
-    """Hits as dicts. The audience and agent conditions come first in the WHERE; the flags only add to it."""
+    """Hits as dicts. The audience and agent conditions come first in the WHERE; the flags only add to it. Room notes
+    are then kept only where everyone present was in the room when they were written, so a few more rows are asked for."""
     if who['audiences'] == []:
         return []
+    want, limit = limit, min(limit * 4, 200)
     where, args, fwhere, fargs = [], [], [], []
     if who['audiences'] is not None:
         marks = ','.join('?' * len(who['audiences']))
@@ -376,6 +403,8 @@ def recall(db, who, query, project='', room='', thread='', tier='2', limit=8):
         rows = [(*r, r[8]) for r in db.execute(
             "SELECT %s FROM index_rows r WHERE %s AND r.text LIKE ? ESCAPE '\\' LIMIT ?" % (cols, base),
             (*args, like, limit)).fetchall()]
+    ledgers = {}
+    rows = [r for r in rows if _room_note_ok(who, r[2], r[5], ledgers)][:want]
     return [{'kind': kind, 'tier': 3 if kind == 'trajectory' else 2, 'agent': agent, 'audience': aud, 'room': rm,
              'projects': json.loads(pj or '[]'),
              'link': '%s#L%s' % (src, entry) if kind == 'note' else 'kith://thread/%s#entry=%s' % (tid, entry),

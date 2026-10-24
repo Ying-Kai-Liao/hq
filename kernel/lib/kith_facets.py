@@ -253,9 +253,88 @@ def _tag(path, text, scope):
         path, ' scope="%s"' % scope if scope else '', text.rstrip('\n'))
 
 
-def load_memory(agent, home, person_file, reader, room, projects, cap=LOAD_CAP, members=None):
+# ---- the room-note ledger: who was in the room when a note was written ----
+#
+# A room note (memory/rooms/<room>/...) loads or is recalled only where everyone present was there when it was written.
+# The record lives in the state folder (<state>/room-ledger/<agent>/<room>.json: note path under memory/ -> sorted person
+# ids, the owner implied), written by the kith-room-ledger hook of the run itself from the host's environment, never from
+# the note's own frontmatter, and a guest's sandbox can neither read nor write the state folder's ledger. A note with no
+# record (written before this, by a shell, or in an unknown room) is owner-only: it loads only where nobody but the owner
+# is present. Only a Kith app group the host read just now can be owner-only (KITH_ROOM_OWNER_ONLY=1, set by the host
+# for the owner's own runs); every other missing or empty member list means unknown, which is shared only.
+
+LEDGER_DIR = 'room-ledger'
+CHANNEL_VIAS = ('telegram', 'slack', 'discord')
+
+
+def env_members(kind, env=None):
+    """The members of this run's group room from the environment: None = unknown (shared only), [] = nobody but the
+    owner, else the person ids. The owner-only marker counts for an owner run only (a person's run that sets it is not
+    widened), never beside a member list, and never in a channel run."""
+    env = os.environ if env is None else env
+    raw = env.get('KITH_ROOM_MEMBERS', '')
+    ids = [m for m in (x.strip().lower() for x in raw.split(',')) if ID.match(m)]
+    if ids:
+        return ids
+    if (kind == 'owner' and not raw.strip() and env.get('KITH_ROOM_OWNER_ONLY') == '1'
+            and env.get('KITH_VIA', '') not in CHANNEL_VIAS):
+        return []
+    return None
+
+
+def ledger_file(agent, room, state=None):
+    if not (ID.match(agent or '') and ID.match(room or '')):
+        return None
+    if state is None:
+        sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+        from kith_paths import paths
+        state = paths()['KITH_STATE']
+    return Path(state) / LEDGER_DIR / agent / (room + '.json')
+
+
+def read_ledger(agent, room, state=None):
+    """{note path under memory/: [person ids]}; an unreadable ledger is an empty one, so every note is owner-only."""
+    try:
+        import json
+        d = json.loads(ledger_file(agent, room, state).read_text())
+        return {k: sorted(v) for k, v in d.items() if isinstance(k, str) and isinstance(v, list)}
+    except Exception:
+        return {}
+
+
+def room_note_ok(ledger, rel, present):
+    """May a note at `rel` reach these people (person ids, the owner implied)? Only if each was in the room when it was
+    last written; a note with no record was the owner's alone."""
+    return set(present) <= set(ledger.get(rel, ()))
+
+
+def record_room_write(agent, room, rel, present, existed, state=None):
+    """Narrow the record of a room note to `present`. A note that already existed with no record is first set to the
+    owner alone, so a later edit can't widen what was written before this ledger. Under a lock; any failure raises."""
+    import fcntl, json
+    f = ledger_file(agent, room, state)
+    f.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with open(str(f) + '.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            d = json.loads(f.read_text())
+        except (OSError, ValueError):
+            d = {}
+        if rel in d:
+            d[rel] = sorted(set(d[rel]) & set(present))
+        elif existed:
+            d[rel] = []
+        else:
+            d[rel] = sorted(set(present))
+        tmp = f.with_name(f.name + '.tmp%d' % os.getpid())
+        tmp.write_text(json.dumps(d, indent=1))
+        os.replace(tmp, f)
+
+
+def load_memory(agent, home, person_file, reader, room, projects, cap=LOAD_CAP, members=None, ledger=None):
     """The tier-1 block for a run: {'block', 'loaded', 'more', 'withheld'}. Fixed order: about you, the agent's memory
-    with the person, room notes (newest first), project notes (index first, then newest). Over `cap` characters the
+    with the person, room notes (newest first), project notes (index first, then newest). In a group room with `ledger` given (main
+    always gives one), a room note loads only if every member was in the room when it was written. Over `cap` characters the
     oldest room and project notes go first; about you and the person's memory never do. `withheld` is set in a group
     room when the asker's own 1:1 would have loaded notes that were left out here."""
     mem = Path(home) / 'memory'
@@ -280,7 +359,11 @@ def load_memory(agent, home, person_file, reader, room, projects, cap=LOAD_CAP, 
             continue   # as before: the owner sees the shared part only when there is one
         cands.append(('memory', str(mem / rel), t, 0, facets_for(rel, agent, t), scope, True))
     if room and ID.match(room):
+        ids = None if members is None else [m.get('id', '') for m in members]
         for rel, t, mt, f in sorted(_notes(mem, 'rooms/' + room, agent), key=lambda n: -n[2]):
+            if group and ledger is not None and f['audience'] == 'room:' + room and not (
+                    ids is not None and room_note_ok(ledger, rel, ids)):
+                continue   # not everyone here was there when it was written (a Tidy grant changes the audience, so it skips this)
             cands.append(('room', str(mem / rel), t, mt, f, 'room:' + room, False))
     for p in projects:
         if ID.match(p):
@@ -353,10 +436,12 @@ def main(argv):
     if not room and a.kind != 'guest':
         # A channel group chat sets no room: like `kith recall`, a group VIA without one is a group (shared only)
         room = '?' if os.environ.get('KITH_VIA') in ('telegram', 'slack', 'discord', 'group') else own_room(a.agent, reader)
-    # KITH_ROOM_MEMBERS: person ids in this group room; each is in the room, so it counts in the intersection
-    ids = [m.strip().lower() for m in os.environ.get('KITH_ROOM_MEMBERS', '').split(',')]
-    members = [{'kind': 'person', 'id': m, 'rooms': [room]} for m in ids if ID.match(m)] or None
-    out = load_memory(a.agent, a.home, a.person_file, reader, room, [a.project] if a.project else [], cap, members)
+    # KITH_ROOM_MEMBERS: person ids in this group room; each is in the room, so it counts in the intersection. Missing is
+    # unknown (shared only); KITH_ROOM_OWNER_ONLY (the host's, owner runs only) is a known empty set.
+    ids = env_members(a.kind)
+    members = None if ids is None else [{'kind': 'person', 'id': m, 'rooms': [room]} for m in ids]
+    ledger = read_ledger(a.agent, room) if room not in ('', '?') and ID.match(room) else {}
+    out = load_memory(a.agent, a.home, a.person_file, reader, room, [a.project] if a.project else [], cap, members, ledger)
     attrs = ' loaded="%d"%s%s' % (out['loaded'], ' more="%d"' % out['more'] if out['more'] else '',
                                   ' room="group"' if out['group'] else '')
     if a.json:
