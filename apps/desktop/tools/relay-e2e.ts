@@ -16,12 +16,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { requestAccess } from '../src/main/relay/access.ts'
+import { requestAccess } from '../src/shared/relay-core/access.ts'
 import {
   FrameOpener, FrameSealer, b64url, boxKey, channelKeys, computerIdOf, hs1Input, sasCode, signatureHeader, signerFromSeed, transcriptHash, unb64url, verify,
   type Signer,
-} from '../src/main/relay/crypto.ts'
-import { dialWebSocket, RelayLink, type Socket } from '../src/main/relay/link.ts'
+} from '../src/shared/relay-core/crypto.ts'
+import { RelayLink, type Socket } from '../src/shared/relay-core/link.ts'
+import { dialWebSocket, probeUpgrade } from '../src/main/relay/dial.ts'
 
 const CLOUD_DIR = fileURLToPath(new URL('../../../serve/cloud', import.meta.url))
 const PORT = Number(process.env.KITH_E2E_RELAY_PORT ?? 8791)
@@ -74,7 +75,7 @@ async function cloud(method: string, path: string, o: { token?: string; signer?:
   const headers: Record<string, string> = {}
   if (o.token) headers.Authorization = `Bearer ${o.token}`
   if (o.body !== undefined) headers['Content-Type'] = 'application/json'
-  if (o.signer) headers['Kith-Sig'] = signatureHeader(o.signer, { method, authority: `127.0.0.1:${PORT}`, pathAndQuery: path, body: bytes })
+  if (o.signer) headers['Kith-Sig'] = await signatureHeader(o.signer, { method, authority: `127.0.0.1:${PORT}`, pathAndQuery: path, body: bytes })
   const res = await fetch(CLOUD + path, { method, headers, body: bytes.length ? bytes : undefined })
   return { status: res.status, body: (await res.json()) as any }
 }
@@ -103,8 +104,8 @@ class FakeMac {
   async connect(devices: { dk: string; grant: string | null }[]) {
     this.close()
     const url = `${CLOUD.replace('http', 'ws')}/v1/relay/host?v=1`
-    const header = signatureHeader(this.sign, { method: 'GET', authority: `127.0.0.1:${PORT}`, pathAndQuery: '/v1/relay/host?v=1' })
-    const ws = dialWebSocket(url, { 'Kith-Sig': header })
+    const header = await signatureHeader(this.sign, { method: 'GET', authority: `127.0.0.1:${PORT}`, pathAndQuery: '/v1/relay/host?v=1' })
+    const ws = await dialWebSocket(url, { sig: header })
     this.ws = ws
     const acked = new Promise<void>((resolve) => {
       ws.onmessage = (text) => {
@@ -115,15 +116,15 @@ class FakeMac {
       }
     })
     await new Promise<void>((resolve) => (ws.onopen = () => resolve()))
-    this.sendAcl(devices)
+    await this.sendAcl(devices)
     await acked
     ws.send(JSON.stringify({ t: 'ready' }))
   }
 
-  sendAcl(devices: { dk: string; grant: string | null }[]) {
+  async sendAcl(devices: { dk: string; grant: string | null }[]) {
     this.aclVer += 1
     const bytes = Buffer.from(JSON.stringify({ v: 1, computerId: this.computerId, ver: this.aclVer, devices, offers: [] }))
-    this.ws!.send(JSON.stringify({ t: 'acl', d: b64url(bytes), sig: b64url(this.sign.sign(bytes)) }))
+    this.ws!.send(JSON.stringify({ t: 'acl', d: b64url(bytes), sig: b64url(await this.sign.sign(bytes)) }))
   }
 
   close() {
@@ -144,7 +145,7 @@ class FakeMac {
     for (const [link, id] of this.subs) this.say(link, { id, ev })
   }
 
-  private onData(link: string, m: any) {
+  private async onData(link: string, m: any) {
     const l = this.links.get(link)
     if (!l) return
     if (m.t === 'hello') {
@@ -158,11 +159,11 @@ class FakeMac {
       const keys = channelKeys(eph.priv, ekD, th)
       l.open = new FrameOpener(keys.d2h)
       l.seal = new FrameSealer(keys.h2d)
-      this.to(link, { t: 'welcome', v: 1, ek: b64url(eph.pub), sig: b64url(this.sign.sign(th)) })
+      this.to(link, { t: 'welcome', v: 1, ek: b64url(eph.pub), sig: b64url(await this.sign.sign(th)) })
     } else if (m.t === 'f' && l.open) {
       const whole = l.open.open(m.c, unb64url(m.d)!)
       if (!whole) return
-      const inner = JSON.parse(whole.toString('utf8'))
+      const inner = JSON.parse(Buffer.from(whole).toString('utf8'))
       if (inner.cancel) return void this.subs.delete(link)
       if (inner.sub === 'events') {
         this.subs.set(link, inner.id)
@@ -202,7 +203,7 @@ async function main() {
   const claimInput = ['kith/claim/v1', claim.body.claimId, claim.body.nonce, 'user_desktop_owner', mac.computerId, boxKeyB64].join('\n')
   const done = await cloud('POST', `/v1/claims/${claim.body.claimId}/complete`, {
     token: owner,
-    body: { computerId: mac.computerId, signKey: b64url(mac.sign.publicKey), boxKey: boxKeyB64, name: 'Test Mac', platform: 'macos', device: 'e2e', version: '0.1.0', sig: b64url(mac.sign.sign(Buffer.from(claimInput))) },
+    body: { computerId: mac.computerId, signKey: b64url(mac.sign.publicKey), boxKey: boxKeyB64, name: 'Test Mac', platform: 'macos', device: 'e2e', version: '0.1.0', sig: b64url(await mac.sign.sign(Buffer.from(claimInput))) },
   })
   check(done.status === 200, 'the owner account claimed the Mac')
 
@@ -241,8 +242,8 @@ async function main() {
   check(grant, 'the grant names the desktop key')
 
   // The Mac publishes the new ACL; the desktop connects over the relay.
-  mac.sendAcl([{ dk: b64url(desktop.publicKey), grant: grant.grantId }])
-  const link = new RelayLink({ cloudURL: CLOUD, computerId: mac.computerId, hostSignKey: b64url(mac.sign.publicKey), signer: desktop })
+  await mac.sendAcl([{ dk: b64url(desktop.publicKey), grant: grant.grantId }])
+  const link = new RelayLink({ cloudURL: CLOUD, computerId: mac.computerId, hostSignKey: b64url(mac.sign.publicKey), signer: desktop, dial: dialWebSocket, probe: probeUpgrade })
   const hello = (await link.call('hello', {}, 15_000)) as { name: string }
   check(hello.name === 'Test Mac', 'hello answered end to end over the relay')
 
@@ -272,7 +273,7 @@ async function main() {
   check(((await link.call('hello', {}, 15_000)) as { name: string }).name === 'Test Mac', 'the channel comes back when the Mac does')
 
   // The Mac drops the device from its ACL: the relay closes the socket with 4003 and the client says so.
-  mac.sendAcl([])
+  await mac.sendAcl([])
   await waitFor('access removed', () => link.state.kind === 'unauthorized')
   await link.call('hello', {}, 1000).then(
     () => check(false, 'removed'),

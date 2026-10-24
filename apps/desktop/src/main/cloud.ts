@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { app, ipcMain, safeStorage } from 'electron'
 import type { AccountService } from './account'
 import { isInviteProof } from '../shared/invite'
-import { signatureHeader as kithSig, type Signer } from './relay/crypto'
+import { signatureHeader as kithSig, type Signer } from '../shared/relay-core/crypto.ts'
 import type { CloudFailure, CloudResult } from '../shared/relay'
 
 /**
@@ -56,10 +56,10 @@ function publicFromSeed(seed: Buffer) {
 }
 
 /** The account's device key as the signer the relay client uses. */
-const signerOf = (id: Identity): Signer => ({ publicKey: Buffer.from(id.publicKey, 'base64url'), sign: (m) => sign(null, m, id.key) })
+const signerOf = (id: Identity): Signer => ({ publicKey: Buffer.from(id.publicKey, 'base64url'), sign: async (m) => sign(null, m, id.key) })
 
 /** `Kith-Sig: v=1,kid,ts,nonce,sig` over method, authority, path and the body's hash. */
-function signatureHeader(id: Identity, method: string, url: URL, body: Buffer) {
+async function signatureHeader(id: Identity, method: string, url: URL, body: Buffer) {
   return kithSig(signerOf(id), { method, authority: url.host, pathAndQuery: `${url.pathname || '/'}${url.search}`, body })
 }
 
@@ -86,7 +86,7 @@ export function registerCloud(account: AccountService): CloudAccess {
       return { ok: false, error: { status: 401, code: 'signedOut', message: error instanceof Error ? error.message : 'Sign in again.' } }
     }
     if (body !== undefined) headers['Content-Type'] = 'application/json'
-    if (signed) headers['Kith-Sig'] = signatureHeader(await identity(user.userId), method, url, payload)
+    if (signed) headers['Kith-Sig'] = await signatureHeader(await identity(user.userId), method, url, payload)
     try {
       const res = await fetch(url, { method, headers, body: body === undefined ? undefined : payload, signal: AbortSignal.timeout(20_000) })
       const text = await res.text()
