@@ -109,6 +109,49 @@ pub fn lock_host() -> Result<std::fs::File> {
     Ok(file)
 }
 
+/// How long a starting host waits for an exiting predecessor to release `host.lock` (launchd restarts it at once).
+pub const LOCK_WAIT: Duration = Duration::from_secs(10);
+
+/// A marker older than this is not a host that is leaving now (it crashed or the exit stalled).
+const EXITING_FRESH: Duration = Duration::from_secs(30);
+
+fn exiting_marker() -> PathBuf {
+    data_dir().join("host.exiting")
+}
+
+/// Called by a host right before it exits (watchdog or shutdown): tells a starting host that the lock is about
+/// to be freed, so it should wait instead of refusing. Best effort; the OS drops the lock with the process.
+pub fn mark_exiting() {
+    let _ = std::fs::write(exiting_marker(), std::process::id().to_string());
+}
+
+fn predecessor_is_exiting() -> bool {
+    let marker = exiting_marker();
+    let Ok(pid) = std::fs::read_to_string(&marker) else { return false };
+    pid.trim().parse::<u32>().is_ok_and(|pid| pid != std::process::id())
+        && std::fs::metadata(&marker)
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t.elapsed().is_ok_and(|age| age < EXITING_FRESH))
+}
+
+/// Like `lock_host`, but while the holder is marked as exiting (see `mark_exiting`) it retries every 100 ms for
+/// up to `wait`. A live holder (no fresh marker, or a marker from an older build) fails at once, and no host
+/// ever shares the lock. A stale marker is harmless: its process is gone so the lock is free, and taking the
+/// lock clears it.
+pub fn lock_host_within(wait: Duration) -> Result<std::fs::File> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match lock_host() {
+            Ok(lock) => {
+                let _ = std::fs::remove_file(exiting_marker());
+                return Ok(lock);
+            }
+            Err(error) if Instant::now() >= deadline || !predecessor_is_exiting() => return Err(error),
+            Err(_) => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+}
+
 fn run(cmd: &str, args: &[&str]) -> Result<()> {
     let ok = Command::new(cmd).args(args).status().with_context(|| format!("running {cmd}"))?.success();
     if !ok {
@@ -392,6 +435,27 @@ fn legacy(bin: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // One test: both cases use the process-wide host.lock, so they cannot run in parallel.
+    #[test]
+    fn a_live_holder_fails_a_start_at_once_but_an_exiting_one_is_waited_for() {
+        let held = lock_host().unwrap();
+        let started = Instant::now();
+        assert!(lock_host_within(Duration::from_secs(5)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        // The marker names another process, as a real predecessor's would.
+        std::fs::write(exiting_marker(), (std::process::id() + 1).to_string()).unwrap();
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            drop(held);
+        });
+        let started = Instant::now();
+        let lock = lock_host_within(Duration::from_secs(5)).unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(300));
+        assert!(!exiting_marker().exists());
+        releaser.join().unwrap();
+        drop(lock);
+    }
 
     fn temp_settings(contents: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("kith-settings-{}", uuid::Uuid::new_v4()));
