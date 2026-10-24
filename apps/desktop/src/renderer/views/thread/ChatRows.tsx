@@ -79,7 +79,7 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
       if (entry.data.connectionRequest) return <div className="chat-row group-start"><ConnectionRequestCard entry={entry} /></div>
       if (entry.data.handoff) return <div className="chat-row notice"><HandoffNotice entry={entry} card={entry.data.handoff} /></div>
       // Any notice that roots a thread (a bot guest's conversation) opens it like a message does.
-      return <div className="chat-row notice"><NoticeRow entry={entry} />{chip ? <div className="notice-thread-chip">{chip}</div> : null}</div>
+      return <div className="chat-row notice">{chip && entry.data.thread?.origin === 'bot' ? null : <NoticeRow entry={entry} />}{chip ? <div className="notice-thread-chip">{chip}</div> : null}</div>
   }
 })
 
