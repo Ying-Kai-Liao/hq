@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Entry, FileDiff, PermissionOption } from '@shared/models'
+import type { HeldRowModel } from '@shared/held-run'
 import { Disclosure } from '../../components/Controls'
-import { DecisionCard, type Pair } from '../../components/kith'
+import { DecisionCard, HeldRow, StoppedDivider, type Pair } from '../../components/kith'
+import { Dialog } from '../../components/Overlay'
 import { FALLBACK_PAIR } from '../../components/kith/pair.ts'
 import { Icon } from '../../components/Icon'
 import { HStack, VStack } from '../../components/Stack'
@@ -51,8 +53,14 @@ export function optionLabel(o: PermissionOption) {
  * Approval card (the kith DecisionCard): what the agent wants, where it runs, the answers, tinted in the agent's pair.
  * `waiting`: the owner's name when this card is for them to answer (a guest's run); the buttons are theirs, not this person's.
  */
-export function PermissionCard({ entry, hostName, answering, respond, waiting = null, pair = FALLBACK_PAIR }: { entry: Entry; hostName: string; answering: string | null; respond: (option: string | null) => void; waiting?: string | null; pair?: Pair }) {
+export function PermissionCard({ entry, hostName, answering, respond, waiting = null, pair = FALLBACK_PAIR, held = null }: { entry: Entry; hostName: string; answering: string | null; respond: (option: string | null) => void; waiting?: string | null; pair?: Pair; held?: HeldCardProps | null }) {
   const [expanded, setExpanded] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  // The old run ended by itself (or another device stopped it): the open confirm has nothing left to ask.
+  const gone = !held?.model
+  useEffect(() => {
+    if (gone) setConfirming(false)
+  }, [gone])
   const d = entry.data
   const pending = d.status === 'pending'
   const hasDetail = !!d.command || !!d.detail || !!d.diffs?.length
@@ -68,6 +76,7 @@ export function PermissionCard({ entry, hostName, answering, respond, waiting = 
     place: `Runs on ${hostName}${cwd}`,
     waiting,
     outcome: pending ? undefined : outcome(entry),
+    held: held?.model ? <HeldRow model={held.model} onStop={() => setConfirming(true)} /> : undefined,
     pending: answering,
     details: hasDetail ? (
       <Disclosure expanded={expanded} onToggle={() => setExpanded((e) => !e)} label={<Text size="caption" weight="medium" tone="secondary">Details</Text>}>
@@ -99,8 +108,28 @@ export function PermissionCard({ entry, hostName, answering, respond, waiting = 
           onChoose={(id) => respond(id)}
         />
       )}
+      {held?.stopped ? <StoppedDivider text={held.stopped.text} icon={held.stopped.icon} /> : null}
+      {held?.model ? (
+        <Dialog
+          open={confirming}
+          title={held.confirm.title}
+          message={held.confirm.message}
+          actions={[{ title: 'Stop', destructive: true, action: held.stop }]}
+          onClose={() => setConfirming(false)}
+        />
+      ) : null}
     </div>
   )
+}
+
+/** What the card needs to show an old run holding its session, all decided by the caller (the store and the role). */
+export interface HeldCardProps {
+  /** The row's values; null when nothing holds the session (the row is closed). */
+  model: HeldRowModel | null
+  confirm: { title: string; message: string }
+  stop: () => void
+  /** The divider after the owner stopped the old run from this card. */
+  stopped: { text: string; icon: string } | null
 }
 
 function outcome(entry: Entry) {

@@ -15,6 +15,7 @@ import {
 import { normalizeFolder, type PlaceFolder, type PlaceSelection, type StartingFolder } from '@shared/place-folders'
 import { partialUpdate } from '@shared/optimistic'
 import { expireCalls, type IncomingCall } from '@shared/incoming-call'
+import { failureOf, OWN_TURN, type HeldPhase } from '@shared/held-run'
 import { FileDownloads } from './file-downloads'
 import { BotSync, sleep } from './bot-sync'
 
@@ -300,6 +301,31 @@ export class BotStore extends BotSync {
         this.lastError = error instanceof Error ? error.message : String(error)
       }
       this.answering.delete(entry.id)
+      this.changed()
+    })()
+  }
+
+  /**
+   * The owner's Stop on a card's held row: ends the old run holding the card's session. One at a time per session (a second
+   * click, or the same session's other card, does nothing while it runs). The rows close when the host clears `held` on
+   * the entries, not here.
+   */
+  stopHolder(entry: Entry) {
+    const held = entry.data.held
+    if (!held || this.holderPhases.get(held.session)?.kind === 'stopping') return
+    this.holderPhases.set(held.session, { kind: 'stopping' })
+    this.changed()
+    void (async () => {
+      let phase: HeldPhase | null = null
+      try {
+        const res = await this.withLink((c) => c.stopHolder(held.session), true)
+        if (res.ownTurn) phase = OWN_TURN
+        else if (res.stopped) this.stoppedRuns.set(entry.id, { kind: held.kind, at: new Date() })
+      } catch (error) {
+        phase = failureOf(error, this.hostName)
+      }
+      if (phase) this.holderPhases.set(held.session, phase)
+      else this.holderPhases.delete(held.session)
       this.changed()
     })()
   }

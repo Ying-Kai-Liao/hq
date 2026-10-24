@@ -223,6 +223,14 @@ export interface HandoffCard {
   text?: string
 }
 
+/** An old run holding a session's writer claim: terminal | oneshot | bot | app (open string); `since` is RFC 3339. */
+export interface HeldRun {
+  session: string
+  kind: string
+  pid: number
+  since: string
+}
+
 export interface EntryData {
   /** Structured conversation data added to the existing team-tool notice. */
   botMessage?: BotMessage
@@ -264,6 +272,8 @@ export interface EntryData {
   person?: string
   personName?: string
   agent?: string
+  /** permission, answered: an old run still holds the session this approval resumes in (null/absent otherwise; an older host never sends it). */
+  held?: HeldRun | null
   entries?: PlanItem[]
   /** notice: info | error | divider */
   style?: string
