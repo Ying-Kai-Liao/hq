@@ -336,7 +336,8 @@ async fn phone_pairs_and_chats_over_the_direct_channel() {
     let hello = phone.call(1, "hello", json!({})).await;
     assert_eq!(hello["boxKey"], query_param(url, "bk"));
     // Phones check themselves against it (docs/reference/compatibility.md).
-    assert!(hello["minApp"].as_str().is_some_and(|v| !v.is_empty()));
+    assert!(hello["protocol"].as_u64().is_some_and(|v| v >= 1));
+    assert!(hello["minProtocol"].as_u64().is_some_and(|v| v >= 1));
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agent.py");
     let bot = phone
         .call(
@@ -420,7 +421,7 @@ async fn personal_workspaces_are_unique_persistent_and_optional() {
 /// Snapshot of what clients decode: field paths and JSON types of `hello` and the event
 /// stream after a full turn. Values aren't kept, only the shape.
 const WIRE_SHAPE: &str = "tests/fixtures/wire-shape.json";
-/// Re-records the snapshot (refused while a field is removed or retyped without a new `minApp`).
+/// Re-records the snapshot (refused while a field is removed or retyped without a new `minProtocol`).
 const UPDATE_ENV: &str = "KITH_SERVE_UPDATE_WIRE_SHAPE";
 /// Depends on the machine (installed harnesses, displays, addresses, local usage), not the code.
 const MACHINE_DEPENDENT: [&str; 4] = ["backends", "screen", "urls", "usage"];
@@ -525,7 +526,7 @@ async fn catch_up(host: &Host) -> Vec<Value> {
 }
 
 /// Older apps read what the host sends: a removed or retyped field breaks them. This fails
-/// until the field is kept, or `MIN_APP` is raised the two-release way and the snapshot
+/// until the field is kept, or `MIN_PROTOCOL` is raised the two-release way and the snapshot
 /// re-recorded. New fields only need recording (`KITH_SERVE_UPDATE_WIRE_SHAPE=1`).
 #[tokio::test]
 async fn wire_shape_matches_the_snapshot() {
@@ -553,7 +554,7 @@ async fn wire_shape_matches_the_snapshot() {
     host.wait_for(&bot, |e| e["kind"] == "agent" && e["data"]["final"] == true).await;
 
     let hello = host.call("hello", json!({})).await;
-    let min_app = hello["minApp"].as_str().unwrap().to_owned();
+    let min_protocol = hello["minProtocol"].as_u64().unwrap();
     let mut current = std::collections::BTreeMap::new();
     shape(&hello, "hello", &mut current);
     for ev in catch_up(&host).await {
@@ -566,21 +567,21 @@ async fn wire_shape_matches_the_snapshot() {
     let recorded_shapes: std::collections::BTreeMap<String, String> =
         serde_json::from_value(recorded["shapes"].clone()).unwrap_or_default();
     let (breaking, added) = shape_diff(&recorded_shapes, &current);
-    let floor_raised = recorded["minApp"].as_str() != Some(min_app.as_str());
+    let floor_raised = recorded["minProtocol"].as_u64() != Some(min_protocol);
     assert!(
         breaking.is_empty() || floor_raised,
         "Older apps would break: {breaking:#?}\nKeep these fields, or follow the two-release rule \
-         in docs/reference/compatibility.md: raise MIN_APP (host/src/compat.rs) once that iPhone \
-         version is live, then re-record with {UPDATE_ENV}=1 cargo test --test e2e wire_shape"
+         in docs/reference/compatibility.md: raise MIN_PROTOCOL (host/src/compat.rs) once the \
+         apps on that protocol are out, then re-record with {UPDATE_ENV}=1 cargo test --test e2e wire_shape"
     );
     if std::env::var_os(UPDATE_ENV).is_some() {
-        let json = json!({"minApp": min_app, "shapes": current});
+        let json = json!({"minProtocol": min_protocol, "shapes": current});
         std::fs::write(&file, serde_json::to_string_pretty(&json).unwrap() + "\n").unwrap();
         return;
     }
     assert!(
         breaking.is_empty() && added.is_empty() && !floor_raised,
-        "The wire shape changed.\nAdded: {added:#?}\nRemoved or retyped (minApp was raised): {breaking:#?}\n\
+        "The wire shape changed.\nAdded: {added:#?}\nRemoved or retyped (minProtocol was raised): {breaking:#?}\n\
          Record it with {UPDATE_ENV}=1 cargo test --test e2e wire_shape"
     );
 }

@@ -49,10 +49,8 @@ struct State {
     available_version: Option<String>,
     checked_at: Option<i64>,
     error: Option<String>,
-    /// `waitingForApp`: the iPhone app the available release needs.
-    required_app: Option<String>,
-    /// `waitingForApp`: what the App Store has (`None`: couldn't ask it).
-    app_store_version: Option<String>,
+    /// `waitingForApp`: the oldest client protocol level the available release serves.
+    required_protocol: Option<u64>,
 }
 
 fn read<T: serde::de::DeserializeOwned + Default>(name: &str) -> Result<T> {
@@ -125,8 +123,7 @@ pub async fn check() -> Result<Value> {
             let waiting = state.phase == "waitingForApp" && available.is_some() && available == state.available_version;
             if !waiting {
                 state.phase = if available.is_some() { "available" } else { "upToDate" }.into();
-                state.required_app = None;
-                state.app_store_version = None;
+                state.required_protocol = None;
             }
             state.available_version = available;
             state.error = None;
@@ -169,11 +166,10 @@ pub async fn apply(port: u16, force: bool, skip_app_check: bool, worker: bool) -
         write("update-state.json", &state)?;
         match install::apply(&release, &target, port, force, skip_app_check).await? {
             crate::compat::Gate::Proceed => state.phase = "complete".into(),
-            // Not a failure: the next check installs it once the App Store has that app.
-            crate::compat::Gate::WaitForApp { required, store } => {
+            // Not a failure: it installs once the owner says the iPhones are ready (--skip-app-check).
+            crate::compat::Gate::WaitForApp { required } => {
                 state.phase = "waitingForApp".into();
-                state.required_app = Some(required);
-                state.app_store_version = store;
+                state.required_protocol = Some(required);
             }
         }
         Ok::<_, anyhow::Error>(())
@@ -217,8 +213,7 @@ pub fn spawn_worker(port: u16, force: bool, skip_app_check: bool) -> Result<()> 
     }
     let mut state = State { phase: "scheduled".into(), checked_at: Some(crate::store::now_ms()), ..previous };
     state.error = None;
-    state.required_app = None;
-    state.app_store_version = None;
+    state.required_protocol = None;
     write("update-state.json", &state)?;
     if let Err(error) = spawn_job(&executable, &args) {
         state.phase = "failed".into();
@@ -269,26 +264,11 @@ pub async fn automatic_loop(hub: Arc<Hub>) {
         return;
     }
     let mut last_check = None;
-    let mut last_store_probe = None;
     loop {
         tokio::time::sleep(Duration::from_secs(60)).await;
         let enabled = read::<Config>("update-config.json").is_ok_and(|c| c.automatic);
         if !enabled || hub.busy() {
             continue;
-        }
-        // Waiting for the iPhone app: look at the App Store hourly and update as soon as it's
-        // there, instead of at the next daily check.
-        if let Ok(state) = read::<State>("update-state.json")
-            && state.phase == "waitingForApp"
-            && let Some(required) = state.required_app
-            && last_store_probe.is_none_or(|at: tokio::time::Instant| at.elapsed() >= Duration::from_secs(60 * 60))
-        {
-            last_store_probe = Some(tokio::time::Instant::now());
-            if let Ok(Some(store)) = crate::compat::app_store_version().await
-                && !crate::compat::below(&store, &required)
-            {
-                last_check = None;
-            }
         }
         if last_check.is_some_and(|at: tokio::time::Instant| at.elapsed() < Duration::from_secs(24 * 60 * 60)) {
             continue;

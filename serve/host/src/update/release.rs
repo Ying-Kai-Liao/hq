@@ -40,10 +40,10 @@ pub fn sha256(bytes: &[u8]) -> String {
     hash
 }
 
-/// `release`'s `minApp` from its signed compat file. This build has no release channel, so
+/// `release`'s `minProtocol` from its signed compat file. This build has no release channel, so
 /// there is never a compat file to read.
 #[allow(clippy::unused_async)] // same signature as when it fetched
-pub async fn min_app(_release: &Release) -> Result<String> {
+pub async fn min_protocol(_release: &Release) -> Result<u64> {
     bail!("{OFF}")
 }
 

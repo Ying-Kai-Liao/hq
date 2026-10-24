@@ -192,14 +192,19 @@ impl App {
             }
         };
         match after {
-            After::Nothing | After::Tracked | After::Answered(_) | After::Sheet(_) | After::Sent(_) | After::Connection(_, _) => {}
+            After::Nothing
+            | After::Tracked
+            | After::Answered(_)
+            | After::Sheet(_)
+            | After::Sent(_)
+            | After::Connection(_, _) => {}
             After::Installed => {
                 self.error = None;
                 self.flash("Host installed; connecting…");
                 self.call("hello", json!({}), After::Hello);
             }
             After::Hello => {
-                self.mismatch = crate::compat::check(env!("CARGO_PKG_VERSION"), crate::compat::MIN_HOST, &v);
+                self.mismatch = crate::compat::check(crate::compat::PROTOCOL, crate::compat::MIN_HOST_PROTOCOL, &v);
                 v["name"].as_str().unwrap_or("computer").clone_into(&mut self.host);
                 v["home"].as_str().unwrap_or_default().clone_into(&mut self.home);
                 self.backends = v["backends"].as_array().cloned().unwrap_or_default();
@@ -211,16 +216,11 @@ impl App {
                 self.backends = v["backends"].as_array().cloned().unwrap_or_default();
                 self.flash("Agents refreshed");
             }
-            After::Update => match (v["state"]["availableVersion"].as_str(), v["state"]["requiredApp"].as_str()) {
-                (Some(version), Some(app)) => self.flash(&match v["state"]["appStoreVersion"].as_str() {
-                    Some(store) => format!(
-                        "Version {version} waits for the iPhone app {app} (App Store has {store}); it installs after review"
-                    ),
-                    None => format!(
-                        "Version {version} waits: couldn't check the App Store for the iPhone app {app}. \
-                         kith-serve update --skip-app-check installs anyway"
-                    ),
-                }),
+            After::Update => match (v["state"]["availableVersion"].as_str(), v["state"]["requiredProtocol"].as_u64()) {
+                (Some(version), Some(_)) => self.flash(&format!(
+                    "Version {version} waits for the iPhones to get a newer app. \
+                     kith-serve update --skip-app-check installs anyway"
+                )),
                 (Some(version), None) => self.flash(&format!("Version {version} is available: run kith-serve update")),
                 (None, _) => self.flash("The host is up to date."),
             },
