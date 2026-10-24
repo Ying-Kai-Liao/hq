@@ -233,7 +233,59 @@ impl Hub {
     }
 
     fn deliver(&self, bot_id: &str, home: &Lane, cmd: Cmd) -> Result<()> {
+        // A send can fail when it raced the actor's retirement (see `retire_actor`): the place is gone from
+        // `places` by then, so asking again starts a fresh actor.
+        let Err(mpsc::error::SendError(cmd)) = self.actor_tx(bot_id, home)?.send(cmd) else { return Ok(()) };
         self.actor_tx(bot_id, home)?.send(cmd).map_err(|_| anyhow!("bot stopped"))
+    }
+
+    /// An actor of a thread or group lane that has sat unused asks to end (see `Actor::retire_if_unused`). It
+    /// decides under the `bots` lock, which every start and lookup of an actor takes too: with nothing queued, it
+    /// removes its own entry (not one a newer actor took), and from then on `actor_tx` starts a fresh one. A sender
+    /// cloned before that can still reach it, so the receiver closes and what slipped in goes to the new actor:
+    /// a send either lands before the close and is passed on here, or fails and `deliver` asks again.
+    /// Its runtime shows idle. False: something arrived, the actor carries on.
+    pub(crate) fn retire_actor(
+        &self,
+        bot_id: &str,
+        home: &Lane,
+        own: &mpsc::UnboundedSender<Cmd>,
+        rx: &mut mpsc::UnboundedReceiver<Cmd>,
+    ) -> bool {
+        let key = actor_key(bot_id, home);
+        {
+            let mut bots = self.bots.locked();
+            if !rx.is_empty() {
+                return false;
+            }
+            if let Some(actors) = bots.get_mut(bot_id)
+                && actors.places.get(&key).is_some_and(|(_, h)| h.tx.same_channel(own))
+            {
+                actors.places.remove(&key);
+                // Nothing of the finished turns shows any more; the Fast mode support is the bot's.
+                if let Some(rt) = self.runtime.locked().get_mut(&key) {
+                    *rt = Runtime { fast_mode: rt.fast_mode.clone(), ..Runtime::default() };
+                }
+            }
+            rx.close();
+        }
+        self.emit_bot(bot_id);
+        // Only what a new actor must act on is passed on; stops, resets and asks about state it doesn't hold are moot.
+        while let Ok(cmd) = rx.try_recv() {
+            if matches!(
+                cmd,
+                Cmd::Send { .. }
+                    | Cmd::Group(_)
+                    | Cmd::Routine(_)
+                    | Cmd::BotRequest(_)
+                    | Cmd::Routed { .. }
+                    | Cmd::Permission { .. }
+            ) && let Err(error) = self.send_to_actor(&key, cmd)
+            {
+                tracing::warn!(bot = bot_id, error = format!("{error:#}"), "a command to a retiring actor was lost");
+            }
+        }
+        true
     }
 
     /// Sends `make()` to each running actor of the bot whose place passes `serves`. Fails only for an unknown bot,
@@ -347,10 +399,10 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::agent::config::FastModeSupport;
-    use crate::hub::{BotStatus, Hub};
     use crate::remote::identity::Identity;
-    use crate::store::{Lane, Store};
+    use crate::store::Store;
 
     #[tokio::test]
     async fn a_bot_shows_a_working_place_over_how_its_chat_last_ended() {
@@ -375,6 +427,95 @@ mod tests {
 
         hub.set_runtime("b", |r| r.status = BotStatus::NeedsInput);
         assert_eq!(hub.bot_runtime("b").status, BotStatus::NeedsInput, "the chat while it's busy");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn hub_with_bot(retire_ms: &str) -> (std::sync::Arc<Hub>, String, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("kith-actors-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        store.kv_set("host.retire_after_ms", retire_ms).unwrap();
+        let cfg: BotConfig = serde_json::from_value(serde_json::json!({
+            "id": "b", "name": "b", "backend": "claude", "cwd": dir.to_str().unwrap(),
+            "command": format!("{}/run", dir.display()), "permission": "ask", "tasks": false,
+            "connectors": [], "skills": [],
+        }))
+        .unwrap();
+        store.save_bot(&cfg).unwrap();
+        let hub = Hub::new(store, "actors-test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);
+        hub.spawn_bot(&cfg);
+        (hub, "b".into(), dir)
+    }
+
+    async fn until(mut done: impl FnMut() -> bool) -> bool {
+        for _ in 0..60 {
+            if done() {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        done()
+    }
+
+    #[tokio::test]
+    async fn an_unused_thread_actor_retires_and_the_next_command_starts_it_again() {
+        let (hub, bot, dir) = hub_with_bot("50");
+        let thread = Lane::in_thread(&bot, "root");
+        hub.actor_tx(&bot, &thread).unwrap();
+        hub.set_runtime(&actor_key(&bot, &thread), |r| r.status = BotStatus::Error);
+        assert!(hub.has_place(&bot, &thread));
+
+        assert!(until(|| !hub.has_place(&bot, &thread)).await, "the idle thread actor retires");
+        assert_eq!(hub.runtime(&actor_key(&bot, &thread)).status, BotStatus::Idle, "a retired thread shows idle");
+        assert!(hub.has_place(&bot, &Lane::main(&bot)), "the bot's own chat stays");
+
+        hub.actor_tx(&bot, &thread).unwrap();
+        assert!(hub.has_place(&bot, &thread), "the next command starts it as on first use");
+        hub.shutdown().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn the_bots_own_chat_never_retires() {
+        let (hub, bot, dir) = hub_with_bot("20");
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        assert!(hub.has_place(&bot, &Lane::main(&bot)));
+        hub.shutdown().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_retiring_actor_leaves_only_when_nothing_waits_and_hands_on_what_raced_it() {
+        let (hub, bot, dir) = hub_with_bot("600000");
+        let thread = Lane::in_thread(&bot, "root");
+        let key = actor_key(&bot, &thread);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let place = |tx: &mpsc::UnboundedSender<Cmd>| {
+            (thread.clone(), BotHandle { tx: tx.clone(), task: tokio::spawn(async {}) })
+        };
+        hub.bots.locked().get_mut(&bot).unwrap().places.insert(key.clone(), place(&tx));
+
+        // A command already queued: it stays.
+        tx.send(Cmd::Stop).unwrap();
+        assert!(!hub.retire_actor(&bot, &thread, &tx, &mut rx));
+        assert!(hub.has_place(&bot, &thread));
+        rx.try_recv().unwrap();
+
+        // A newer actor holds the place: the old one leaves it alone.
+        let (newer, _newer_rx) = mpsc::unbounded_channel();
+        hub.bots.locked().get_mut(&bot).unwrap().places.insert(key.clone(), place(&newer));
+        assert!(hub.retire_actor(&bot, &thread, &tx, &mut rx));
+        assert!(hub.has_place(&bot, &thread), "the newer actor's entry stays");
+
+        // At rest and alone: the entry goes, the old channel refuses, and a send through the hub starts a new actor.
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        hub.bots.locked().get_mut(&bot).unwrap().places.insert(key.clone(), place(&tx));
+        assert!(hub.retire_actor(&bot, &thread, &tx, &mut rx));
+        assert!(!hub.has_place(&bot, &thread));
+        assert!(tx.send(Cmd::Stop).is_err(), "a sender cloned before the retirement fails instead of vanishing");
+        hub.send_to_actor(&key, Cmd::Permission { entry_id: "none".into(), option_id: None }).unwrap();
+        assert!(hub.has_place(&bot, &thread), "the retried delivery restarted the actor");
+        hub.shutdown().await;
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
