@@ -295,7 +295,8 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
             let data = json!({"text": "Voice chat", "callLive": true});
             // None means the line wasn't saved: an error, so the app falls back to `logCall` instead of waiting on a null.
-            let e = hub.add_entry(&Lane::main(bot), EntryKind::Notice, hub.store.max_turn(bot), &data)
+            let e = hub
+                .add_entry(&Lane::main(bot), EntryKind::Notice, hub.store.max_turn(bot), &data)
                 .ok_or_else(|| anyhow!("couldn't save the call"))?;
             json!({"entry": e})
         }
