@@ -113,6 +113,13 @@ expect "launch JSON env carries KITH_RUN_SOCKET and KITH_RUN_TOKEN" "$ENVJ" "Tru
 OWNER2=$(cd "$KITH_HOME/agents/echo" && KITH_RUN_SOCKET=$SOCK "$KITH" echo --launch-json 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin)["settings"]; print("sandbox" in s)')
 expect "owner with a socket set: still no sandbox" "$OWNER2" False
 
+# The shared layout (no ~/.kith; the Kith folder around a kernel/): the secrets are two files among the machine things in
+# ~/.config/kith, and the sandbox denies both there as well as the named folders.
+mkdir -p "$KITH_HOME/kernel" "$HOME/.config/kith"
+S=$(unset KITH_STATE HQ_STATE; KITH_PERSON=guest settings)
+expect "shared layout: guest denyRead holds env and auth.json of ~/.config/kith" "$(q "$S" "'$HOME/.config/kith/env' in dr and '$HOME/.config/kith/auth.json' in dr")" True
+rmdir "$KITH_HOME/kernel" 2>/dev/null
+
 # KITH_SERVE_HOME elsewhere is denied too
 mkdir -p "$T/elsewhere"
 S=$(KITH_PERSON=guest KITH_SERVE_HOME=$T/elsewhere settings)
@@ -253,5 +260,38 @@ if [ "${KITH_REAL_SANDBOX:-}" = 1 ] && [ "$(uname)" = Darwin ]; then
            write-hooks write-claude-dir write-claude-md write-envrc write-project write-project-hooks write-project-claude-md write-project-claude-dir write-zshrc net-curl sock-other; do rexpect $n denied; done
   for n in read-package read-own-slice read-project read-project-git read-kernel write-own-slice sock-host sock-run; do rexpect $n ok; done
   rm -f "$REAL_HOME/.zshrc-probe-should-not-exist"
+
+  # --- escape cards (F11 step 2b): a denied folder is readable after a yes-once grant, in the next launch only ----------------
+  # The run socket now answers: a stand-in for the host that hands out the grant in $T/grants.json once (it deletes the file
+  # when it does, like the host's compare-and-set), as kith-permit apply asks for it between the session claim and exec.
+  echo "-- escape grant"
+  kill $LISTENER 2>/dev/null; sleep 0.5; rm -f "$T/run s.sock"
+  GR=$T/granted; mkdir -p "$GR"; echo granted > "$GR/f.txt"
+  cat > "$T/grants.py" <<'PY'
+import json, os, socket, sys
+sock, src = sys.argv[1:3]
+srv = socket.socket(socket.AF_UNIX); srv.bind(sock); srv.listen(5)
+while True:
+    c, _ = srv.accept(); buf = b''
+    while not buf.endswith(b'\n'):
+        x = c.recv(4096)
+        if not x: break
+        buf += x
+    g = {'read': [], 'write': [], 'domains': []}
+    if os.path.exists(src):
+        g = json.load(open(src)); os.remove(src)
+    c.sendall(json.dumps({'ok': True, 'grants': g}).encode() + b'\n'); c.close()
+PY
+  python3 "$T/grants.py" "$T/run s.sock" "$T/grants.json" &
+  GRANTER=$!
+  trap 'kill $GRANTER 2>/dev/null; rm -rf "$T"' EXIT
+  sleep 1
+  printf '#!/bin/bash\nls "%s" >/dev/null 2>&1 && echo "read-granted ok" > "%s/probe2.out" || echo "read-granted denied" > "%s/probe2.out"\n' "$GR" "$SLICE" "$SLICE" > "$SLICE/probe2.sh"
+  launch() { rm -f "$SLICE/probe2.out"; (cd "$T/proj" && KITH_MODEL=${KITH_REAL_MODEL:-haiku} KITH_PERSON=guest KITH_RUN_SOCKET="$T/run s.sock" KITH_RUN_TOKEN=probe HOME=$REAL_HOME PATH=${PATH#"$T/bin:"} \
+     perl -e 'alarm 240; exec @ARGV' "$KITH" echo "Run exactly this one Bash command and then reply done: bash '$SLICE/probe2.sh'" < /dev/null > "$T/real2.out" 2> "$T/real2.err"); cat "$SLICE/probe2.out" 2>/dev/null || echo "none"; }
+  expect "real: before the yes the folder is denied" "$(launch)" "read-granted denied"
+  printf '{"read": ["%s"], "write": [], "domains": []}' "$(cd "$GR" && pwd -P)" > "$T/grants.json"
+  expect "real: after a yes once the next launch reads it" "$(launch)" "read-granted ok"
+  expect "real: the launch after that is denied again" "$(launch)" "read-granted denied"
 fi
 exit $((fails > 0))

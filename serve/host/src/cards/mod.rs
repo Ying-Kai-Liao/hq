@@ -11,6 +11,7 @@
 //! The resume after such an answer, and on restart "grant without resume -> owed" (C4's second half), is `resume`.
 //! `follow_up` is its one call site; the setting `cards.resume` (default on) is the kill switch.
 
+pub mod access;
 pub mod resource;
 pub mod resume;
 
@@ -254,19 +255,29 @@ fn show(hub: &Arc<Hub>, who: &RunIdentity, card: &Card) -> Option<Card> {
         return hub.store.card_live(&card.id, None, Some(&who.run_id)).ok().flatten();
     }
     let chat = chat_for(hub, &who.person, &who.agent)?;
+    let escape = card.tool == access::TOOL;
     let (title, kind) = (title_of(&card.tool, &card.shown), tool_kind(&card.tool));
+    let (title, detail, options) = if escape {
+        access::entry_view(card)
+    } else {
+        (
+            title,
+            crate::agent::acp::truncate(&card.shown, 6000),
+            json!([
+                {"optionId": "allow", "name": "Allow once", "kind": "allow_once"},
+                {"optionId": "deny", "name": "Deny", "kind": "reject_once"},
+            ]),
+        )
+    };
     let command = (kind == "execute").then(|| card.shown.clone());
     let mut data = json!({
         "title": title,
         "toolKind": kind,
         "command": command,
-        "detail": crate::agent::acp::truncate(&card.shown, 6000),
+        "detail": detail,
         "diffs": [],
         "cwd": Value::Null,
-        "options": [
-            {"optionId": "allow", "name": "Allow once", "kind": "allow_once"},
-            {"optionId": "deny", "name": "Deny", "kind": "reject_once"},
-        ],
+        "options": options,
         "status": "pending",
         "selected": Value::Null,
         "author": chat.id,
@@ -343,7 +354,10 @@ pub fn answer(hub: &Arc<Hub>, entry_id: &str, option_id: Option<&str>, by: &str)
     };
     let status = if option_id.is_some() { "answered" } else { "cancelled" };
     let mut forward = false;
-    if was_live && card.source == "run" {
+    if card.tool == access::TOOL {
+        // No process waits on an escape card: the yes is applied at the session's next activation (see `access`).
+        access::answered(hub, &card, allow, option_id);
+    } else if was_live && card.source == "run" {
         let verdict = if allow { Verdict::Allow } else { Verdict::Deny("The approver said no.".into()) };
         // A yes to a live asker was spent in the answer itself (no parallel ask can take it too); if nobody was
         // there to hear it, it goes back as the answer to a parked card.
@@ -512,6 +526,8 @@ pub fn start(hub: &Arc<Hub>) {
     });
 }
 
+#[cfg(test)]
+mod access_tests;
 #[cfg(test)]
 mod props;
 #[cfg(test)]

@@ -49,6 +49,11 @@ People (who may use which agent, and how; the run's person is KITH_PERSON, unset
                                           --trusted (a row or preset without it runs in default mode).
                                           budget=20: at most $20 a calendar month of their runs of that agent
                                           (helpers they reach through it included; kith cost people shows it)
+  kith-auth access <agent> <id> read|write|domain <path|host> [--rm]
+                                          "always" on an escape card: a place or website a member's (or bot's) boxed runs of
+                                          that agent may reach, beyond the box. Not for secrets or the paths a run may never
+                                          write (rule W); not for the owner or someone with no row of their own; a bot gets
+                                          no more than its owner holds. Listed as `access` in `resolve`.
   kith-auth owner <profile> <id>|-|default  the profile is that person's (their logins, their calendar); - = shared;
                                           default: logins and browser profiles are the owner's, keys and bots shared
   kith-auth share <profile> <id>[,..] [--rm]   it stays its owner's, and these people's runs may use it too (through
@@ -603,6 +608,7 @@ def resolve(auth, agent, person, via=None):
                budget=row.get('budget', ''), budget_agent=agent if row_of(auth, agent, person) is not None else via,
                was=auth['people'].get(person, {}).get('was', []))
     out['trusted'] = bool(row.get('trusted') or p.get('trusted'))
+    out['access'] = access_of(row)
     asked = row.get('mode') or p.get('mode')
     if asked in FREE_SHELL and out['mode'] != asked:
         out['downgraded'] = asked   # shown in the listing, so the fall back to default isn't silent
@@ -633,7 +639,77 @@ def resolve_bot(auth, agent, bot, via, out):
                deny=list(dict.fromkeys(p.get('deny', []) + row.get('deny', []) + pr.get('deny', []))),
                model=row.get('model') or pr.get('model', ''), env=row.get('env', {}), helpers=helpers,
                budget=budget, budget_agent=budget_agent, was=list(dict.fromkeys(was)))
+    # never more than the owner holds: Kai's own bots are capped by nothing, an invitee's by that invitee's access
+    mine = access_of(row)
+    out['access'] = mine if owner_parent else {k: [v for v in mine[k] if held(pr.get('access', {}), k, v)] for k in mine}
     return out
+
+
+ACCESS_KINDS = {'read': 'read', 'write': 'write', 'domain': 'domains'}
+
+
+def access_of(row):
+    """The places and websites beyond the box a membership row holds (strings only; anything else in the file is ignored)."""
+    a = row.get('access') if isinstance(row.get('access'), dict) else {}
+    return {k: [v for v in a.get(k, []) if isinstance(v, str)] for k in ACCESS_KINDS.values()}
+
+
+def held(have, kind, value):
+    """Whether `have` (an access dict) covers value: a path inside a held folder (write covers read), a domain it lists."""
+    if kind == 'domains':
+        return value in have.get('domains', [])
+    roots = have.get('write', []) + (have.get('read', []) if kind == 'read' else [])
+    return any(value == r or value.startswith(r.rstrip('/') + '/') for r in roots)
+
+
+def cmd_access(args):
+    """The always half of an escape card. One command is one transaction under the auth.json lock (C2: someone removed, or
+    never a member, is refused in the same step that would write)."""
+    if len(args) not in (4, 5) or args[2] not in ACCESS_KINDS or (len(args) == 5 and args[4] != '--rm'):
+        die('access <agent> <id> read|write|domain <path|host> [--rm]', 2)
+    agent, pid, kind, value = args[:4]
+    removing = len(args) == 5
+    import kith_guard
+    if kind == 'domain':
+        if not kith_guard.valid_domain(value):
+            die(f"'{value}' is not a plain host name (no wildcard, address or port)", 2)
+    else:
+        if not os.path.isabs(value):
+            die('a path must be absolute', 2)
+        value = os.path.realpath(value)
+        home = os.path.expanduser('~')
+        roots = [str(paths()[k]) for k in ('KITH_STATE', 'KITH_MACHINE')]
+        secrets = kith_guard.whole_secret_paths(roots, str(paths()['KITH_SECRETS']), str(paths()['KITH_MACHINE']))
+        # inside a secret, or a folder that holds one (~/.config, ~): a grant of it would reach the secret
+        if any(kith_guard.covers(s, value) or kith_guard.holds(value, s) for s in secrets):
+            die(f'{value} is a secret: it is never granted', 2)
+        if kith_guard.is_rule_w(home, value, trees=[str(KITH)]):
+            die(f'{value} is somewhere a boxed run never writes or loads from (rule W): it is never granted', 2)
+    auth = load_auth(write=True)
+    if removing:   # taking access away works on anyone
+        row = auth['members'].get(agent, {}).get(pid)
+        if row and value in (row.get('access') or {}).get(ACCESS_KINDS[kind], []):
+            row['access'][ACCESS_KINDS[kind]].remove(value)
+            save_auth(auth)
+        print(f'{pid} no longer has {kind} {value} beyond the box for {agent}')
+        return
+    need_person(auth, pid)
+    pid = canonical(auth, pid)
+    if is_owner(auth, pid):
+        die(f'{pid} is the owner: nothing is boxed for them')
+    row = auth['members'].get(agent, {}).get(pid)
+    if row is None:
+        die(f'{pid} has no membership of their own for {agent}')
+    if not may(auth, pid, agent)[0]:
+        die(f'{pid} may not use {agent} now')
+    parent = parent_of(auth, pid)
+    if parent and not is_owner(auth, parent) and not held(resolve(auth, agent, parent).get('access', {}), ACCESS_KINDS[kind], value):
+        die(f"{pid} is a bot: it can't be given more than its owner {parent} holds")
+    have = row.setdefault('access', {}).setdefault(ACCESS_KINDS[kind], [])
+    if value not in have:
+        have.append(value)
+    save_auth(auth)
+    print(f'{pid} may {kind} {value} beyond the box for {agent}')
 
 
 def mode_of(row, p):
@@ -1336,6 +1412,8 @@ def main(argv):
             print(json.dumps(resolve(auth, rest[0], person, opts.get('--via') or None)))
             return
         die(f'{cmd}: see kith-auth --help', 2)
+    elif cmd == 'access':
+        cmd_access(rest)
     elif cmd == 'mcp-config' and len(rest) == 1:
         cmd_mcp_config(rest[0])
     elif cmd == 'mcp-names' and len(rest) == 1:

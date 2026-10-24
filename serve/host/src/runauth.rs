@@ -15,6 +15,12 @@
 //! after a short live window. It is open to a guest's token and to an owner token (`TokenScope::OwnerAsk`), which
 //! carries no recall audience at all: `recall` with it is refused.
 //!
+//! Two more methods belong to the guest sandbox's way out (F11 step 2b, `cards::access`): `requestAccess` (`{"token",
+//! "method": "requestAccess", "kind": "path"|"domain", "target", "reason"}`) makes an escape card and answers at once
+//! `{"ok": true, "carded": true, "message"}` or `{"ok": false, "error"}`; `consumeAccess` (`{"token", "method"}`) is the
+//! kernel's call at a guest run's launch and returns `{"ok": true, "grants": {"read", "write", "domains"}}`, once per run.
+//! Both are for a guest token only.
+//!
 //! The token also has to come from the run it was issued to: on macOS a process of the same user can read another
 //! process's environment (`ps eww` shows a Python or Node child's), so a token alone could be lifted from a
 //! neighbouring run. The peer pid of the connection must descend from the pid the run's process was started as.
@@ -369,6 +375,8 @@ pub enum Response {
         allow: bool,
         message: String,
     },
+    /// The answer to `requestAccess` and `consumeAccess`: the line as built.
+    Line(Value),
     Refused(String),
 }
 
@@ -383,6 +391,7 @@ impl Response {
             Self::Decision { allow, message } => {
                 json!({"ok": true, "behavior": if *allow { "allow" } else { "deny" }, "message": message})
             }
+            Self::Line(v) => v.clone(),
             Self::Refused(error) => json!({"ok": false, "error": error}),
         };
         format!("{v}\n")
@@ -396,6 +405,15 @@ pub struct Authorized {
     pub args: Vec<String>,
     /// Set for `requestPermission`: what the run wants to do.
     pub ask: Option<Ask>,
+    /// Set for `requestAccess` and `consumeAccess`.
+    pub access: Option<AccessCall>,
+}
+
+/// The two guest-only access methods.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AccessCall {
+    Request(Value),
+    Consume,
 }
 
 /// What a run asks to do: a tool name and its input, as Claude Code's permission prompt tool is given them.
@@ -428,7 +446,7 @@ pub fn authorize(table: &TokenTable, line: &[u8], peer: PeerInfo) -> Result<Auth
             if identity.scope != TokenScope::Guest {
                 return Err(Response::refused("not authorized"));
             }
-            Ok(Authorized { identity, args, ask: None })
+            Ok(Authorized { identity, args, ask: None, access: None })
         }
         "requestPermission" => {
             let (Some(tool), input) = (req["tool"].as_str(), &req["input"]) else {
@@ -441,7 +459,26 @@ pub fn authorize(table: &TokenTable, line: &[u8], peer: PeerInfo) -> Result<Auth
                 identity,
                 args: Vec::new(),
                 ask: Some(Ask { tool: tool.to_owned(), input: input.clone() }),
+                access: None,
             })
+        }
+        "requestAccess" | "consumeAccess" => {
+            // An owner token has no sandbox to leave.
+            if identity.scope != TokenScope::Guest {
+                return Err(Response::refused("not authorized"));
+            }
+            let call = if method == "consumeAccess" {
+                AccessCall::Consume
+            } else {
+                for k in ["kind", "target", "reason"] {
+                    if req[k].as_str().is_none_or(|s| s.len() > MAX_ARG_LEN) {
+                        return Err(Response::refused("bad request"));
+                    }
+                }
+                AccessCall::Request(json!({"kind": req["kind"], "target": req["target"], "reason": req["reason"],
+                                           "write": req["write"].as_bool() == Some(true)}))
+            };
+            Ok(Authorized { identity, args: Vec::new(), ask: None, access: Some(call) })
         }
         _ => Err(Response::refused("unknown method")),
     }
@@ -507,6 +544,13 @@ pub async fn handle_request(table: &TokenTable, line: &[u8], peer: PeerInfo) -> 
                 Response::Decision { allow: d.allow, message: d.message }
             }
             None => Response::Decision { allow: false, message: "Approvals aren't available right now.".into() },
+        },
+        Ok(Authorized { identity, access: Some(call), .. }) => match (hub(), call) {
+            (Some(hub), AccessCall::Request(req)) => {
+                Response::Line(crate::cards::access::request(&hub, &identity, &req).await)
+            }
+            (Some(hub), AccessCall::Consume) => Response::Line(crate::cards::access::consume(&hub, &identity).await),
+            (None, _) => Response::refused("Approvals aren't available right now."),
         },
         Ok(job) => run_recall(&job).await,
         Err(refused) => refused,

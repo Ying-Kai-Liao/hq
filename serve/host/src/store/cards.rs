@@ -208,7 +208,7 @@ impl Store {
         let grant = list(
             &tx,
             "WHERE session = ?1 AND resource = ?2 AND state = 'approved' AND granted_at IS NOT NULL AND scope = 'once'
-              ORDER BY answered_at LIMIT 1",
+              AND tool != 'request_access' ORDER BY answered_at LIMIT 1",
             params![n.session, n.resource],
         )?
         .pop();
@@ -351,6 +351,65 @@ impl Store {
             .locked()
             .execute("UPDATE cards SET state = 'parked' WHERE id = ?1 AND state IN ('pending','live')", [id])?
             == 1)
+    }
+
+    /// An access card's answer was "always": the scope is kept on the card (what the approver chose).
+    pub fn card_scope(&self, id: &str, scope: &str) -> Result<bool> {
+        Ok(self
+            .db
+            .locked()
+            .execute("UPDATE cards SET scope = ?2 WHERE id = ?1 AND state = 'approved'", params![id, scope])?
+            == 1)
+    }
+
+    /// An "always" is written to kith-auth: the card is spent, and the resume it owes stays owed (it is `used_by_ask`, like a
+    /// yes a later message used first).
+    pub fn card_always_written(&self, id: &str) -> Result<bool> {
+        Ok(self.db.locked().execute(
+            "UPDATE cards SET state = 'used', used_by_ask = 1 WHERE id = ?1 AND state = 'approved' AND scope = 'always'",
+            [id],
+        )? == 1)
+    }
+
+    /// The access card for `resource` in `session` that was approved and not used yet, if any (a repeat of the ask).
+    pub fn card_access_waiting(&self, session: &str, resource: &str, now: i64) -> Option<Card> {
+        let c = self.db.locked();
+        super::logged(
+            "waiting access grant",
+            list(
+                &c,
+                "WHERE session = ?1 AND resource = ?2 AND tool = 'request_access' AND state = 'approved'
+                   AND granted_at IS NOT NULL AND deadline >= ?3 LIMIT 1",
+                params![session, resource, now],
+            ),
+        )?
+        .pop()
+    }
+
+    /// The once grants of access cards for `session`, taken for the activation that is about to start: each is marked
+    /// used in this step, so of two takers racing for one grant exactly one gets it (L3). Bound to the card's session (C8)
+    /// and not past the deadline. The card stays owed its resume (`used_by_ask`): a later message may have taken the grant
+    /// first, and the resume then runs without it (C7).
+    pub fn card_access_consume(&self, session: &str, now: i64) -> Result<Vec<Card>> {
+        let c = self.db.locked();
+        let tx = c.unchecked_transaction()?;
+        let mut taken = Vec::new();
+        for card in list(
+            &tx,
+            "WHERE session = ?1 AND tool = 'request_access' AND scope = 'once' AND state = 'approved'
+               AND allowed = 1 AND granted_at IS NOT NULL AND deadline >= ?2 ORDER BY answered_at",
+            params![session, now],
+        )? {
+            let won = tx.execute(
+                "UPDATE cards SET state = 'used', used_by_ask = 1 WHERE id = ?1 AND state = 'approved'",
+                [&card.id],
+            )?;
+            if won == 1 {
+                taken.push(Card { state: CardState::Used, ..card });
+            }
+        }
+        tx.commit()?;
+        Ok(taken)
     }
 
     /// The agents `person` has open cards or unused grants for.
