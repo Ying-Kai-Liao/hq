@@ -55,3 +55,6 @@ CREATE TABLE retired_keys (
   sign_pub   TEXT PRIMARY KEY,
   retired_at INTEGER NOT NULL
 );
+
+-- The relay looks a device up by key on every upgrade.
+CREATE INDEX devices_sign_pub ON devices(sign_pub);

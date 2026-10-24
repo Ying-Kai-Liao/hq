@@ -107,9 +107,14 @@ async function admitDevice(c: Ctx, computerId: string, sub: { sig: string; jwt: 
   if (!row || row.status !== "active") throw new ApiError("unknownComputer");
   // A web key is admitted only with a live login (design 4.5). Without a JWT it is refused, so a key that registered as
   // web can't skip the session checks by connecting like a native device.
-  const webRows = await c.env.DB.prepare("SELECT owner_user_id, clerk_sid FROM devices WHERE sign_pub = ? AND platform = 'web' AND revoked_at IS NULL")
+  // Every web row for the key, revoked ones too: a revoked or retired web key must never fall through to the native path
+  // (no JWT, no Origin, no max-age) just because the DO's block notice failed.
+  if (await c.env.DB.prepare("SELECT 1 FROM retired_keys WHERE sign_pub = ?").bind(s.kid).first()) throw new ApiError("forbidden");
+  const allWeb = await c.env.DB.prepare("SELECT owner_user_id, clerk_sid, revoked_at FROM devices WHERE sign_pub = ? AND platform = 'web'")
     .bind(s.kid)
-    .all<{ owner_user_id: string; clerk_sid: string | null }>();
+    .all<{ owner_user_id: string; clerk_sid: string | null; revoked_at: number | null }>();
+  const webRows = { results: allWeb.results.filter((r) => r.revoked_at === null) };
+  if (allWeb.results.length && !webRows.results.length) throw new ApiError("forbidden");
   if (!webRows.results.length) {
     if (sub?.jwt) throw new ApiError("forbidden");
     return forward(c, computerId, "device", s, pair, sub ? { sid: null } : undefined);

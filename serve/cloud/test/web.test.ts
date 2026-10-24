@@ -136,10 +136,47 @@ describe("registering a web device", () => {
     const l = await login(user());
     const web = ref.signKey();
     await registerWeb(l.jwt, web);
-    expect((await registerWeb(l.jwt, web, "ios")).status).toBe(409);
+    const plain = await clerkToken(l.sub);
+    expect((await registerWeb(plain, web, "ios")).status).toBe(409);
     const native = ref.signKey();
-    expect((await registerWeb(l.jwt, native, "ios")).status).toBe(200);
+    expect((await registerWeb(plain, native, "ios")).status).toBe(200);
     expect((await registerWeb(l.jwt, native, "web")).status).toBe(409);
+  });
+
+  it("refuses a native platform for a token minted for a web origin", async () => {
+    mockClerk();
+    const l = await login(user());
+    const key = ref.signKey();
+    for (const platform of ["ios", "macos", "linux", "windows", "android"]) {
+      expect((await registerWeb(l.jwt, key, platform)).status, platform).toBe(403);
+    }
+    expect(await devicesRow(key)).toBeNull();
+  });
+
+  it("refuses a register that lands after a retire, even if it passed its checks before", async () => {
+    mockClerk();
+    const key = ref.signKey();
+    const l = await login(user());
+    // Retire lands while the register is awaiting Clerk.
+    const real = globalThis.fetch;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : (input as Request).url);
+      if (url.host === "api.clerk.com") {
+        await env.DB.prepare("INSERT OR IGNORE INTO retired_keys(sign_pub, retired_at) VALUES (?, 1)").bind(dkOf(key)).run();
+        return Response.json({ id: l.sid, status: "active" });
+      }
+      return real(input, init);
+    });
+    expect((await registerWeb(l.jwt, key)).status).toBe(403);
+    expect(await devicesRow(key)).toBeNull();
+  });
+
+  it("does not re-bind an existing row once its key is retired", async () => {
+    const t = await registered();
+    await env.DB.prepare("INSERT INTO retired_keys(sign_pub, retired_at) VALUES (?, 1)").bind(dkOf(t.key)).run();
+    const b = await login(t.sub);
+    expect((await registerWeb(b.jwt, t.key)).status).toBe(403);
+    expect((await devicesRow(t.key))!.clerk_sid).toBe(t.sid);
   });
 
   it("leaves native devices alone: no Clerk call, no session bound", async () => {
@@ -219,6 +256,20 @@ describe("web relay upgrade", () => {
     expect(await (await webUpgrade(t.host, t.key, { jwt: t.jwt })).sock.closed()).toBe(4403);
   });
 
+  it("refuses a revoked or retired web key outright, never as a native device", async () => {
+    const t = await registered();
+    await env.DB.prepare("UPDATE devices SET revoked_at = 1 WHERE id = ?").bind(t.deviceId).run();
+    expect(await (await webUpgrade(t.host, t.key, { jwt: null })).sock.closed()).toBe(4403);
+    const header = await SELF.fetch("https://cloud.test" + devicePath(t.host), {
+      headers: { Upgrade: "websocket", "Kith-Sig": ref.signRequest(t.key, { method: "GET", authority: "cloud.test", pathAndQuery: devicePath(t.host) }) },
+    });
+    expect(header.status).toBe(403);
+    // Retired with no row at all.
+    const ghost = ref.signKey();
+    await env.DB.prepare("INSERT INTO retired_keys(sign_pub, retired_at) VALUES (?, 1)").bind(dkOf(ghost)).run();
+    expect(await (await webUpgrade(t.host, ghost, { jwt: null })).sock.closed()).toBe(4403);
+  });
+
   it("does not let a web key connect like a native device, header and all", async () => {
     const t = await registered();
     const res = await SELF.fetch("https://cloud.test" + devicePath(t.host), {
@@ -268,6 +319,14 @@ describe("POST /v1/devices/retire", () => {
     const l = await login(user());
     expect((await registerWeb(l.jwt, key)).status).toBe(403);
     expect(await devicesRow(key)).toBeNull();
+  });
+
+  it("is rate limited per client IP", async () => {
+    const limited = vi.fn(async () => ({ success: false }));
+    const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
+    const res = await worker.fetch(new Request("https://cloud.test/v1/devices/retire", { method: "POST" }), { ...env, REGISTER_LIMITER: { limit: limited } }, ctx);
+    expect(res.status).toBe(429);
+    expect(limited).toHaveBeenCalled();
   });
 
   it("needs the key's own signature", async () => {

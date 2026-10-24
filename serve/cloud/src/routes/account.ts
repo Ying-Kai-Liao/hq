@@ -2,7 +2,7 @@
 
 import type { Env } from "../index";
 import { LEGACY_SIG_HEADER } from "../legacy-compat";
-import { computerIdFor, fromB64url, LABEL_FAMILIES, randomId, utf8, verifyEd25519, type LabelFamily } from "../auth";
+import { computerIdFor, fromB64url, LABEL_FAMILIES, randomId, utf8, verifyEd25519, webOrigins, type LabelFamily } from "../auth";
 import {
   ApiError,
   audit,
@@ -74,6 +74,11 @@ export async function registerDevice(c: Ctx) {
   if (await c.env.DB.prepare("SELECT 1 FROM retired_keys WHERE sign_pub = ?").bind(s.kid).first()) {
     throw new ApiError("forbidden", "This device key was retired; create a new one");
   }
+  // A token minted for the web origin can only ever register a web key; otherwise a hostile page could register an
+  // extractable key as a native platform and carry it off, dodging every web check.
+  if (platform !== "web" && u.azp && webOrigins(c.env).includes(u.azp)) {
+    throw new ApiError("forbidden", "A web session can only register a web device");
+  }
   // A browser device lives and dies with its login: the session must be live now, and its sid is what the row binds to.
   const sid = platform === "web" ? u.sid : null;
   if (platform === "web" && !(await webSessionLive(c.env, u))) throw new ApiError("unauthenticated", "No live session for this origin");
@@ -85,9 +90,14 @@ export async function registerDevice(c: Ctx) {
   if (existing && (existing.platform === "web") !== (platform === "web")) throw new ApiError("conflict", "A device key keeps its platform kind");
   if (existing) {
     // Last write wins: a newer sign-in re-binds the row. A socket admitted under the older sid is not touched.
-    await c.env.DB.prepare("UPDATE devices SET name = ?, platform = ?, last_used_at = ?, clerk_sid = ? WHERE id = ?")
-      .bind(name, platform, c.now, sid, existing.id)
+    // The tombstone is part of the write: a register in flight across a retire can't re-bind the row.
+    const upd = await c.env.DB.prepare(
+      `UPDATE devices SET name = ?, platform = ?, last_used_at = ?, clerk_sid = ?
+       WHERE id = ? AND revoked_at IS NULL AND NOT EXISTS (SELECT 1 FROM retired_keys WHERE sign_pub = ?)`,
+    )
+      .bind(name, platform, c.now, sid, existing.id, s.kid)
       .run();
+    if (upd.meta.changes !== 1) throw new ApiError("forbidden", "This device key was retired or revoked; create a new one");
     return { device: deviceView({ ...existing, name, platform }) };
   }
   const row: DeviceRow = {
@@ -101,16 +111,18 @@ export async function registerDevice(c: Ctx) {
     clerk_sid: sid,
   };
   await c.env.DB.prepare(
-    `INSERT INTO devices(id, owner_user_id, sign_pub, name, platform, created_at, last_used_at, clerk_sid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO devices(id, owner_user_id, sign_pub, name, platform, created_at, last_used_at, clerk_sid)
+     SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM retired_keys WHERE sign_pub = ?)
      ON CONFLICT(owner_user_id, sign_pub) DO NOTHING`,
   )
-    .bind(row.id, u.userId, row.sign_pub, name, platform, c.now, c.now, sid)
+    .bind(row.id, u.userId, row.sign_pub, name, platform, c.now, c.now, sid, s.kid)
     .run();
   // A concurrent registration of the same key wins the insert; report whichever row exists.
   const saved = await c.env.DB.prepare("SELECT * FROM devices WHERE owner_user_id = ? AND sign_pub = ?")
     .bind(u.userId, s.kid)
     .first<DeviceRow>();
-  return { device: deviceView(saved ?? row) };
+  if (!saved) throw new ApiError("forbidden", "This device key was retired; create a new one");
+  return { device: deviceView(saved) };
 }
 
 export async function listDevices(c: Ctx) {
@@ -159,6 +171,10 @@ async function revokeDeviceRow(env: Env, deviceId: string, actor: string, now: n
  * signed before sign-out and lands after it (or for a key the cloud never saw) is refused.
  */
 export async function retireDevice(c: Ctx) {
+  if (c.env.REGISTER_LIMITER) {
+    const ip = c.req.headers.get("CF-Connecting-IP") ?? "unknown";
+    if (!(await c.env.REGISTER_LIMITER.limit({ key: "retire|" + ip })).success) throw new ApiError("rateLimited");
+  }
   const s = await signed(c);
   await c.env.DB.prepare("INSERT OR IGNORE INTO retired_keys(sign_pub, retired_at) VALUES (?, ?)").bind(s.kid, c.now).run();
   const { results } = await c.env.DB.prepare("SELECT id, owner_user_id FROM devices WHERE sign_pub = ? AND revoked_at IS NULL")
