@@ -262,7 +262,7 @@ private struct ComputerRow: View {
             if store.connection == .online { RouteIcon(route: store.hostRoute) }
         }
         .font(.subheadline)
-        .foregroundStyle(store.isOffline ? Palette.warning : Palette.secondary)
+        .foregroundStyle(Palette.secondary)
         .lineLimit(2)
     }
 
