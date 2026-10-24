@@ -42,6 +42,8 @@ public enum Tasks {
             let held = root.data.thread?.isHeldElsewhere == true
             return !held && replies.contains { $0.kind == "permission" && $0.data.status == "pending" } ? .needsYou : .working
         }
+        // A session started in a terminal works outside the host's lanes; its thread says so.
+        if root.data.thread?.isBusyInTerminal == true { return .working }
         // The host says how a finished turn ended; an older host doesn't, so the thread's entries tell. A host
         // "working" or "needsYou" while no lane is working is stale (the host restarted), so it isn't taken.
         switch root.data.thread?.status {

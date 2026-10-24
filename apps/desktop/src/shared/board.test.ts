@@ -108,3 +108,13 @@ test('a computer that cannot be reached waits, first; the top item follows the s
   assert.deepEqual(boardTop(board), { computerId: 'mac', botId: 'b' })
   assert.equal(boardTop(buildBoard([], NOW)), null)
 })
+
+test('a session working in a terminal is on the Board though no host lane runs it', () => {
+  const architect = normalizeBot({ id: 'a', name: 'architect', workingLanes: [] })
+  // Started days ago and still going: the Board shows it for being busy, not for being recent.
+  const live = entry('t', 'a', 'user', { text: 'Review the diff', task: true, thread: { count: 4, lastAt: NOW - 3 * 86_400_000, authors: [], liveWriter: 'terminal', liveBusy: true } }, NOW - 3 * 86_400_000)
+  const idle = entry('i', 'a', 'user', { text: 'Idle one', task: true, thread: { count: 4, lastAt: min(5), authors: [], liveWriter: 'terminal', liveBusy: false } }, min(30))
+  const board = buildBoard([computer([architect], [live, idle])], NOW)
+  assert.deepEqual(board.working.map((w) => [w.title, w.detail]), [['Review the diff', 'Working in the terminal']])
+  assert.deepEqual(board.doneToday.map((w) => w.title), ['Idle one'])
+})

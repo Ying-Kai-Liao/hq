@@ -195,7 +195,7 @@ public struct BoardModel: Equatable, Sendable {
                 var taskIsWorking = false
                 for task in tasks {
                     let lastAt = Tasks.lastAt(task)
-                    let atWork = bot.isWorking(in: bot.id, thread: task.id)
+                    let atWork = bot.isWorking(in: bot.id, thread: task.id) || task.data.thread?.isBusyInTerminal == true
                     guard atWork || lastAt >= dayStart else { continue }
                     let replies = entries.filter { $0.threadId == task.id }
                     switch Tasks.status(of: task, bot: bot, replies: replies) {

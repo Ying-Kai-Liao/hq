@@ -206,6 +206,8 @@ public extension ThreadSummary {
     var isTerminalOrigin: Bool { origin == "terminal" }
     /// Someone other than the app holds the conversation, so the app shows it read-only. An unknown writer counts as held.
     var isHeldElsewhere: Bool { liveWriter.map { $0 != "app" } ?? false }
+    /// A terminal is mid-turn here: work the host's own lanes don't show.
+    var isBusyInTerminal: Bool { liveWriter == "terminal" && liveBusy == true }
     var isHeldByTerminal: Bool { liveWriter == "terminal" }
 }
 

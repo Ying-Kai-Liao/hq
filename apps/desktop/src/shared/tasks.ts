@@ -2,7 +2,7 @@
 // the chat (`data.task`); the bot's answers and the rest of the burst are its thread. The chat shows a task inline
 // while it's going and folds it into a card once it's idle.
 import { isWorkingIn, type Bot, type Entry } from './models.ts'
-import { isHeldElsewhere } from './thread-writer.ts'
+import { isBusyInTerminal, isHeldElsewhere } from './thread-writer.ts'
 
 /** The host's `tasks::IDLE_MS`: a task idle this long is over, and folds. */
 export const TASK_IDLE_MS = 10 * 60_000
@@ -30,6 +30,8 @@ export function taskStatus(bot: Bot, root: Entry, replies: Entry[]): TaskStatus 
     const held = isHeldElsewhere(root.data.thread)
     return !held && replies.some((e) => e.kind === 'permission' && e.data.status === 'pending') ? 'needsYou' : 'working'
   }
+  // A session started in a terminal works outside the host's lanes; its thread says so.
+  if (isBusyInTerminal(root.data.thread)) return 'working'
   // The host says how a finished turn ended; an older host doesn't, so the thread's entries tell. A host "working"
   // or "needsYou" while no lane is working is stale (the host restarted), so it isn't taken.
   const said = root.data.thread?.status

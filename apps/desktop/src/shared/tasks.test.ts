@@ -58,3 +58,11 @@ test('a card is titled by its first message on one line', () => {
   assert.equal(taskTitle(entry('t', 'user', { text: '  fix\nthe   build ', task: true })), 'fix the build')
   assert.equal(taskTitle(entry('t', 'user', { task: true })), 'Task')
 })
+
+test('a task a terminal is mid-turn in is working, though the host runs no lane for it', () => {
+  const idle = normalizeBot({ id: 'b', workingLanes: [] })
+  const thread = (liveWriter: string, liveBusy: boolean) => entry('t', 'user', { text: 'deploy', task: true, thread: { count: 1, lastAt: 1, authors: [], liveWriter, liveBusy } })
+  assert.equal(taskStatus(idle, thread('terminal', true), []), 'working')
+  assert.equal(taskStatus(idle, thread('terminal', false), []), 'done')
+  assert.equal(taskStatus(idle, thread('app', true), []), 'done', "an app turn is the host's lane to report")
+})
