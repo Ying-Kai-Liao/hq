@@ -329,6 +329,19 @@ public extension HostClient {
         let _: Empty = try await call("logCall", Body(botId: botId, seconds: seconds))
     }
 
+    /// A voice call connected: its line goes in the chat now. Throws on a computer older than this method.
+    func startCall(_ botId: String) async throws -> String {
+        struct Res: Decodable { var entry: Entry }
+        let res: Res = try await call("startCall", ["botId": botId])
+        return res.entry.id
+    }
+
+    /// The call's end: its length goes on the line `entryId` (none: the call never connected). Safe to repeat.
+    func endCall(_ botId: String, entryId: String?, seconds: Int) async throws {
+        struct Body: Encodable { var botId: String; var entryId: String?; var seconds: Int }
+        let _: Empty = try await call("endCall", Body(botId: botId, entryId: entryId, seconds: seconds))
+    }
+
     /// Stops the bot where the user pressed it: its chat, or the thread on `thread`.
     func stop(_ botId: String, thread: String?) async throws {
         var body = ["botId": botId]

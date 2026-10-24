@@ -19,6 +19,7 @@ import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
 import { HandoffNotice } from './HandoffNotice'
 import { AnsweredBy } from './AnsweredBy'
 import { contextLabel } from './context-hint'
+import { callLineSuffix } from './call-line'
 import { ThreadChip as KithThreadChip, pairOf, type Origin, type Place } from '../../components/kith'
 import { threadOrigin } from '@shared/thread-writer'
 import { avatarImage } from '@shared/crew'
@@ -239,12 +240,12 @@ export function AgentBubble({ entry, openTrace, reply }: { entry: Entry; openTra
 
 export function NoticeRow({ entry }: { entry: Entry }) {
   const text = entry.data.text ?? ''
-  if (entry.data.callSeconds !== undefined) {
-    const s = entry.data.callSeconds
+  const call = callLineSuffix(entry.data, entry.createdAt)
+  if (call !== null) {
     return (
       <HStack justify="center" gap={6}>
         <Icon name="waveform" size={10} color="var(--secondary)" />
-        <Text size="footnote" tone="secondary" tabular>{`${text} · ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`}</Text>
+        <Text size="footnote" tone="secondary" tabular>{`${text}${call}`}</Text>
       </HStack>
     )
   }

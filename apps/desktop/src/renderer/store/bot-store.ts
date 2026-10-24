@@ -199,6 +199,27 @@ export class BotStore extends BotSync {
     this.perform((c) => c.callGreet(callId))
   }
 
+  /**
+   * The call connected: its chat line goes in now, where the call began. Resolves to the line's id, or null on a
+   * computer older than this (or a failure); `finishCall` then writes the old end-of-call line.
+   */
+  startCall(botId: string): Promise<string | null> {
+    return this.withLink((c) => c.call<{ entry: { id: string } }>('startCall', { botId }))
+      .then((r) => r.entry.id)
+      .catch(() => null)
+  }
+
+  /** The call ended: its length goes on the line `startCall` made. `started` is null when the call never connected. */
+  async finishCall(botId: string, started: Promise<string | null> | null, seconds: number) {
+    const entryId = await started
+    if (started && !entryId) {
+      this.logCall(botId, seconds)
+      return
+    }
+    // A computer older than endCall just doesn't learn the call ended; there is no line to write.
+    await this.withLink((c) => c.call('endCall', { botId, entryId, seconds }), true).catch(() => {})
+  }
+
   logCall(botId: string, seconds: number) {
     this.perform((c) => c.call('logCall', { botId, seconds }))
   }

@@ -25,7 +25,7 @@ import './call.css'
 
 /**
  * A voice call with a bot: the call screen takes over the chat while it lasts. What you say goes out as ordinary messages, its final replies are read
- * aloud, and the chat gets a "Voice chat · 00:16" line when the call ends.
+ * aloud, and the chat gets a "Voice chat" line when the call connects, with its length ("· 00:16") filled in at the end.
  */
 export function CallView({ botId, greet, onSpeaking, interrupt, onEnd }: {
   botId: string
@@ -49,6 +49,8 @@ export function CallView({ botId, greet, onSpeaking, interrupt, onEnd }: {
   const cloudStartedAt = useRef<number | null>(null)
   const closed = useRef(false)
   const greeted = useRef(false)
+  /** The chat's "Voice chat" line, made once the call connects (null until then, or never). */
+  const record = useRef<Promise<string | null> | null>(null)
   const bot = store.bots.get(botId)
 
   const countCloudMinutes = () => {
@@ -107,6 +109,8 @@ export function CallView({ botId, greet, onSpeaking, interrupt, onEnd }: {
     if (provider) void rememberStatus()
     let stopWatching: (() => void) | null = null
     next.onActivityChanged = (active) => {
+      // The line is written once the call really connects, so a call that never does leaves none.
+      if (active && !record.current) record.current = store.startCall(botId)
       if (active && !stopWatching) {
         if (greet && !greeted.current) {
           greeted.current = true
@@ -161,7 +165,7 @@ export function CallView({ botId, greet, onSpeaking, interrupt, onEnd }: {
       countCloudMinutes()
       onSpeaking(false)
       interrupt.current = null
-      store.logCall(botId, Math.floor((Date.now() - startedAt) / 1000))
+      void store.finishCall(botId, record.current, Math.floor((Date.now() - startedAt) / 1000))
     }
   }, [])
 

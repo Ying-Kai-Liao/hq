@@ -284,3 +284,27 @@ async fn an_accepted_call_that_never_starts_frees_the_person() {
     r.hub.calls.inner.locked().calls.get_mut(&id).unwrap().settled -= 2 * GREET_MS;
     assert_eq!(ring_for(&r, &money, "y")["status"], "ringing", "no callGreet came");
 }
+
+#[tokio::test]
+async fn a_voice_call_line_is_written_at_the_start_and_filled_in_at_the_end() {
+    let r = Rig::new().await;
+    let bot = r.owner_bot("house");
+    let started = rpc(&r, &Caller::Local, "startCall", json!({"botId": bot})).await.unwrap();
+    let id = started["entry"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(started["entry"]["data"]["callLive"], true);
+    // What is said during the call lands after the line.
+    let said = r.hub.add_entry(&Lane::main(&bot), EntryKind::Notice, 1, &json!({"text": "during"})).unwrap();
+
+    let ended = rpc(&r, &Caller::Local, "endCall", json!({"botId": bot, "entryId": id, "seconds": 16})).await.unwrap();
+    assert_eq!(ended["entry"]["data"]["callSeconds"], 16);
+    assert!(ended["entry"]["data"]["callLive"].is_null());
+    assert!(ended["entry"]["seq"].as_i64().unwrap() < said.seq, "the record keeps its place");
+    // A retry changes nothing.
+    let again = rpc(&r, &Caller::Local, "endCall", json!({"botId": bot, "entryId": id, "seconds": 99})).await.unwrap();
+    assert_eq!(again["entry"]["data"]["callSeconds"], 16);
+    assert_eq!(notices(&r, &bot).len(), 2);
+    // No entry (a call that never connected) writes nothing; a foreign id is refused.
+    rpc(&r, &Caller::Local, "endCall", json!({"botId": bot, "seconds": 3})).await.unwrap();
+    assert!(rpc(&r, &Caller::Local, "endCall", json!({"botId": bot, "entryId": "nope"})).await.is_err());
+    assert_eq!(notices(&r, &bot).len(), 2);
+}
