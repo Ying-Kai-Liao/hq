@@ -12,6 +12,11 @@ asks for the place instead of working around it, and ends its turn. The host get
 refuses secrets and rule W, and otherwise makes a card for whoever may answer. A yes cannot widen a process that is already
 running, so it is applied at the next activation of the session: `apply` above, which asks `consumeAccess` once per run.
 
+A third tool, report_bug(title, details), files a bug as a redacted GitHub issue for a guest's agent, whose Bash has no gh
+login: kith-permit (the owner's user, outside the sandbox) scrubs the report, returns the draft to the agent to show the
+person, and asks the owner a card (requestPermission, tool mcp__kithpermit__report_bug, input = the exact draft). Only a
+clear allow files it (kernel/lib/kith_bug.py); any other answer keeps the draft and says so.
+
 When Claude Code reaches a permission prompt in a run nobody is watching (an "ask" rule, a tool the mode doesn't allow),
 it calls approve instead of refusing. The tool sends the host one line over the run socket,
   {"token", "method": "requestPermission", "tool", "input"}
@@ -97,6 +102,34 @@ def access_def():
                             'required': ['reason']}}
 
 
+BUG = 'report_bug'
+
+
+def bug_def():
+    return {'name': BUG,
+            'description': "Report a bug in Kith itself (not in the person's own work). Give a short title and what happened. "
+                           'It is scrubbed of secrets and personal details, shown to the owner on a card, and filed on GitHub only if '
+                           'they say yes. Tell the person what you reported and that it waits on the owner.',
+            'inputSchema': {'type': 'object',
+                            'properties': {'title': {'type': 'string'},
+                                           'details': {'type': 'string', 'description': 'what happened, what you expected'}},
+                            'required': ['title']}}
+
+
+def report_bug(a, env=os.environ):
+    """The text the agent is told for one report_bug call: the redacted draft and what became of it."""
+    if not isinstance(a.get('title'), str) or not a['title'].strip():
+        return 'Give a title.'
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+        import kith_bug
+        d = kith_bug.build_draft(a['title'], a.get('details') if isinstance(a.get('details'), str) else '', 'agent', env)
+        _, text = kith_bug.file_draft(d, lambda tool, inp: decide(tool, inp, env), env)
+    except Exception as e:  # noqa: BLE001 - never takes the run down
+        return 'Could not prepare the bug report (%s); nothing was filed.' % type(e).__name__
+    return 'Redacted draft:\n\n%s\n\n%s' % (kith_bug.draft_text(d), text)
+
+
 def call_host(method, body, env=os.environ, timeout=30):
     """One request to the host over the run socket: the reply dict, or None when there is no token, no socket or no answer."""
     token, path = credentials(env)
@@ -170,7 +203,7 @@ def handle(msg, env=os.environ):
         ver = (msg.get('params') or {}).get('protocolVersion') or '2024-11-05'
         result = {'protocolVersion': ver, 'capabilities': {'tools': {}}, 'serverInfo': {'name': SERVER, 'version': '1'}}
     elif method == 'tools/list':
-        result = {'tools': [tool_def(), access_def()]}
+        result = {'tools': [tool_def(), access_def(), bug_def()]}
     elif method == 'ping':
         result = {}
     elif method == 'tools/call':
@@ -178,6 +211,8 @@ def handle(msg, env=os.environ):
         a = p.get('arguments') or {}
         if p.get('name') == ACCESS:
             result = {'content': [{'type': 'text', 'text': request_access(a, env)}]}
+        elif p.get('name') == BUG:
+            result = {'content': [{'type': 'text', 'text': report_bug(a, env)}]}
         else:
             if p.get('name') != TOOL or not isinstance(a.get('tool_name'), str) or not isinstance(a.get('input'), dict):
                 d = deny('Malformed permission request.')

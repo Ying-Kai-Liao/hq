@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+# kith-bug-check — `kith bug`: the owner's report stays on this Mac with the full transcript (never committed, 0700/0600, no
+# GitHub), everyone else's is a redacted draft filed only after a yes (a card, here a fake run socket), and kith-permit's
+# report_bug tool does the same for a guest's agent.
+#
+#   kernel/tests/kith-bug-check     a few seconds; exits 1 when a check fails
+#
+# gh is a stub on PATH that records its argv and the body it was given. Throwaway HOME, KITH_HOME and KITH_STATE; nothing
+# touches the real ~/.kith.
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-bug-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+PIDS=()
+trap 'for p in ${PIDS[@]+"${PIDS[@]}"}; do kill "$p" 2>/dev/null; done; rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith KITH_STATE=$T/state KITH_AUTH=$T/auth.json
+unset KITH_PROJECT KITH_PERSON KITH_AGENT KITH_OWNER HQ_HOME HQ_STATE KITH_RUN_TOKEN KITH_RUN_SOCKET KITH_ASK_TOKEN KITH_ASK_SOCKET \
+  CLAUDE_CODE_SESSION_ID CLAUDE_CONFIG_DIR KITH_BUG_REPO
+mkdir -p "$HOME/proj" "$KITH_HOME/agents" "$KITH_STATE" "$T/bin" "$T/nogh" "$T/claude/projects/p"
+git -C "$KITH_STATE" init -q
+cp "$KERNEL/lib/dot-kith.gitignore" "$KITH_STATE/.gitignore"
+printf 'Zebrafish\n' > "$KITH_STATE/private-words"
+printf '{"people":{"anna":{"name":"Annabel Quince"},"kai":{"owner":true}}}' > "$KITH_AUTH"
+
+# gh stub: records argv (one line per call) and the stdin of `issue create`; `issue list` finds nothing.
+cat > "$T/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$GH_LOG"
+if [[ $1 == issue && $2 == create ]]; then cat > "$GH_BODY.$(grep -c 'issue create' "$GH_LOG")"; echo "https://github.com/test/kith/issues/7"; exit 0; fi
+[[ $1 == issue && $2 == list ]] && echo '[]'
+exit 0
+STUB
+chmod +x "$T/bin/gh"
+export PATH=$T/bin:$PATH GH_LOG=$T/gh.log GH_BODY=$T/gh.body KITH_BUG_REPO=test/kith
+: > "$GH_LOG"
+
+# a fake run socket: answers each requestPermission from $T/reply and logs what it was asked
+cat > "$T/sock.py" <<'PY'
+import json, os, socket, sys
+sock, log, reply = sys.argv[1:4]
+srv = socket.socket(socket.AF_UNIX); srv.bind(sock); srv.listen(5)
+while True:
+    c, _ = srv.accept(); buf = b''
+    while not buf.endswith(b'\n'):
+        x = c.recv(65536)
+        if not x: break
+        buf += x
+    open(log, 'a').write(buf.decode())
+    c.sendall(open(reply, 'rb').read()); c.close()
+PY
+python3 "$T/sock.py" "$T/s.sock" "$T/cards.log" "$T/reply" & PIDS+=($!); disown
+for _ in $(seq 50); do [[ -S $T/s.sock ]] && break; sleep 0.1; done
+ALLOW='{"ok":true,"behavior":"allow","message":""}'; DENY='{"ok":true,"behavior":"deny","message":"no"}'
+
+BUG=$KERNEL/bin/kith-bug
+fail=0
+ok() { echo "ok   $1"; }
+bad() { echo "FAIL $1${2:+: $2}"; fail=1; }
+is() { [[ $2 == "$3" ]] && ok "$1" || bad "$1" "got '$2', wanted '$3'"; }
+has() { [[ $2 == *"$3"* ]] && ok "$1" || bad "$1" "'$3' not in: ${2: -400}"; }
+hasnt() { [[ $2 != *"$3"* ]] && ok "$1" || bad "$1" "'$3' in: ${2: -400}"; }
+mode() { python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$1"; }
+creates() { grep -c 'issue create' "$GH_LOG" || true; }
+
+# planted values that must never reach a draft, a card or gh
+TOKEN=ghp_AAAABBBBCCCCDDDD1111222233334444
+SECRETVAL=hunter2-very-secret-value
+export MY_API_TOKEN=$SECRETVAL
+PLANT="crash at $HOME/proj/main.py token=$TOKEN key $SECRETVAL mail bob@corp.io about Zebrafish and Annabel Quince"
+CANARY=TRANSCRIPT-CANARY-9931
+printf '{"type":"user","message":"%s"}\n' "$CANARY" > "$T/claude/projects/p/sid1.jsonl"
+mkdir -p "$T/claude/projects/p/sid1/subagents"; echo '{"helper":1}' > "$T/claude/projects/p/sid1/subagents/a.jsonl"
+
+owner() { env KITH_OWNER=1 CLAUDE_CODE_SESSION_ID=sid1 CLAUDE_CONFIG_DIR=$T/claude KITH_AGENT=echo "$@"; }
+
+# --- the owner's local report -----------------------------------------------------------------------------------------
+out=$(owner "$BUG" "serve crashes" --details "it exits at start" </dev/null 2>&1); rc=$?
+is 'owner: report saved' "$rc" 0
+id=$(owner "$BUG" list </dev/null | head -1 | cut -d' ' -f1)
+D=$KITH_STATE/bugs/$id
+is 'owner: folder is 0700' "$(mode "$D")" 700
+is 'owner: report.md is 0600' "$(mode "$D/report.md")" 600
+is 'owner: transcript is 0600' "$(mode "$D/transcript.jsonl")" 600
+is 'owner: bugs/ is 0700' "$(mode "$KITH_STATE/bugs")" 700
+cmp -s "$D/transcript.jsonl" "$T/claude/projects/p/sid1.jsonl" && ok 'owner: full transcript copied' || bad 'owner: full transcript copied'
+[[ -f $D/helpers/subagents/a.jsonl ]] && ok 'owner: helper logs copied' || bad 'owner: helper logs copied'
+is 'owner: no gh call at all' "$(wc -c < "$GH_LOG" | tr -d ' ')" 0
+hasnt 'owner: report.md has no env value' "$(cat "$D/report.md" "$D/report.json")" "$SECRETVAL"
+has 'owner: report.md names the session' "$(cat "$D/report.md")" 'session: sid1'
+[[ -z $(git -C "$KITH_STATE" status --porcelain bugs) ]] && ok 'owner: bugs/ is ignored by git' || bad 'owner: bugs/ is ignored by git'
+out=$(env KITH_AGENT=echo "$BUG" "no session" </dev/null 2>&1)
+has 'owner terminal run (no KITH_PERSON): saved without a transcript' "$out" 'transcript not found'
+is 'owner terminal run: still no gh call' "$(wc -c < "$GH_LOG" | tr -d ' ')" 0
+out=$(owner "$BUG" show "$id" </dev/null); has 'owner: show prints the report' "$out" 'serve crashes'
+printf '#!/usr/bin/env bash\necho "$@" > %s/ask.out\n' "$T" > "$T/bin/fake-ask"; chmod +x "$T/bin/fake-ask"
+owner env KITH_BUG_ASK=$T/bin/fake-ask "$BUG" send "$id" </dev/null >/dev/null 2>&1
+has 'owner: send asks coder with the path, not the contents' "$(cat "$T/ask.out")" "ask --bg coder -p kith A bug was reported in kith. Read $D/report.md"
+hasnt 'owner: send does not paste the transcript' "$(cat "$T/ask.out")" "$CANARY"
+out=$(KITH_OWNER=0 "$BUG" list </dev/null 2>&1); has 'guest: list is the owner only' "$out" 'only the owner'
+
+# --- refusal where git would track it ---------------------------------------------------------------------------------
+mkdir -p "$T/tracked"; git -C "$T/tracked" init -q
+out=$(owner env KITH_STATE=$T/tracked "$BUG" "x" </dev/null 2>&1); rc=$?
+is 'tracked folder: refused' "$rc" 1
+has 'tracked folder: says why' "$out" 'not ignored by git'
+[[ ! -e $T/tracked/bugs ]] && ok 'tracked folder: nothing written' || bad 'tracked folder: nothing written'
+
+# --- a guest's report: redacted draft, filed only after a yes ----------------------------------------------------------
+guest() { env KITH_OWNER=0 KITH_PERSON=sam KITH_AGENT=echo KITH_RUN_TOKEN=tok KITH_RUN_SOCKET=$T/s.sock "$@"; }
+check_clean() {   # $1 label, $2 text
+  for v in "$TOKEN" "$SECRETVAL" "$HOME" bob@corp.io Zebrafish Annabel Quince; do hasnt "$1: no '$v'" "$2" "$v"; done
+}
+echo "$DENY" > "$T/reply"; : > "$T/cards.log"
+out=$(guest "$BUG" "serve crashes" --details "$PLANT" </dev/null 2>&1); rc=$?
+check_clean 'guest draft' "$out"
+has 'guest draft: shows the draft' "$out" '## What happened'
+has 'guest draft: home became ~' "$out" '~/proj/main.py'
+is 'guest, card denied: nothing filed' "$(creates)" 0
+has 'guest, card denied: prints a prefilled URL' "$out" 'https://github.com/test/kith/issues/new?'
+has 'guest, card denied: draft kept' "$out" 'bugs/drafts/'
+card=$(cat "$T/cards.log"); has 'card: requestPermission to the owner path' "$card" '"method": "requestPermission"'
+has 'card: tool is the mcp report_bug name' "$card" 'mcp__kithpermit__report_bug'
+check_clean 'card' "$card"
+[[ -n $(ls "$KITH_STATE/bugs/drafts" 2>/dev/null) ]] && ok 'draft is kept under bugs/drafts' || bad 'draft is kept under bugs/drafts'
+
+echo "$ALLOW" > "$T/reply"; : > "$T/cards.log"
+out=$(guest "$BUG" "serve crashes" --details "$PLANT" </dev/null 2>&1); rc=$?
+is 'guest, card allowed: exit 0' "$rc" 0
+has 'guest, card allowed: filed' "$out" 'Filed: https://github.com/test/kith/issues/7'
+is 'guest, card allowed: exactly one gh issue create' "$(creates)" 1
+has 'gh: repo is the configured one' "$(grep 'issue create' "$GH_LOG")" '--repo test/kith'
+has 'gh: labels bug and from:user' "$(grep 'issue create' "$GH_LOG")" '--label from:user'
+check_clean 'gh body' "$(cat "$GH_BODY".1)"
+python3 - "$T/cards.log" "$GH_BODY.1" <<'PY' && ok 'card input draft carries exactly the filed body' || bad 'card input draft carries exactly the filed body'
+import json, sys
+card = json.loads(open(sys.argv[1]).read().splitlines()[-1])['input']
+body = open(sys.argv[2]).read()
+assert card['body'] == body and card['body'] in card['draft'], card
+PY
+out=$(guest "$BUG" "serve crashes" --details "$PLANT" </dev/null 2>&1)
+has 'same draft again: refused as already filed' "$out" 'Already filed'
+is 'same draft again: still one create' "$(creates)" 1
+
+: > "$GH_LOG"; rm -f "$GH_BODY".*
+out=$(env KITH_OWNER=0 KITH_PERSON=sam "$BUG" "no way to ask" --details "$PLANT" </dev/null 2>&1)
+is 'no token, no socket: nothing filed' "$(creates)" 0
+has 'no token, no socket: URL printed' "$out" 'issues/new?'
+echo 'garbage' > "$T/reply"
+out=$(guest "$BUG" "unclear answer" </dev/null 2>&1)
+is 'unparseable card answer: nothing filed' "$(creates)" 0
+echo "$ALLOW" > "$T/reply"
+out=$(guest env PATH="$T/nogh:/usr/bin:/bin" "$BUG" "gh is missing" </dev/null 2>&1)
+has 'gh missing: says so and prints the URL' "$out" 'issues/new?'
+
+# --- publishing an owner's local report -------------------------------------------------------------------------------
+: > "$GH_LOG"; rm -f "$GH_BODY".*; : > "$T/cards.log"
+echo "$ALLOW" > "$T/reply"
+owner "$BUG" "leaky" --details "$PLANT" </dev/null >/dev/null 2>&1
+id=$(owner "$BUG" list </dev/null | head -1 | cut -d' ' -f1)
+out=$(owner env KITH_ASK_TOKEN=tok KITH_ASK_SOCKET=$T/s.sock "$BUG" publish "$id" </dev/null 2>&1)
+has 'publish: filed after the card' "$out" 'Filed:'
+is 'publish: exactly one create' "$(creates)" 1
+check_clean 'publish body' "$(cat "$GH_BODY".1)"
+hasnt 'publish: no transcript line in the issue' "$(cat "$GH_BODY".1 "$T/cards.log")" "$CANARY"
+echo "$DENY" > "$T/reply"; : > "$GH_LOG"
+owner env KITH_ASK_TOKEN=tok KITH_ASK_SOCKET=$T/s.sock "$BUG" publish "$id" </dev/null >/dev/null 2>&1
+is 'publish, no yes: nothing filed' "$(creates)" 0
+
+# --- the report_bug tool of kith-permit (a guest's agent) -------------------------------------------------------------
+: > "$GH_LOG"; rm -f "$GH_BODY".*; : > "$T/cards.log"
+rpc() {
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+    "$(python3 -c 'import json,sys; print(json.dumps({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"report_bug","arguments":{"title":"tool bug","details":sys.argv[1]}}}))' "$PLANT")" \
+    | guest "$KERNEL/bin/kith-permit" | tail -1
+}
+echo "$DENY" > "$T/reply"
+out=$(rpc); check_clean 'report_bug (denied)' "$out"
+has 'report_bug: the agent gets the draft' "$out" 'Redacted draft'
+is 'report_bug, denied: nothing filed' "$(creates)" 0
+echo "$ALLOW" > "$T/reply"
+out=$(rpc); has 'report_bug, allowed: filed' "$out" 'Filed: https://github.com/test/kith/issues/7'
+is 'report_bug, allowed: one create' "$(creates)" 1
+has 'report_bug: labelled from:agent' "$(grep 'issue create' "$GH_LOG")" '--label from:agent'
+check_clean 'report_bug body' "$(cat "$GH_BODY".1)"
+tools=$(printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | guest "$KERNEL/bin/kith-permit")
+has 'kith-permit lists report_bug' "$tools" '"report_bug"'
+
+# --- the launch: guests may call report_bug, kith bug dispatches --------------------------------------------------------
+grep -q 'mcp__kithpermit__report_bug' "$KERNEL/bin/kith" && ok 'bin/kith allows report_bug for non-owner runs' || bad 'bin/kith allows report_bug for non-owner runs'
+out=$("$KERNEL/bin/kith" bug --help 2>&1); has 'kith bug dispatches to kith-bug' "$out" 'kith bug "<title>"'
+
+[[ $fail == 0 ]] && echo 'all kith-bug checks passed' || echo 'kith-bug check FAILED'
+exit $fail

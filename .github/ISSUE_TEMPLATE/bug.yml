@@ -1,0 +1,26 @@
+name: Bug report
+description: Something in Kith does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues here are public. Leave out passwords, tokens, API keys, other people's names and anything private.
+        `kith bug "<title>"` writes a scrubbed report for you and asks before it files.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Kith version
+      description: The commit or version (`git -C ~/kith/kernel rev-parse --short HEAD`, or the app's About page).
+  - type: input
+    id: os
+    attributes:
+      label: System
+      description: macOS or other, and the app if it was the app (desktop, iOS).
