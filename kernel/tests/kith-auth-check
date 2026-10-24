@@ -123,4 +123,43 @@ cat > "$KITH_AUTH" <<'JSON'
 JSON
 check "old auth.json: a member resolves as before" "[ \"\$(R bob 'd[\"budget\"], d[\"was\"]')\" = \"('5', [])\" ]"
 check "old auth.json: people --json has no bots" "[ \"\$(A people --json | J 'sum(1 for x in d if x[\"bot_of\"])')\" = 0 ]"
+# --- "always" on an escape card (F11 step 2b): a place or website beyond the box, per membership, never more than held
+mkdir -p "$T/docs/sub" "$T/more"
+TR=$(cd "$T" && pwd -P)
+A person ann >/dev/null 2>&1
+A member house ann >/dev/null 2>&1
+A bot bot-a --of ann name=Aide >/dev/null 2>&1
+A bot bot-k2 --of kai name=Kbot >/dev/null 2>&1
+A member house bot-a bot-k2 >/dev/null 2>&1
+A member house bot-a >/dev/null 2>&1
+A member house bot-k2 >/dev/null 2>&1
+ACC() { R ann "d['access']"; }
+check "access: a folder, a folder to write and a domain go in" "A access house ann read '$TR/docs' && A access house ann write '$TR/more' && A access house ann domain pypi.org"
+check "access: resolve lists them" "[ \"\$(ACC)\" = \"{'read': ['$TR/docs'], 'write': ['$TR/more'], 'domains': ['pypi.org']}\" ]"
+check "access: the same entry twice is one" "A access house ann read '$TR/docs' && [ \"\$(R ann 'len(d[\"access\"][\"read\"])')\" = 1 ]"
+check "access: a secret is refused" "! A access house ann read \"\$(python3 \$KERNEL/lib/kith_paths.py --sh | sed -n \"s/^export KITH_SECRETS=//p\" | tr -d \"'\")\""
+# Both layouts: ~/.config/kith is the secrets folder itself in the shared one (this fake home has no ~/.kith), ~/.kith/secrets in the other.
+refused() { [[ "$(A access house ann "$@" 2>&1)" == *'never granted' ]]; }
+CFG=$HOME/.config/kith
+mkdir -p "$CFG"
+for tgt in "$CFG" "$CFG/anything" "$HOME/.config" "$HOME"; do
+  for kind in read write; do
+    check "access: shared layout, $kind of ${tgt#$T/} is refused as a secret" "refused $kind '$tgt'"
+  done
+done
+H2=$T/home2
+mkdir -p "$H2/.kith/secrets"
+for tgt in "$H2/.kith/secrets" "$H2/.kith/secrets/env" "$H2/.kith" "$H2"; do
+  check "access: ~/.kith layout, read of ${tgt#$T/} is refused as a secret" "HOME='$H2' refused read '$tgt'"
+done
+check "access: a folder beside the secrets is still granted" "mkdir -p '$T/docs2' && A access house ann read '$T/docs2'"
+check "access: rule W is refused (a project's .claude, the shell rc)" "! A access house ann write '$TR/docs/.claude/settings.json' && ! A access house ann write '$HOME/.zshrc'"
+check "access: a relative path, a wildcard domain, an address are refused" "! A access house ann read docs && ! A access house ann domain '*.org' && ! A access house ann domain 1.2.3.4"
+check "access: the owner needs none" "! A access house kai read '$TR/docs'"
+A person carl >/dev/null 2>&1
+check "access: someone who is not a person, or has no row of their own, is refused" "! A access house nobody read '$TR/docs' && ! A access garden ann read '$TR/docs' && ! A access house carl read '$TR/docs'"
+check "access: a bot of the owner may hold any, a bot of an invitee only what the invitee holds" "A access house bot-k2 read '$TR/docs/sub' && A access house bot-a read '$TR/docs/sub' && ! A access house bot-a read '$TR/elsewhere' && ! A access house bot-a domain example.org"
+check "access: a bot of an invitee loses it when the invitee does" "A access house ann read '$TR/docs' --rm && [ \"\$(R bot-a 'd[\"access\"][\"read\"]')\" = '[]' ]"
+check "access: --rm takes one entry away" "A access house ann domain pypi.org --rm && [ \"\$(R ann 'd[\"access\"][\"domains\"]')\" = '[]' ]"
+check "access: removing the person removes it" "A person ann --rm >/dev/null 2>&1; ! A access house ann read '$TR/docs'"
 exit $fail
