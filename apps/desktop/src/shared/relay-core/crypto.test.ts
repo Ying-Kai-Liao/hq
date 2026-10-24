@@ -62,3 +62,13 @@ test('strict base64url, and it agrees with Node on every length', () => {
   }
   assert.deepEqual(cat(Uint8Array.of(1), Uint8Array.of(2, 3)), Uint8Array.of(1, 2, 3))
 })
+
+test('base64url handles a 4 MiB message quickly and round-trips it', () => {
+  const big = Uint8Array.from({ length: 4 * 1024 * 1024 + 1 }, (_, i) => (i * 31) & 255)
+  const t0 = Date.now()
+  const s = b64url(big)
+  assert.deepEqual(unb64url(s), big)
+  // ~10 ms natively; the bound is generous so a slow CI box passes, and a per-character loop (hundreds of ms) fails.
+  assert.ok(Date.now() - t0 < 400, `took ${Date.now() - t0} ms`)
+  assert.equal(s, Buffer.from(big).toString('base64url'))
+})

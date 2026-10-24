@@ -13,7 +13,8 @@ const hostKey = signerFromSeed(Buffer.alloc(32, 1))
 const deviceKey = signerFromSeed(Buffer.alloc(32, 3))
 const cid = computerIdOf(hostKey.publicKey)
 
-// A real socket opens on a later turn than the dial call returns.
+// A real socket opens on a later turn than the dial call returns: the link sets its handlers only after awaiting the
+// dial, so a fake that fires from a microtask would open before anyone is listening.
 const soon = (f: () => void) => setTimeout(f, 0)
 const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms))
 async function until<T>(what: string, f: () => T | undefined | false): Promise<T> {
@@ -426,10 +427,7 @@ test('a dial that says signed out stops the link until it is restarted', async (
   const l = new RelayLink({
     cloudURL: 'http://cloud.test:8787', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, delay: () => 5,
     dial: browserDial({
-      jwt: async () => {
-        if (!signedIn) throw new Error('no session')
-        return 'jwt.fresh.token'
-      },
+      jwt: async () => (signedIn ? 'jwt.fresh.token' : null),
       WebSocket: fakeWebSocket(relay),
     }),
   })
@@ -488,5 +486,23 @@ test('a newer presence supersedes a hello still being signed: only the latest ha
   await tick(40)
   assert.equal(c.seen.filter((m) => m.t === 'hello').length, 1, 'the stale hello was dropped')
   await until('ready', () => l.state.kind === 'ready')
+  l.close()
+})
+
+test('a jwt callback that throws (a network blip) is retried, not read as signed out', async () => {
+  const relay = new FakeRelay()
+  let n = 0
+  const l = new RelayLink({
+    cloudURL: 'http://cloud.test:8787', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, delay: () => 5,
+    dial: browserDial({
+      jwt: async () => {
+        if (n++ < 2) throw new Error('offline')
+        return 'jwt.ok.x'
+      },
+      WebSocket: fakeWebSocket(relay),
+    }),
+  })
+  assert.equal(((await l.call('x', null, 3000)) as { echoed: string }).echoed, 'x')
+  assert.equal(n, 3)
   l.close()
 })

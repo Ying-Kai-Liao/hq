@@ -546,7 +546,9 @@ export class RelayLink {
       (hello) => {
         if (this.active === active && active.handshake === hs) active.socket.send(JSON.stringify(hello))
       },
-      () => active.socket.close(1000),
+      () => {
+        if (this.active === active && active.handshake === hs) active.socket.close(1000)
+      },
     )
     // No welcome within 10 s: give up on this socket.
     const timer = setTimeout(() => {

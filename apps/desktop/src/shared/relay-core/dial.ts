@@ -40,8 +40,11 @@ export function wrapWebSocket(ws: WebSocketLike): Socket {
 export const browserProtocols = (auth: DialAuth, jwt: string) => ['kith.v1', `kith-sig.${b64url(text(auth.sig))}`, `kith-jwt.${jwt}`]
 
 export interface BrowserDialOptions {
-  /** A fresh Clerk session JWT, asked for on every dial (a reconnect after 4100 must not reuse the old one). Throw if signed out. */
-  jwt: () => Promise<string>
+  /**
+   * A fresh Clerk session JWT, asked for on every dial (a reconnect after 4100 must not reuse the old one). Resolve null
+   * when there is definitely no session; any throw (a network blip) is retried with backoff, not read as signed out.
+   */
+  jwt: () => Promise<string | null>
   /** The WebSocket constructor; default the global one. */
   WebSocket?: new (url: string, protocols: string[]) => WebSocketLike
 }
@@ -53,12 +56,8 @@ export interface BrowserDialOptions {
  */
 export function browserDial(options: BrowserDialOptions): Dial {
   return async (url, auth) => {
-    let jwt: string
-    try {
-      jwt = await options.jwt()
-    } catch {
-      throw new RelayError(401, 'Sign in again to reach your computers.', 'signedOut')
-    }
+    const jwt = await options.jwt()
+    if (!jwt) throw new RelayError(401, 'Sign in again to reach your computers.', 'signedOut')
     const Ctor = options.WebSocket ?? (globalThis.WebSocket as unknown as NonNullable<BrowserDialOptions['WebSocket']>)
     return wrapWebSocket(new Ctor(url, browserProtocols(auth, jwt)))
   }

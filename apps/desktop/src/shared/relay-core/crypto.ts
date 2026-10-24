@@ -13,42 +13,24 @@ import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js'
 
 // ---- encoding ----
 
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
-const REVERSE = new Int8Array(128).fill(-1)
-for (let i = 0; i < ALPHABET.length; i++) REVERSE[ALPHABET.charCodeAt(i)] = i
+// btoa/atob run natively and exist in Node 16+ and every browser; going through them in chunks keeps a 16 MiB message
+// at tens of milliseconds, where a per-character JS loop blocked the Electron main process for most of a second.
+const CHUNK_BYTES = 0x6000 // a multiple of 3, so every chunk but the last encodes without padding
 
 export function b64url(b: Uint8Array): string {
   let out = ''
-  let i = 0
-  for (; i + 2 < b.length; i += 3) {
-    const n = (b[i] << 16) | (b[i + 1] << 8) | b[i + 2]
-    out += ALPHABET[n >> 18] + ALPHABET[(n >> 12) & 63] + ALPHABET[(n >> 6) & 63] + ALPHABET[n & 63]
+  for (let i = 0; i < b.length; i += CHUNK_BYTES) {
+    out += btoa(String.fromCharCode.apply(null, b.subarray(i, i + CHUNK_BYTES) as unknown as number[]))
   }
-  if (i + 1 === b.length) {
-    const n = b[i] << 16
-    out += ALPHABET[n >> 18] + ALPHABET[(n >> 12) & 63]
-  } else if (i + 2 === b.length) {
-    const n = (b[i] << 16) | (b[i + 1] << 8)
-    out += ALPHABET[n >> 18] + ALPHABET[(n >> 12) & 63] + ALPHABET[(n >> 6) & 63]
-  }
-  return out
+  return out.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
 /** Strict base64url without padding, like the iOS client; null for anything else. */
 export function unb64url(s: string): Uint8Array | null {
   if (typeof s !== 'string' || !/^[A-Za-z0-9_-]*$/.test(s) || s.length % 4 === 1) return null
-  const out = new Uint8Array(Math.floor((s.length * 3) / 4))
-  let acc = 0
-  let bits = 0
-  let at = 0
-  for (let i = 0; i < s.length; i++) {
-    acc = ((acc << 6) | REVERSE[s.charCodeAt(i)]) & 0xffff
-    bits += 6
-    if (bits >= 8) {
-      bits -= 8
-      out[at++] = (acc >> bits) & 0xff
-    }
-  }
+  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'))
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
   return out
 }
 
