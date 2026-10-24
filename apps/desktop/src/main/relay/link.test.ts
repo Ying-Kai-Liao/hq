@@ -284,9 +284,14 @@ test('a refused upgrade the probe cannot explain stays unreachable and retries',
   }
   const l = new RelayLink({ cloudURL: 'https://cloud.test', computerId: cid, hostSignKey: b64url(hostKey.publicKey), signer: deviceKey, dial, probe: async () => 502, delay: () => 5 })
   l.start()
-  await assert.rejects(l.call('x', null, 150), (e: { status: number }) => e.status === 0)
-  assert.notEqual(l.state.kind, 'failed')
-  l.close()
+  try {
+    await assert.rejects(l.call('x', null, 150), (e: { status: number }) => e.status === 0)
+    // A retrying failure shows as a non-final `failed` between attempts; only a final one is a verdict.
+    const s = l.state
+    assert.ok(!(s.kind === 'failed' && s.final), 'a refusal nobody can explain is not final')
+  } finally {
+    l.close()
+  }
 })
 
 test('an event stream delivers each event as JSON, and cancel and end are told to the Mac and the caller', async () => {

@@ -8,6 +8,7 @@
 use super::devices::{Caller, NotAllowed, Principal, principal};
 use super::{roles, str_arg};
 use crate::LockExt;
+use crate::agent::bot::Cmd;
 use crate::hub::Hub;
 use crate::remote::{account, cloud, crypto};
 use crate::store::{Invite, PersonRow, now_ms};
@@ -25,7 +26,7 @@ const INVITE_MS: i64 = 24 * 60 * 60 * 1000;
 const BUDGET: &str = "20";
 
 /// kith-auth rewrites auth.json whole on every change: one writer at a time.
-pub(super) static AUTH_WRITES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(crate) static AUTH_WRITES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<ControlFlow<Value, Value>> {
     Ok(ControlFlow::Break(match method {
@@ -286,6 +287,7 @@ async fn set_person_access(hub: &Arc<Hub>, b: &Value) -> Result<Value> {
     let person = invited_person(hub, id)?;
     let bin = auth_bin().await?;
     let changed_agents = !b["agents"].is_null();
+    let mut warnings: Vec<String> = Vec::new();
     {
         let _w = AUTH_WRITES.lock().await;
         if changed_agents {
@@ -299,10 +301,14 @@ async fn set_person_access(hub: &Arc<Hub>, b: &Value) -> Result<Value> {
                 }
             }
             // Only a membership this host made is taken away again; one the owner gave by hand is left, and just no longer listed.
+            // kith-auth refusing (say the agent's folder is gone) must not stop the rest: it is reported, and the
+            // membership stays in `made` so a later change tries again.
             for agent in person.agents.keys().filter(|a| !want.contains_key(*a)) {
                 if made.contains(agent) {
-                    account::run(&bin, &["member", agent, id, "--rm"]).await?;
-                    made.retain(|m| m != agent);
+                    match account::run(&bin, &["member", agent, id, "--rm"]).await {
+                        Ok(_) => made.retain(|m| m != agent),
+                        Err(e) => warnings.push(format!("couldn't take {agent} away from {id}: {e:#}")),
+                    }
                 }
             }
             hub.store.set_person_agents(id, &want)?;
@@ -317,25 +323,24 @@ async fn set_person_access(hub: &Arc<Hub>, b: &Value) -> Result<Value> {
     if changed_agents {
         // A bot never has more than its owner: a turn on an agent the owner just lost stops now.
         super::botguests::enforce(hub, id).await;
+        // So does any other turn of theirs on an agent they may no longer use.
+        stop_runs(hub, id, true).await;
     }
-    Ok(json!({"person": hub.store.person(id)}))
+    for w in &warnings {
+        tracing::warn!(person = id, "{w}");
+    }
+    let mut out = json!({"person": hub.store.person(id)});
+    if !warnings.is_empty() {
+        out["warnings"] = json!(warnings);
+    }
+    Ok(out)
 }
 
 async fn revoke_person(hub: &Arc<Hub>, id: &str) -> Result<Value> {
     let person = invited_person(hub, id)?;
     let bin = account::bin().await;
-    {
-        let _w = AUTH_WRITES.lock().await;
-        if let Some(bin) = &bin {
-            for agent in &person.made {
-                account::run(bin, &["member", agent, id, "--rm"]).await?;
-            }
-        } else if !person.made.is_empty() {
-            bail!("kith-auth wasn't found, so {id}'s agents can't be taken away.");
-        }
-    }
-    hub.store.set_person_agents(id, &BTreeMap::new())?;
-    hub.store.set_person_made(id, &[])?;
+    // What the host itself holds goes first and can't fail on kith-auth: a person whose agent folder is gone must
+    // still lose their devices, invites and memberships.
     for invite in hub.store.invites()?.into_iter().filter(|i| i.person_id == id && i.open(now_ms())) {
         revoke_invite(hub, &invite.invite_id).await?;
     }
@@ -346,7 +351,54 @@ async fn revoke_person(hub: &Arc<Hub>, id: &str) -> Result<Value> {
     crate::remote::members::end_access(hub, bin.as_deref(), id).await?;
     // Their bots go with them, even when no membership was left to end (docs/kith-bot-guests.md 7.5).
     super::botguests::revoke_owned_by(hub, id, "person").await;
-    Ok(json!({"revoked": true}))
+    hub.store.set_person_agents(id, &BTreeMap::new())?;
+    // Then kith-auth, best effort: what it refuses stays in `made`, so revoking again retries it.
+    let mut warnings: Vec<String> = Vec::new();
+    let mut left: Vec<String> = Vec::new();
+    {
+        let _w = AUTH_WRITES.lock().await;
+        for agent in &person.made {
+            let done = match &bin {
+                Some(bin) => account::run(bin, &["member", agent, id, "--rm"]).await.map(drop),
+                None => Err(anyhow!("kith-auth wasn't found")),
+            };
+            if let Err(e) = done {
+                warnings.push(format!("couldn't take {agent} away from {id}: {e:#}"));
+                left.push(agent.clone());
+            }
+        }
+    }
+    hub.store.set_person_made(id, &left)?;
+    stop_runs(hub, id, false).await;
+    for w in &warnings {
+        tracing::warn!(person = id, "{w}");
+    }
+    let mut out = json!({"revoked": true});
+    if !warnings.is_empty() {
+        out["warnings"] = json!(warnings);
+    }
+    Ok(out)
+}
+
+/// Stops the turns `person` has running: chats of their bots and runs of their linked chat accounts. With
+/// `only_denied` only those on an agent they may no longer use; otherwise all (the person is gone). Callers pass
+/// invited people only, so the owner's own runs are never touched.
+async fn stop_runs(hub: &Hub, person: &str, only_denied: bool) {
+    for bot in hub.store.bots().unwrap_or_default() {
+        if bot.deleted || bot.config.person.as_deref() != Some(person) {
+            continue;
+        }
+        if only_denied {
+            match bot.config.hq_agent.as_deref() {
+                Some(agent) if !roles::may_use(person, agent).await => {}
+                _ => continue,
+            }
+        }
+        if let Err(e) = hub.send_cmd(&bot.config.id, Cmd::Stop) {
+            tracing::warn!(error = format!("{e:#}"), person, "couldn't stop a turn");
+        }
+    }
+    crate::channels::stop_person_runs(person, only_denied).await;
 }
 
 /// Wrong tries a device may make at `proveInvite` per window.

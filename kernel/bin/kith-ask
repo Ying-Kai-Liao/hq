@@ -7,8 +7,10 @@
   kith ask <agent> -c "follow-up"       continue the last conversation with that agent from this directory
   kith ask ls                           the conversations kept, newest first
   kith ask <agent>@<machine> "task"     an agent on another machine of yours, over ssh (kith remote --help)
-  kith ask --wait ID [--timeout S]      a live agent's answers to message ID since you last looked (waits up to S
-                                      seconds, default 600, for the first; exit 3 when none came)
+  kith ask --bg <agent> [options] "task"  the same run in the background: prints an id at once and returns
+  kith ask --wait ID [--timeout S]      the answers to ID since you last looked (waits up to S seconds, default 600,
+                                      for the first; exit 3 when none came). For a --bg run: waits for the run to
+                                      end, prints its answer and exits with its exit code (every call prints it again)
 
 Options: -c/--continue, --as NAME (a named conversation: -c --as NAME picks it up from anywhere, in its folder),
 -C/--dir DIR (work in DIR), -p PROJECT (its memory, and its folder unless -C says; the current one if it has none),
@@ -24,6 +26,9 @@ several turns, in the agent's own tools instead of the caller's.
 Permission mode: KITH_ASK_PERMISSION_MODE when set, else the agent's settings.json defaultMode, else kith's default (auto;
 ~/.kith/settings.json changes it). No one can approve a prompt, so a tool that needs one is refused, the same as any
 one-shot run.
+Without --bg the call blocks until the agent has finished (minutes for a real job). With --bg it returns an id at
+once: the run goes on detached, its answer and errors are kept in ~/.kith/ask-bg/, and `kith ask --wait ID` collects
+them. Everything else (-c, -p, --json, ...) means the same.
 Live agents (`session: live` in agent.md, e.g. coder) run as one session of their own. When it is running (kith-live
 where), the task is typed into it with reply=ask:<id> and kith ask returns at once with the id; the agent answers with
 `kith-send --to ask:<id>` (a job can take an hour), and `kith ask --wait <id>` prints the answers. -p sends the project
@@ -39,6 +44,7 @@ KITH = Path(__file__).resolve().parent.parent
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
 from kith_paths import paths  # noqa: E402  the one place that knows where kith's folders are
 KEPT = paths()['KITH_MACHINE'] / 'ask.json'
+BG = paths()['KITH_MACHINE'] / 'ask-bg'
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
 
 
@@ -71,12 +77,45 @@ def ls():
         print('    %s' % v.get('last', '')[:110])
 
 
+def wait_bg(mid, timeout):
+    """The answer of a `kith ask --bg` run: waits for it to end, then prints what it printed."""
+    out, err, code = BG / (mid + '.out'), BG / (mid + '.err'), BG / (mid + '.exit')
+    end = time.time() + timeout
+    while not code.exists() and time.time() < end:
+        time.sleep(1)
+    if not code.exists():
+        print('kith ask: %s is still running; ask again with: kith ask --wait %s' % (mid, mid), file=sys.stderr)
+        return 3
+    sys.stdout.write(out.read_text() if out.exists() else '')
+    sys.stderr.write(err.read_text() if err.exists() else '')
+    try:
+        return int(code.read_text().strip() or 1)
+    except ValueError:
+        return 1
+
+
+def background(argv):
+    """Run this same call detached; print its id at once. The wrapper writes the exit code last, atomically."""
+    mid = 'bg-%s-%s' % (dt.datetime.now().strftime('%Y%m%d%H%M%S'), os.urandom(3).hex())
+    BG.mkdir(parents=True, exist_ok=True)
+    (BG / (mid + '.cmd')).write_text(' '.join(argv) + '\n')
+    base = str(BG / mid)
+    script = '"$@" >"$0.out" 2>"$0.err" </dev/null; echo $? >"$0.exit.tmp"; mv "$0.exit.tmp" "$0.exit"'
+    subprocess.Popen(['/bin/sh', '-c', script, base, sys.executable, os.path.abspath(__file__), *argv],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    print('started %s in the background as %s; its answer: kith ask --wait %s' % (argv[0], mid, mid))
+    return 0
+
+
 def wait(argv):
     """kith ask --wait ID [--timeout S]: the answers since last time; the first may take a while."""
     mid = argv[0] if argv else ''
     if not mid or not all(c.isalnum() or c in '._-' for c in mid):
         sys.exit('usage: kith ask --wait ID [--timeout SECONDS]')
     timeout = float(argv[argv.index('--timeout') + 1]) if '--timeout' in argv else 600
+    if (BG / (mid + '.cmd')).exists():
+        return wait_bg(mid, timeout)
     box = paths()['KITH_MACHINE'] / 'live' / 'ask'
     log, seen = box / ('%s.jsonl' % mid), box / ('%s.read' % mid)
     done = int(seen.read_text() or 0) if seen.exists() else 0
@@ -125,6 +164,9 @@ def live(agent, task, project):
 def main(argv):
     if not argv or argv[0] in ('-h', '--help'):
         print(__doc__.strip()); return 0
+    bg = '--bg' in argv   # anywhere before the task's `--`
+    if bg:
+        argv = [a for a in argv if a != '--bg']
     if argv[0] == 'ls':
         ls(); return 0
     if argv[0] == '--wait':
@@ -152,6 +194,8 @@ def main(argv):
         sent = live(agent, task, next((v for f, v in zip(kith_opts[::2], kith_opts[1::2]) if f in ('-p', '--project')), ''))
         if sent is not None:
             return sent
+    if bg:   # a live agent already answered above; anything else runs detached, as the call without --bg
+        return background([agent, *rest])
 
     # Where the agent works: -C, else the folder of the project -p names, else a named conversation's own folder.
     project = next((v for f, v in zip(kith_opts[::2], kith_opts[1::2]) if f in ('-p', '--project')), None)
