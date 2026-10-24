@@ -1,7 +1,8 @@
 // Clerk-authenticated account routes: devices, claims, computers, access requests and grants.
 
+import type { Env } from "../index";
 import { LEGACY_SIG_HEADER } from "../legacy-compat";
-import { computerIdFor, fromB64url, LABEL_FAMILIES, randomId, utf8, verifyEd25519, type LabelFamily } from "../auth";
+import { computerIdFor, fromB64url, LABEL_FAMILIES, randomId, utf8, verifyEd25519, webOrigins, type LabelFamily } from "../auth";
 import {
   ApiError,
   audit,
@@ -20,6 +21,7 @@ import {
   str,
   unclaim,
   user,
+  webSessionLive,
   type ComputerRow,
   type Ctx,
   type RequestRow,
@@ -51,6 +53,7 @@ interface DeviceRow {
   created_at: number;
   last_used_at: number | null;
   revoked_at: number | null;
+  clerk_sid: string | null;
 }
 
 const deviceView = (d: DeviceRow) => ({
@@ -66,15 +69,35 @@ export async function registerDevice(c: Ctx) {
   const s = await signed(c);
   const b = body(c);
   const name = str(b, "name");
-  const platform = oneOf(b, "platform", ["ios", "macos", "linux", "windows", "android"] as const);
+  const platform = oneOf(b, "platform", ["ios", "macos", "linux", "windows", "android", "web"] as const);
+  // A key that signed its own retirement (even before the cloud saw it) never registers again.
+  if (await c.env.DB.prepare("SELECT 1 FROM retired_keys WHERE sign_pub = ?").bind(s.kid).first()) {
+    throw new ApiError("forbidden", "This device key was retired; create a new one");
+  }
+  // A token minted for the web origin can only ever register a web key; otherwise a hostile page could register an
+  // extractable key as a native platform and carry it off, dodging every web check.
+  if (platform !== "web" && u.azp && webOrigins(c.env).includes(u.azp)) {
+    throw new ApiError("forbidden", "A web session can only register a web device");
+  }
+  // A browser device lives and dies with its login: the session must be live now, and its sid is what the row binds to.
+  const sid = platform === "web" ? u.sid : null;
+  if (platform === "web" && !(await webSessionLive(c.env, u))) throw new ApiError("unauthenticated", "No live session for this origin");
   const existing = await c.env.DB.prepare("SELECT * FROM devices WHERE owner_user_id = ? AND sign_pub = ?")
     .bind(u.userId, s.kid)
     .first<DeviceRow>();
   if (existing?.revoked_at) throw new ApiError("forbidden", "This device key was revoked; create a new one");
+  // Web <-> native would let a web key shed the session checks the relay applies to web keys.
+  if (existing && (existing.platform === "web") !== (platform === "web")) throw new ApiError("conflict", "A device key keeps its platform kind");
   if (existing) {
-    await c.env.DB.prepare("UPDATE devices SET name = ?, platform = ?, last_used_at = ? WHERE id = ?")
-      .bind(name, platform, c.now, existing.id)
+    // Last write wins: a newer sign-in re-binds the row. A socket admitted under the older sid is not touched.
+    // The tombstone is part of the write: a register in flight across a retire can't re-bind the row.
+    const upd = await c.env.DB.prepare(
+      `UPDATE devices SET name = ?, platform = ?, last_used_at = ?, clerk_sid = ?
+       WHERE id = ? AND revoked_at IS NULL AND NOT EXISTS (SELECT 1 FROM retired_keys WHERE sign_pub = ?)`,
+    )
+      .bind(name, platform, c.now, sid, existing.id, s.kid)
       .run();
+    if (upd.meta.changes !== 1) throw new ApiError("forbidden", "This device key was retired or revoked; create a new one");
     return { device: deviceView({ ...existing, name, platform }) };
   }
   const row: DeviceRow = {
@@ -85,18 +108,21 @@ export async function registerDevice(c: Ctx) {
     created_at: c.now,
     last_used_at: c.now,
     revoked_at: null,
+    clerk_sid: sid,
   };
   await c.env.DB.prepare(
-    `INSERT INTO devices(id, owner_user_id, sign_pub, name, platform, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO devices(id, owner_user_id, sign_pub, name, platform, created_at, last_used_at, clerk_sid)
+     SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM retired_keys WHERE sign_pub = ?)
      ON CONFLICT(owner_user_id, sign_pub) DO NOTHING`,
   )
-    .bind(row.id, u.userId, row.sign_pub, name, platform, c.now, c.now)
+    .bind(row.id, u.userId, row.sign_pub, name, platform, c.now, c.now, sid, s.kid)
     .run();
   // A concurrent registration of the same key wins the insert; report whichever row exists.
   const saved = await c.env.DB.prepare("SELECT * FROM devices WHERE owner_user_id = ? AND sign_pub = ?")
     .bind(u.userId, s.kid)
     .first<DeviceRow>();
-  return { device: deviceView(saved ?? row) };
+  if (!saved) throw new ApiError("forbidden", "This device key was retired; create a new one");
+  return { device: deviceView(saved) };
 }
 
 export async function listDevices(c: Ctx) {
@@ -116,22 +142,45 @@ export async function revokeDevice(c: Ctx, [deviceId]: string[]) {
     .first<{ id: string; revoked_at: number | null }>();
   if (!d) throw new ApiError("notFound");
   if (d.revoked_at) return {};
-  const { stmts, blocks } = await revokeGrants(c.env, "g.device_id = ?", [deviceId], "deviceRevoked", c.now);
-  const pending = await c.env.DB.prepare(
-    "SELECT DISTINCT computer_id FROM access_requests WHERE device_id = ? AND status = 'pending'",
-  )
+  await revokeDeviceRow(c.env, deviceId!, u.userId, c.now);
+  return {};
+}
+
+/** Revokes one device: its grants and pending requests end, and its relay sockets close. */
+async function revokeDeviceRow(env: Env, deviceId: string, actor: string, now: number): Promise<void> {
+  const { stmts, blocks } = await revokeGrants(env, "g.device_id = ?", [deviceId], "deviceRevoked", now);
+  const pending = await env.DB.prepare("SELECT DISTINCT computer_id FROM access_requests WHERE device_id = ? AND status = 'pending'")
     .bind(deviceId)
     .all<{ computer_id: string }>();
-  await c.env.DB.batch([
+  await env.DB.batch([
     ...stmts,
-    c.env.DB.prepare("UPDATE devices SET revoked_at = ? WHERE id = ?").bind(c.now, deviceId),
-    c.env.DB.prepare(
-      "UPDATE access_requests SET status = 'cancelled', decided_at = ? WHERE device_id = ? AND status = 'pending'",
-    ).bind(c.now, deviceId),
-    audit(c.env, u.userId, "device.revoke", deviceId, "ok", c.now),
+    env.DB.prepare("UPDATE devices SET revoked_at = ?, clerk_sid = NULL WHERE id = ?").bind(now, deviceId),
+    env.DB.prepare("UPDATE access_requests SET status = 'cancelled', decided_at = ? WHERE device_id = ? AND status = 'pending'").bind(
+      now,
+      deviceId,
+    ),
+    audit(env, actor, "device.revoke", deviceId, "ok", now),
   ]);
   const computers = new Set([...blocks.keys(), ...pending.results.map((r) => r.computer_id)]);
-  await Promise.all([...computers].map((id) => notify(c.env, id, blocks.get(id))));
+  await Promise.all([...computers].map((id) => notify(env, id, blocks.get(id))));
+}
+
+/**
+ * `POST /v1/devices/retire`, signed by the device key itself and with no login: sign-out of a browser device. Every row
+ * holding the key is revoked and its sockets closed. The key is also written to `retired_keys`, so a register that was
+ * signed before sign-out and lands after it (or for a key the cloud never saw) is refused.
+ */
+export async function retireDevice(c: Ctx) {
+  if (c.env.REGISTER_LIMITER) {
+    const ip = c.req.headers.get("CF-Connecting-IP") ?? "unknown";
+    if (!(await c.env.REGISTER_LIMITER.limit({ key: "retire|" + ip })).success) throw new ApiError("rateLimited");
+  }
+  const s = await signed(c);
+  await c.env.DB.prepare("INSERT OR IGNORE INTO retired_keys(sign_pub, retired_at) VALUES (?, ?)").bind(s.kid, c.now).run();
+  const { results } = await c.env.DB.prepare("SELECT id, owner_user_id FROM devices WHERE sign_pub = ? AND revoked_at IS NULL")
+    .bind(s.kid)
+    .all<{ id: string; owner_user_id: string }>();
+  for (const d of results) await revokeDeviceRow(c.env, d.id, d.owner_user_id, c.now);
   return {};
 }
 

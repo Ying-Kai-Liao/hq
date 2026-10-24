@@ -2,8 +2,9 @@ import { hostname } from 'node:os'
 import { BrowserWindow, ipcMain, type WebContents } from 'electron'
 import type { CloudAccess } from '../cloud'
 import type { AccessProgress, AccessTicket, CloudResult, RelayCallError, RelayComputer, RelayState } from '../../shared/relay'
-import { requestAccess } from './access'
-import { RelayError, RelayLink } from './link'
+import { requestAccess } from '../../shared/relay-core/access.ts'
+import { RelayError, RelayLink } from '../../shared/relay-core/link.ts'
+import { dialWebSocket, probeUpgrade } from './dial'
 
 /**
  * Reaching other Macs over the Kith cloud relay, for every window. One encrypted channel per Mac is kept here in the
@@ -60,7 +61,7 @@ export function registerRelay(cloud: CloudAccess) {
     if (!device) return { status: 0, message: 'Sign in again to reach your computers.', code: 'signedOut' }
     const existing = links.get(computerId)
     if (existing) return existing
-    const link = new RelayLink({ cloudURL: device.cloudURL, computerId, hostSignKey: signKey, signer: device.signer })
+    const link = new RelayLink({ cloudURL: device.cloudURL, computerId, hostSignKey: signKey, signer: device.signer, dial: dialWebSocket, probe: probeUpgrade })
     link.onState((state: RelayState) => broadcast('relay:state:change', computerId, state))
     links.set(computerId, link)
     return link

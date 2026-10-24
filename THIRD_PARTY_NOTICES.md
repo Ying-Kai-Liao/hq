@@ -11,7 +11,7 @@ Local voice (kith-tts) uses Phonon, Gradium's on-device text to speech: the ptts
 model and voices (https://huggingface.co/gradium/phonon-31m-en and /gradium/phonon-voices, Apache-2.0,
 Copyright Gradium). The model files are downloaded on first use and are not part of this repository.
 
-Kith includes 599 third-party packages and vendored files under the licenses below.
+Kith includes 602 third-party packages and vendored files under the licenses below.
 
 ## 0BSD
 
@@ -4181,6 +4181,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - @fivesheepco/cloudflare-apns2 13.0.0 (npm)
   https://github.com/FiveSheepCo/cloudflare-apns2
   Copyright (c) 2023 AndrewBarba
+- @noble/ciphers 2.4.0 (npm)
+  https://github.com/paulmillr/noble-ciphers
+  Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+  Copyright (c) 2016 Thomas Pornin <pornin@bolet.org>
+- @noble/curves 2.4.0 (npm)
+  https://github.com/paulmillr/noble-curves
+  Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+- @noble/hashes 2.4.0 (npm)
+  https://github.com/paulmillr/noble-hashes
+  Copyright (c) 2022 Paul Miller (https://paulmillr.com)
 - @stablelib/base64 1.0.1 (npm)
   https://github.com/StableLib/stablelib
   Copyright (C) 2016 Dmitry Chestnykh
@@ -5561,6 +5571,30 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+~~~~~
+
+~~~~~
+The MIT License (MIT)
+
+Copyright (c) the holders named for each package above
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the “Software”), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ~~~~~
 
 ~~~~~
