@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { agentsWithout, inviteAgents, openInvitesFor, sharedWith } from './agent-share.ts'
+import { agentsWithout, invitesOnly, inviteAgents, openInvitesFor, sharedWith } from './agent-share.ts'
 import type { PendingInvite, Person } from './people.ts'
 
 const person = (personId: string, agents: Person['agents']): Person => ({ personId, name: personId, agents, projects: ['p'], joined: true, openInvites: 0, devices: [] })
@@ -32,4 +32,10 @@ test('agentsWithout drops only this agent and leaves the rest and the person unt
   assert.deepEqual(agentsWithout(p, 'house'), { coder: 'guest' })
   assert.deepEqual(p.agents, { house: 'member', coder: 'guest' })
   assert.deepEqual(agentsWithout(person('b', { house: 'guest' }), 'house'), {})
+})
+
+test('invitesOnly drops invites of people already listed as holders', () => {
+  const holders = sharedWith([person('a', { house: 'guest' })], 'house')
+  const open = [invite('1', { house: 'guest' }, { personId: 'a' }), invite('2', { house: 'guest' }, { personId: 'b' })]
+  assert.deepEqual(invitesOnly(open, holders).map((i) => i.inviteId), ['2'])
 })

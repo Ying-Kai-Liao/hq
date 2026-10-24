@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { inviteAgents, openInvitesFor, roleName, sharedWith } from '@shared/agent-share'
+import { inviteAgents, invitesOnly, openInvitesFor, roleName, sharedWith } from '@shared/agent-share'
 import { isGroup, type Bot } from '@shared/models'
 import type { CreatedInvite, Person, Role } from '@shared/people'
 import { Button, CardSection, SegmentedChoice } from '../components/Controls'
@@ -62,6 +62,7 @@ function ShareAgentBody({ store, agent, name }: { store: BotStore; agent: string
   const now = Date.now()
   const holders = sharedWith(people.people, agent)
   const open = openInvitesFor(people.invites, agent, now)
+  const pending = invitesOnly(open, holders)
   const nameOf = (id: string) => people.people.find((p) => p.personId === id)?.name ?? id
   // People who already hold this agent have nothing to be invited to.
   const others = people.people.filter((p) => !(agent in p.agents))
@@ -92,18 +93,18 @@ function ShareAgentBody({ store, agent, name }: { store: BotStore; agent: string
       <VStack gap={14} className="settings-invite-body">
         <VStack gap={6}>
         <Text size="caption" tone="secondary">Shared with</Text>
-        <CardSection footer={holders.length === 0 && open.length === 0 ? `No one has ${name} yet. Invite someone below.` : undefined}>
+        <CardSection footer={holders.length === 0 && pending.length === 0 ? `No one has ${name} yet. Invite someone below.` : undefined}>
           {holders.map(({ person, role: held }) => (
             <div key={person.personId} className="settings-row">
               <Icon name="person.crop.circle" size={22} color="var(--secondary)" />
               <VStack grow className="settings-stack">
                 <Text truncate>{person.name}</Text>
-                <Text size="caption" tone="secondary">{roleName(held)} · {person.joined ? 'Joined' : 'Waiting to join'}</Text>
+                <Text size="caption" tone="secondary">{roleName(held)} · {person.joined ? 'Joined' : open.some((i) => i.personId === person.personId) ? 'Invite not used yet' : 'Waiting to join'}</Text>
               </VStack>
               <Button kind="secondary" onClick={() => setRemoving(person)} disabled={people.busy}>Remove</Button>
             </div>
           ))}
-          {open.map((invite) => (
+          {pending.map((invite) => (
             <div key={invite.inviteId} className="settings-row">
               <Icon name="link" size={20} color="var(--secondary)" />
               <VStack grow className="settings-stack">
@@ -128,11 +129,13 @@ function ShareAgentBody({ store, agent, name }: { store: BotStore; agent: string
             <input className="settings-input" placeholder="Their name" value={who} onChange={(e) => setWho(e.target.value)} aria-label="Their name" />
           ) : null}
           <HStack gap={10} align="center">
-            <SegmentedChoice<Role> selection={role} options={[{ id: 'guest', label: 'Guest' }, { id: 'member', label: 'Member' }]} onChange={setRole} />
+            <div style={{ width: 180 }}>
+              <SegmentedChoice<Role> selection={role} options={[{ id: 'guest', label: 'Guest' }, { id: 'member', label: 'Member' }]} onChange={setRole} />
+            </div>
             <Spacer />
             <Button onClick={() => void create()} disabled={!ready || people.busy}>{people.busy ? 'Creating…' : 'Create invite'}</Button>
           </HStack>
-          <Text size="footnote" tone="secondary">A guest asks you first. A member works within the limits you set for the agent. They get {name} only.</Text>
+          <Text size="footnote" tone="secondary">A member can do more with an agent than a guest. Guest is the safer start. They get {name} only.</Text>
         </VStack>
         {people.error ? <Text size="footnote" tone="danger">{people.error}</Text> : null}
         {people.notice ? <Text size="footnote" tone="secondary">{people.notice}</Text> : null}

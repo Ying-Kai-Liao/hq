@@ -301,6 +301,9 @@ export class FakeHost {
         const existing = this.people.find((p) => p.personId === b.personId)
         const personId = existing ? String(existing.personId) : str('name').toLowerCase().replace(/\W+/g, '-')
         if (!existing) this.people.push({ personId, name: str('name'), agents: {}, projects: [], joined: false, openInvites: 0, devices: [] })
+        // Like the host, the invite grants the membership when it is made.
+        const holder = this.people.find((p) => p.personId === personId)
+        if (holder) holder.agents = { ...(holder.agents as object), ...agents }
         const inviteId = `inv-${this.invites.length + 1}`
         const expiresAt = Date.now() + 86_400_000
         this.invites.push({ inviteId, personId, agents, createdAt: Date.now(), expiresAt, usedAt: null, revokedAt: null })

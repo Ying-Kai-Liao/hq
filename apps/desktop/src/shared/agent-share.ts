@@ -26,3 +26,12 @@ export function agentsWithout(person: Person, agent: string): Record<string, Rol
 }
 
 export const roleName = (r: Role) => (r === 'member' ? 'Member' : 'Guest')
+
+/**
+ * Open invites for people not already listed as holders. The host grants the membership when it makes the invite,
+ * so a new invitee is a holder too; one row per person, and a holder with an open invite is shown as such.
+ */
+export function invitesOnly(open: PendingInvite[], holders: { person: Person }[]): PendingInvite[] {
+  const held = new Set(holders.map((h) => h.person.personId))
+  return open.filter((i) => !held.has(i.personId))
+}
