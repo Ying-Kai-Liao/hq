@@ -168,7 +168,9 @@ async fn note_for(hub: &Hub, group: &[Card]) -> String {
         .map(|c| {
             let what = super::short(&c.shown, 80);
             if c.state == CardState::Used {
-                format!("{who} allowed {what} once, but a later request already used that; ask again if you still need it")
+                format!(
+                    "{who} allowed {what} once, but a later request already used that; ask again if you still need it"
+                )
             } else {
                 format!("{who} allowed {what} once")
             }
@@ -206,7 +208,12 @@ fn bot_door(hub: &Arc<Hub>, group: &[Card], bot: &str, lane: &Lane, note: &str) 
     }
     #[cfg(not(test))]
     {
-        let cmd = crate::agent::bot::Cmd::Send { lane: lane.clone(), entry_id: entry.id.clone(), text: note.to_owned(), route: false };
+        let cmd = crate::agent::bot::Cmd::Send {
+            lane: lane.clone(),
+            entry_id: entry.id.clone(),
+            text: note.to_owned(),
+            route: false,
+        };
         if let Err(error) = hub.send_cmd(bot, cmd) {
             tracing::warn!(error = format!("{error:#}"), "couldn't queue a card's resume");
             lock(&WAKES).remove(&entry.id);
@@ -220,7 +227,8 @@ fn bot_door(hub: &Arc<Hub>, group: &[Card], bot: &str, lane: &Lane, note: &str) 
 /// A wake turn on a bot's actor could not start because the session's writer is held: the claims go back and the
 /// resume is offered again, with the holder shown on the card. Called from the actor's `start_failed`.
 pub fn refused(hub: &Arc<Hub>, entry_ids: &[String], session: Option<&str>) {
-    let holder = session.and_then(|sid| crate::terminal::claim::holder(&hub.terminal.env().state, sid).map(|c| (sid, c)));
+    let holder =
+        session.and_then(|sid| crate::terminal::claim::holder(&hub.terminal.env().state, sid).map(|c| (sid, c)));
     for entry in entry_ids {
         let Some(ids) = lock(&WAKES).remove(entry) else { continue };
         for id in ids {
@@ -282,9 +290,7 @@ pub struct Spawn {
 /// run gets `KITH_PERSON` (the owner's none) so the session doesn't resume under the owner's profile. The run token is
 /// added by the caller.
 pub fn spawn_for(card: &Card, session: &str, note: &str) -> Spawn {
-    let mut env: Vec<(String, String)> = std::env::vars()
-        .filter(|(k, _)| crate::channels::run::inherited(k))
-        .collect();
+    let mut env: Vec<(String, String)> = std::env::vars().filter(|(k, _)| crate::channels::run::inherited(k)).collect();
     let mut set = |name: &str, v: &str| env.extend(crate::kernel::both(name, v));
     set("VIA", "host");
     set("CLAIM_WAIT", &CLAIM_WAIT_S.to_string());
@@ -419,11 +425,7 @@ async fn exec(bin: &std::path::Path, spawn: &Spawn, grant: Option<crate::runauth
         Ok(Ok(status)) if status.success() => Exec::Running,
         Ok(done) => {
             let said = tail.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-            if said.contains("held by") {
-                Exec::Held
-            } else {
-                Exec::Failed(format!("{done:?}: {}", said.trim()))
-            }
+            if said.contains("held by") { Exec::Held } else { Exec::Failed(format!("{done:?}: {}", said.trim())) }
         }
     }
 }
@@ -435,9 +437,8 @@ async fn exec(bin: &std::path::Path, spawn: &Spawn, grant: Option<crate::runauth
 fn set_held(hub: &Hub, card: &Card, holder: Option<(&str, &crate::terminal::claim::Claim)>) {
     let Some(id) = &card.entry_id else { return };
     let Some(mut e) = hub.store.entry(id) else { return };
-    e.data["held"] = holder.map_or(Value::Null, |(sid, c)| {
-        json!({"session": sid, "kind": c.kind, "pid": c.pid, "since": c.at})
-    });
+    e.data["held"] =
+        holder.map_or(Value::Null, |(sid, c)| json!({"session": sid, "kind": c.kind, "pid": c.pid, "since": c.at}));
     hub.set_entry(id, &e.data);
 }
 
@@ -484,7 +485,12 @@ pub(crate) mod tests_seen {
 
     /// Everything seen for a session.
     pub fn of(session: &str) -> Vec<Seen> {
-        SEEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().filter(|s| s.session == session).cloned().collect()
+        SEEN.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|s| s.session == session)
+            .cloned()
+            .collect()
     }
 
     pub fn spawns_for(session_id: &str) -> Vec<Spawn> {

@@ -989,7 +989,11 @@ async fn a_oneshot_claim_written_by_the_kernel_is_parsed_and_holds_the_session()
     let p = claim::path(&r.state(), "s1", false);
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();
     let start = registry::proc_start(pid).expect("ps knows the process");
-    std::fs::write(&p, json!({"pid": pid, "procStart": start, "at": "2026-10-24T00:00:00+00:00", "kind": "oneshot"}).to_string()).unwrap();
+    std::fs::write(
+        &p,
+        json!({"pid": pid, "procStart": start, "at": "2026-10-24T00:00:00+00:00", "kind": "oneshot"}).to_string(),
+    )
+    .unwrap();
     assert_eq!(claim::read(&p).expect("the host parses a oneshot claim").kind, Kind::Oneshot);
     let held = claim::holder(&r.state(), "s1").expect("a live one-shot holds the session for a host turn");
     assert_eq!((held.pid, held.kind), (pid, Kind::Oneshot));

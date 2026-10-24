@@ -34,7 +34,12 @@ pub(super) fn ls() -> Value {
 }
 
 /// Starts `requestPermission` in the background, as the run socket would.
-pub(super) fn ask(hub: &Arc<Hub>, who: RunIdentity, tool: &'static str, input: Value) -> tokio::task::JoinHandle<Decision> {
+pub(super) fn ask(
+    hub: &Arc<Hub>,
+    who: RunIdentity,
+    tool: &'static str,
+    input: Value,
+) -> tokio::task::JoinHandle<Decision> {
     let hub = hub.clone();
     tokio::spawn(async move { request_permission(&hub, &who, tool, &input).await })
 }

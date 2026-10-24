@@ -500,12 +500,8 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn a_dropped_agent_process_is_killed() {
-        let (acp, mut rx) = Acp::spawn(
-            r#"sh -c 'echo "{\"jsonrpc\":\"2.0\",\"method\":\"ready\"}"; sleep 300'"#,
-            "/tmp",
-            &[],
-        )
-        .unwrap();
+        let (acp, mut rx) =
+            Acp::spawn(r#"sh -c 'echo "{\"jsonrpc\":\"2.0\",\"method\":\"ready\"}"; sleep 300'"#, "/tmp", &[]).unwrap();
         let pid = acp.pid().unwrap();
         let ready = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap();
         assert!(matches!(ready, Some(Incoming::Notification { .. })));

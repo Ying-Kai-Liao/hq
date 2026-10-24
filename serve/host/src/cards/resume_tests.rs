@@ -8,7 +8,7 @@ use super::resume::{Door, Step, attempt, door_of, spawn_for, tests_seen};
 use super::tests::{ask, entry_status, joined, ls, owner_run, shown, window};
 use super::*;
 use crate::api::rig::Rig;
-use crate::api::{dispatch, devices::Caller};
+use crate::api::{devices::Caller, dispatch};
 use crate::runauth::TokenScope;
 use crate::terminal::claim::{self, Kind};
 use std::process::{Command, Stdio};
@@ -191,7 +191,10 @@ async fn a_held_session_keeps_the_resume_owed_and_shows_the_holder_until_it_exit
     assert!(tests_seen::of(&card.session).is_empty());
     assert!(r.hub.store.card(&card.id).unwrap().resumed_at.is_none(), "a refused claim does not set the marker");
     let held = r.hub.store.entry(card.entry_id.as_ref().unwrap()).unwrap().data["held"].clone();
-    assert_eq!((held["pid"].as_u64(), held["kind"].as_str(), held["session"].as_str()), (Some(u64::from(pid)), Some("terminal"), Some("held-a")));
+    assert_eq!(
+        (held["pid"].as_u64(), held["kind"].as_str(), held["session"].as_str()),
+        (Some(u64::from(pid)), Some("terminal"), Some("held-a"))
+    );
 
     // The holder exits: the next try goes through, once, and the card no longer says held.
     signal(pid);
@@ -296,7 +299,10 @@ async fn the_p_door_resumes_as_the_cards_person() {
     let owner = approved_while_gone(&r, owner_run("pdoor-b"), ls()).await;
     let s = spawn_for(&owner, "pdoor-b", "note");
     assert!(env(&s, "KITH_PERSON").is_none() && env(&s, "HQ_PERSON").is_none());
-    assert!(env(&s, "KITH_RUN_TOKEN").is_none() && env(&s, "KITH_ASK_TOKEN").is_none(), "tokens are added by the caller");
+    assert!(
+        env(&s, "KITH_RUN_TOKEN").is_none() && env(&s, "KITH_ASK_TOKEN").is_none(),
+        "tokens are added by the caller"
+    );
 }
 
 #[tokio::test]
@@ -335,7 +341,9 @@ async fn two_cards_owed_in_one_session_make_one_wake_turn() {
     let seen = tests_seen::of(&a.session);
     assert_eq!(seen.len(), 1, "L5: one turn answers both");
     assert!(seen[0].note.matches("allowed").count() == 2, "{}", seen[0].note);
-    assert!(r.hub.store.card(&a.id).unwrap().resumed_at.is_some() && r.hub.store.card(&b.id).unwrap().resumed_at.is_some());
+    assert!(
+        r.hub.store.card(&a.id).unwrap().resumed_at.is_some() && r.hub.store.card(&b.id).unwrap().resumed_at.is_some()
+    );
 }
 
 #[tokio::test]
@@ -368,7 +376,10 @@ async fn stop_holder_is_the_owners_alone_and_ends_only_the_live_holder_it_judged
 
     // The owner ends it and is told who.
     let out = dispatch(&r.hub, &Caller::Local, "stopHolder", json!({"session": "stop-a"})).await.unwrap();
-    assert_eq!((out["stopped"]["pid"].as_u64(), out["stopped"]["kind"].as_str()), (Some(u64::from(pid)), Some("terminal")));
+    assert_eq!(
+        (out["stopped"]["pid"].as_u64(), out["stopped"]["kind"].as_str()),
+        (Some(u64::from(pid)), Some("terminal"))
+    );
     sh.wait().unwrap();
     assert!(claim::holder(&state, "stop-a").is_none());
     let again = dispatch(&r.hub, &Caller::Local, "stopHolder", json!({"session": "stop-a"})).await.unwrap();

@@ -113,7 +113,15 @@ pub fn take_as(
     let dest = path(state, sid, takeover);
     let parent = dest.parent().unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent)?;
-    let mine = Claim { pid, proc_start: start_of(pid), at: chrono::Utc::now().to_rfc3339(), kind, takeover, person: person.map(str::to_owned), agent: agent.map(str::to_owned) };
+    let mine = Claim {
+        pid,
+        proc_start: start_of(pid),
+        at: chrono::Utc::now().to_rfc3339(),
+        kind,
+        takeover,
+        person: person.map(str::to_owned),
+        agent: agent.map(str::to_owned),
+    };
     let tmp = parent.join(format!(".{sid}.claim.{}.{}.tmp", std::process::id(), pid));
     write_new(&tmp, &serde_json::to_string(&mine).map_err(std::io::Error::other)?)?;
     let result = (|| {

@@ -61,10 +61,10 @@ mod tests;
 #[allow(unused_imports)]
 pub use adapter::{Adapter, Alive, Constructor, Ended, Fut, Incoming, Reaction, Secrets, StopPress};
 pub use core::Core;
-pub use queue::Wake;
 #[allow(unused_imports)]
 pub use manager::Registry;
 pub use manager::status;
+pub use queue::Wake;
 
 use crate::hub::Hub;
 use std::path::Path;

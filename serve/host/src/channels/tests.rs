@@ -283,7 +283,11 @@ async fn an_approved_cards_wake_is_its_own_turn_and_a_refusal_leaves_nothing_beh
     until("the answer", || !r.fake.posts().is_empty()).await;
     r.idle().await;
     let wk = "fake/x:room:1#house";
-    assert_eq!(r.core.wake(wk, "never", || vec!["x".into()]), Wake::Offline, "no connection yet: the resume stays owed");
+    assert_eq!(
+        r.core.wake(wk, "never", || vec!["x".into()]),
+        Wake::Offline,
+        "no connection yet: the resume stays owed"
+    );
     r.core.resume(&r.ad);
     assert_eq!(r.core.wake("fake/x:gone#house", "never", || vec!["x".into()]), Wake::NoThread);
     assert_eq!(r.core.wake(wk, "never", Vec::new), Wake::Claimed, "someone else took the card's resume");

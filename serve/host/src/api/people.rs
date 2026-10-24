@@ -413,7 +413,12 @@ async fn stop_runs(hub: &Hub, person: &str, only_denied: bool) {
     if only_denied {
         let mut ids = vec![person.to_owned()];
         ids.extend(
-            hub.store.bot_guests().unwrap_or_default().into_iter().filter(|g| g.state.live() && g.owner_person.as_deref() == Some(person)).map(|g| g.person_id),
+            hub.store
+                .bot_guests()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|g| g.state.live() && g.owner_person.as_deref() == Some(person))
+                .map(|g| g.person_id),
         );
         super::botguests::sweep_claims(hub, ids, true).await;
     }

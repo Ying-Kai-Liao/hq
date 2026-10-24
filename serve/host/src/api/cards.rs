@@ -13,10 +13,10 @@
 
 use super::str_arg;
 use crate::hub::Hub;
+use crate::terminal::claim::Stopped;
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use std::ops::ControlFlow;
-use crate::terminal::claim::Stopped;
 use std::sync::Arc;
 
 /// How long a holder gets to end after SIGTERM before SIGKILL.

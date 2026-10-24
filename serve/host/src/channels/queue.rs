@@ -8,9 +8,9 @@
 
 use super::adapter::{Adapter, Ended, Incoming, Reaction, StopPress};
 use super::core::{Busy, Core};
-use crate::LockExt as _;
 use super::hq;
 use super::text::{INTERRUPTED, merged, short};
+use crate::LockExt as _;
 use crate::chat::router::Route;
 use serde_json::Value;
 use std::sync::Arc;
@@ -409,7 +409,8 @@ impl Core {
     /// spawn failed), [`Self::settle_wake`] gives the cards back to the store, so the resume stays owed (C5).
     pub fn wake(self: &Arc<Self>, wk: &str, text: &str, claim: impl FnOnce() -> Vec<String>) -> Wake {
         let (key, agent) = wk.rsplit_once('#').unwrap_or((wk, ""));
-        let ad = self.ads.locked().iter().find(|(conn, _)| key.starts_with(&format!("{conn}:"))).map(|(_, ad)| ad.clone());
+        let ad =
+            self.ads.locked().iter().find(|(conn, _)| key.starts_with(&format!("{conn}:"))).map(|(_, ad)| ad.clone());
         let Some(ad) = ad else { return Wake::Offline };
         let spawn = self.with(|i| {
             if !i.st.threads.contains_key(key) {

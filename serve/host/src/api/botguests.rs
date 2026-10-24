@@ -620,7 +620,8 @@ pub(crate) async fn sweep_claims(hub: &Hub, persons: Vec<String>, only_denied: b
     let mut allowed: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
     if only_denied {
         let (st, ps) = (state.clone(), persons.clone());
-        let held = tokio::task::spawn_blocking(move || crate::terminal::claim::holders_of(&st, &ps)).await.unwrap_or_default();
+        let held =
+            tokio::task::spawn_blocking(move || crate::terminal::claim::holders_of(&st, &ps)).await.unwrap_or_default();
         for (person, agent) in held.into_iter().filter_map(|c| Some((c.person?, c.agent?))) {
             if roles::may_use(&person, &agent).await {
                 allowed.insert((person, agent));
@@ -629,8 +630,7 @@ pub(crate) async fn sweep_claims(hub: &Hub, persons: Vec<String>, only_denied: b
     }
     let ended = tokio::task::spawn_blocking(move || {
         let keep = |c: &crate::terminal::claim::Claim| {
-            only_denied
-                && c.person.clone().zip(c.agent.clone()).is_some_and(|pa| allowed.contains(&pa))
+            only_denied && c.person.clone().zip(c.agent.clone()).is_some_and(|pa| allowed.contains(&pa))
         };
         crate::terminal::claim::sweep(&state, &persons, &keep, Duration::from_secs(2))
     })
