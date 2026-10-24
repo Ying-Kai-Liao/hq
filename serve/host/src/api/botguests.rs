@@ -569,6 +569,8 @@ pub(crate) async fn end_bot(hub: &Hub, bot_id: &str, final_state: BotState, why:
             tracing::warn!(error = format!("{e:#}"), bot = bot_id, "couldn't stop a bot's turn");
         }
     }
+    // Then whatever still runs as the bot: processes a restarted host no longer knows, found by their claims.
+    sweep_claims(hub, vec![bot.person_id.clone()]).await;
     for c in hub.store.bot_conversations_of(bot_id, 1000).unwrap_or_default() {
         let lane = Lane::in_thread(&c.chat_bot_id, &c.thread_root);
         let data = json!({"text": "This bot's access to this computer ended.", "style": "info", "ended": why});
@@ -596,12 +598,28 @@ pub(crate) async fn end_bot(hub: &Hub, bot_id: &str, final_state: BotState, why:
     true
 }
 
-/// Ends every live bot of `person` (their person was revoked, or their last membership is gone).
+/// Ends every live bot of `person` (their person was revoked, or their last membership is gone), and any process still
+/// running with `person`'s own profile. Callers pass invited people only.
 pub(crate) async fn revoke_owned_by(hub: &Hub, person: &str, why: &str) {
     for g in hub.store.bot_guests().unwrap_or_default() {
         if g.state.live() && g.owner_person.as_deref() == Some(person) {
             end_bot(hub, &g.bot_id, BotState::Revoked, why, "host").await;
         }
+    }
+    sweep_claims(hub, vec![person.to_owned()]).await;
+}
+
+/// Kills the holders of every writer claim that names one of `persons`, and what they started (see
+/// `terminal::claim::sweep`): the runs a restarted host lost track of. Never the owner's (their claims name nobody).
+pub(crate) async fn sweep_claims(hub: &Hub, persons: Vec<String>) {
+    let state = hub.terminal.env().state;
+    let ended = tokio::task::spawn_blocking(move || {
+        crate::terminal::claim::sweep(&state, &persons, Duration::from_secs(2))
+    })
+    .await
+    .unwrap_or_default();
+    if !ended.is_empty() {
+        tracing::info!(pids = ?ended, "ended runs left over after access was removed");
     }
 }
 

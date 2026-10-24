@@ -203,6 +203,11 @@ import json, sys
 json.dump({"pid": int(sys.argv[2]), "procStart": "Mon Jan  1 00:00:00 2001", "at": "x"}, open(sys.argv[1], "w"))
 PY
 is "claim of a reused pid (other procStart) is stale" "$(claimcli take cs-1 $C2)" taken
+# a one-shot's claim carries the person it runs for (the revoke sweep finds it by that); the owner's has none
+python3 "$SK" claim cs-pers "$C1" guest-sam; is "claim: a person's one-shot names the person" "$(field $REG/cs-pers.claim person)" guest-sam
+is "claim: the one-shot kind is kept" "$(field $REG/cs-pers.claim kind)" oneshot
+python3 "$SK" claim cs-own "$C1"; is "claim: the owner's has no person" "$(field $REG/cs-own.claim person)" ""
+rm -f $REG/cs-pers.claim $REG/cs-own.claim
 # a second terminal --resume on a claimed session is refused, before anything starts
 python3 - "$REG/cs-2.claim" "$C2" <<'PY'
 import json, subprocess, sys

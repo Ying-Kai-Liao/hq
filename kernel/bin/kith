@@ -787,7 +787,9 @@ if [[ $# -gt 0 ]]; then
     [[ $a == --resume=* ]] && csid=${a#--resume=}
     prev=$a
   done
-  [[ -z $csid || $harness != claude ]] || python3 "$KITH/bin/kith-sessions" claim "$csid" "$$" || exit 1
+  # The claim names the person kith-auth resolved (never anything the run can change), so revoking them ends this run.
+  claim_person=""; [[ $p_owner == 1 ]] || claim_person=$p_id
+  [[ -z $csid || $harness != claude ]] || python3 "$KITH/bin/kith-sessions" claim "$csid" "$$" ${claim_person:+"$claim_person"} || exit 1
   exec claude "${args[@]}" -p "$*"
 fi
 [[ -t 0 && -t 1 ]] || { echo "kith: no terminal for an interactive session; give a task (kith $agent \"...\") or run it in a terminal" >&2; exit 1; }

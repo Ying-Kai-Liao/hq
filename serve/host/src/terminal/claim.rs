@@ -42,6 +42,10 @@ pub struct Claim {
     pub kind: Kind,
     #[serde(default)]
     pub takeover: bool,
+    /// Whose profile the holder runs with: an invited person's id or a bot guest's. Absent is the owner (old claim files,
+    /// the terminal), and the revoke sweep never touches those. Set by the writer from what kith-auth resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<String>,
 }
 
 fn terminal() -> Kind {
@@ -87,13 +91,25 @@ pub fn holder(state: &Path, sid: &str) -> Option<Claim> {
 /// Takes the claim for `pid` (a running process). `Err(Held)`: a live claim is there. A stale claim is replaced under a
 /// lock file next to it, so two takers never both judge it stale and one delete the other's fresh claim.
 pub fn take(state: &Path, sid: &str, kind: Kind, pid: u32, takeover: bool) -> std::io::Result<Result<(), Held>> {
+    take_as(state, sid, kind, pid, takeover, None)
+}
+
+/// [`take`] for a run that has `person`'s profile (`None`: the owner's).
+pub fn take_as(
+    state: &Path,
+    sid: &str,
+    kind: Kind,
+    pid: u32,
+    takeover: bool,
+    person: Option<&str>,
+) -> std::io::Result<Result<(), Held>> {
     if !safe_id(sid) {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a session id"));
     }
     let dest = path(state, sid, takeover);
     let parent = dest.parent().unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent)?;
-    let mine = Claim { pid, proc_start: start_of(pid), at: chrono::Utc::now().to_rfc3339(), kind, takeover };
+    let mine = Claim { pid, proc_start: start_of(pid), at: chrono::Utc::now().to_rfc3339(), kind, takeover, person: person.map(str::to_owned) };
     let tmp = parent.join(format!(".{sid}.claim.{}.{}.tmp", std::process::id(), pid));
     write_new(&tmp, &serde_json::to_string(&mine).map_err(std::io::Error::other)?)?;
     let result = (|| {
@@ -115,6 +131,109 @@ pub fn take(state: &Path, sid: &str, kind: Kind, pid: u32, takeover: bool) -> st
     })();
     let _ = std::fs::remove_file(&tmp);
     result
+}
+
+/// Keeps a person's agent process findable between turns: the turn claim is given back when the turn ends, but the warm
+/// process (with that person's profile) goes on, and after a host crash it can outlive the host. This claim names no
+/// session (`proc-<pid>`), so it keeps no writer out; it only lets [`sweep`] find the process. Stale ones are pruned.
+pub fn take_proc(state: &Path, pid: u32, person: &str) -> std::io::Result<()> {
+    take_as(state, &format!("proc-{pid}"), Kind::App, pid, false, Some(person))?.ok();
+    if let Ok(entries) = std::fs::read_dir(dir(state)) {
+        for e in entries.flatten() {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("proc-") && name.ends_with(".claim") && read(&e.path()).is_some_and(|c| !c.is_live()) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Ends the live holders of every claim whose person is one of `persons` (a revoked person and their bots), and their
+/// child processes (the launcher's claude, ACP adapters and what they started). A claim without a person is the owner's
+/// and is never touched. Each holder is checked first (`is_live`: pid and start time, so a reused pid is left alone).
+/// SIGTERM, then SIGKILL after `grace`. Blocking: call from `spawn_blocking`. Returns the holders it ended.
+pub fn sweep(state: &Path, persons: &[String], grace: std::time::Duration) -> Vec<u32> {
+    let Ok(entries) = std::fs::read_dir(dir(state)) else { return Vec::new() };
+    let mut holders: Vec<(PathBuf, Claim)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "claim") {
+            continue;
+        }
+        let Some(claim) = read(&path) else { continue };
+        if claim.person.as_deref().is_some_and(|p| persons.iter().any(|x| x == p)) && claim.is_live() {
+            holders.push((path, claim));
+        }
+    }
+    let me = std::process::id();
+    let mut victims: Vec<u32> = Vec::new();
+    for (_, claim) in &holders {
+        if claim.pid == me || claim.pid <= 1 {
+            continue;
+        }
+        // Children first found while the parent still lives; a one-shot's claimer is claude itself (the launcher's shell
+        // exec'd), so the claim's pid is the writing process and its children are what it started.
+        for pid in descendants(claim.pid).into_iter().chain([claim.pid]) {
+            if pid != me && !victims.contains(&pid) {
+                victims.push(pid);
+            }
+        }
+    }
+    signal(&victims, libc::SIGTERM);
+    let deadline = std::time::Instant::now() + grace;
+    while std::time::Instant::now() < deadline && victims.iter().any(|p| pid_runs(*p)) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let left: Vec<u32> = victims.iter().copied().filter(|p| pid_runs(*p)).collect();
+    signal(&left, libc::SIGKILL);
+    let mut ended = Vec::new();
+    for (path, claim) in holders {
+        if claim.pid == me {
+            continue;
+        }
+        // The holder got SIGKILL: its claim is stale (a zombie not yet reaped still counts as running).
+        let _ = std::fs::remove_file(path);
+        ended.push(claim.pid);
+    }
+    ended
+}
+
+#[cfg(unix)]
+fn signal(pids: &[u32], sig: libc::c_int) {
+    for pid in pids {
+        if let Ok(p) = libc::pid_t::try_from(*pid) {
+            // SAFETY: plain kill(2) on a pid we just read from `ps`.
+            unsafe { libc::kill(p, sig) };
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn signal(_pids: &[u32], _sig: i32) {}
+
+/// Every process below `root`, from one `ps` listing.
+fn descendants(root: u32) -> Vec<u32> {
+    let Ok(out) = std::process::Command::new("ps").args(["-A", "-o", "pid=,ppid="]).output() else { return Vec::new() };
+    let table: Vec<(u32, u32)> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+        })
+        .collect();
+    let mut found: Vec<u32> = Vec::new();
+    let mut frontier = vec![root];
+    while let Some(parent) = frontier.pop() {
+        for (pid, ppid) in &table {
+            if *ppid == parent && !found.contains(pid) && *pid != root {
+                found.push(*pid);
+                frontier.push(*pid);
+            }
+        }
+    }
+    found
 }
 
 /// An advisory lock on a file, held until dropped.
