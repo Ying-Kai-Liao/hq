@@ -183,6 +183,11 @@
     "hello.os": "string",
     "hello.rev": "number",
     "hello.signKey": "string",
+    "hello.store": "object",
+    "hello.store.dropped": "number",
+    "hello.store.error": "null",
+    "hello.store.unsaved": "number",
+    "hello.store.writable": "bool",
     "hello.version": "string"
   }
 }

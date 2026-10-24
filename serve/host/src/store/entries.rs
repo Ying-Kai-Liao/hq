@@ -29,15 +29,35 @@ pub(super) const ENTRY_COLS: &str = "seq, id, bot_id, rev, kind, turn, data, cre
 const LIVE_CHAT: &str = "WHERE NOT EXISTS (SELECT 1 FROM bots WHERE id = ?2 AND deleted = 1)";
 
 impl Store {
+    /// Production writes go through `Hub::add_entry` (which holds and retries); this is the tests' direct way in.
+    #[cfg(test)]
     pub fn insert_entry(&self, lane: &Lane, kind: EntryKind, turn: i64, data: &Value) -> Result<Entry> {
         self.insert_entry_at(lane, kind, turn, data, now_ms())
     }
 
     /// [`Self::insert_entry`] stamped `now` (ms): lines imported from a terminal session keep when they were said.
     pub fn insert_entry_at(&self, lane: &Lane, kind: EntryKind, turn: i64, data: &Value, now: i64) -> Result<Entry> {
+        self.insert_entry_as(&uuid::Uuid::new_v4().to_string(), lane, kind, turn, data, now).map(|(e, _)| e)
+    }
+
+    /// [`Self::insert_entry_at`] under a caller-chosen `id`, so a failed write can be retried without a duplicate:
+    /// an `id` already stored comes back as that entry.
+    pub fn insert_entry_as(
+        &self,
+        id: &str,
+        lane: &Lane,
+        kind: EntryKind,
+        turn: i64,
+        data: &Value,
+        now: i64,
+    ) -> Result<(Entry, bool)> {
         let c = self.db.locked();
+        if let Some(e) =
+            c.query_row(&format!("SELECT {ENTRY_COLS} FROM entries WHERE id = ?1"), [id], row_entry).optional()?
+        {
+            return Ok((e, false));
+        }
         let rev = next_rev(&c)?;
-        let id = uuid::Uuid::new_v4().to_string();
         let added = c.execute(
             &format!(
                 "INSERT INTO entries(id, bot_id, thread_id, rev, kind, turn, data, created_at, updated_at)
@@ -46,18 +66,21 @@ impl Store {
             params![id, lane.chat, lane.thread, rev, kind.as_str(), turn, data.to_string(), now],
         )?;
         ensure!(added == 1, "the chat was deleted");
-        Ok(Entry {
-            id,
-            seq: c.last_insert_rowid(),
-            bot_id: lane.chat.clone(),
-            thread_id: lane.thread.clone(),
-            rev,
-            kind: kind.as_str().to_owned(),
-            turn,
-            data: data.clone(),
-            created_at: now,
-            updated_at: now,
-        })
+        Ok((
+            Entry {
+                id: id.to_owned(),
+                seq: c.last_insert_rowid(),
+                bot_id: lane.chat.clone(),
+                thread_id: lane.thread.clone(),
+                rev,
+                kind: kind.as_str().to_owned(),
+                turn,
+                data: data.clone(),
+                created_at: now,
+                updated_at: now,
+            },
+            true,
+        ))
     }
 
     /// Deterministic IDs make routine transcript publication retryable after a crash.
