@@ -31,6 +31,9 @@ public struct SkyBackground: View {
         self.edgeToEdge = edgeToEdge
     }
 
+    /// The home sky is 10% taller than the artwork's natural crop, so more of the clouds show.
+    private let homeSkyScale: CGFloat = 1.1
+
     private var isNight: Bool { night ?? (scheme == .dark) }
 
     private var imageName: String {
@@ -48,8 +51,11 @@ public struct SkyBackground: View {
                 Image(imageName, bundle: .module)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: proxy.size.width, height: proxy.size.width * (variant == .home ? 1160.0 / 1179 : 600.0 / 1179), alignment: .top)
+                    .frame(width: proxy.size.width, height: proxy.size.width * (variant == .home ? homeSkyScale * 1160.0 / 1179 : 600.0 / 1179), alignment: .top)
                     .clipped()
+                    // Night clouds sit close to the ground colour; lift them so they read.
+                    .brightness(variant == .home && isNight ? 0.14 : 0)
+                    .contrast(variant == .home && isNight ? 1.25 : 1)
             }
         }
         // The strip is only its own height; the ground behind it comes from the screen.
@@ -59,7 +65,7 @@ public struct SkyBackground: View {
                 LinearGradient(stops: [.init(color: .black, location: 0.55), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
             } else {
                 // Full strength at the top, clear by about half the height, as in the home mock.
-                LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.18), .init(color: .clear, location: 0.5)],
+                LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.2), .init(color: .clear, location: 0.55)],
                                startPoint: .top, endPoint: .bottom)
             }
         }

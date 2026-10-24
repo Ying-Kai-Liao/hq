@@ -96,6 +96,8 @@ public struct ChatDock<Accessory: View>: View {
         self.accessory = accessory()
     }
 
+    private var callSize: CGFloat { max(KithSize.chatBoxHeight, 54) }
+
     private var callVisible: Bool { ChatDockLayout.callVisible(showsCall: showsCall, text: text, hasAttachment: hasAttachment) }
 
     public var body: some View {
@@ -120,10 +122,13 @@ public struct ChatDock<Accessory: View>: View {
             if callVisible {
                 Button(action: onCall) {
                     Image(systemName: "phone.fill").font(.system(size: 18, weight: .medium)).foregroundStyle(Palette.ink)
-                        .frame(width: KithSize.chatBoxHeight, height: KithSize.chatBoxHeight)
+                        .frame(width: callSize, height: callSize)
                         .kithGlass(in: Circle(), interactive: true)
+                        // The whole circle takes the tap, so it never falls through to the row below.
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .zIndex(1)
                 .accessibilityLabel(Text("Call"))
                 .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }

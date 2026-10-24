@@ -277,7 +277,7 @@ struct BotListView: View {
         .background(lifted == room.id ? Palette.surface : .clear, in: card)
         .contentShape([.dragPreview, .contextMenuPreview], card)
         .modifier(LiftIfReorderable(reorderable: reorderable) { lift(room.id) })
-        .alignmentGuide(.listRowSeparatorLeading) { _ in KithSpacing.gutter + KithSize.botAvatar + 14 }
+        .alignmentGuide(.listRowSeparatorLeading) { _ in KithSpacing.gutter + 54 + 14 }
         .listRowSeparator(.visible)
         .listRowSeparatorTint(Palette.ink.opacity(0.08))
         .accessibilityLabel(accessibilityName(room))
@@ -499,6 +499,7 @@ struct BotListView: View {
     /// One agent is called straight away; with several, the person picks.
     private func call() {
         dictation.stop()
+        guard calling == nil, picking == nil else { return }
         let agents = rooms.filter { !$0.item.bot.isGroup }
         if agents.count == 1, let only = agents.first { startCall(only.store, only.item.bot.id) } else { picking = .call }
     }
