@@ -71,7 +71,7 @@ export function BotList({ store, bots, view, indent = false }: { store: BotStore
     />
   )
   return (
-    <>
+    <VStack gap={6} className="settings-bot-list">
       {live.map(row)}
       {over.length > 0 ? (
         <div className={indent ? 'settings-bot-indent' : undefined}>
@@ -91,7 +91,7 @@ export function BotList({ store, bots, view, indent = false }: { store: BotStore
           </SheetPage>
         ) : null}
       </Sheet>
-    </>
+    </VStack>
   )
 }
 
