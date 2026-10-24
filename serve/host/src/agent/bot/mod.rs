@@ -413,8 +413,8 @@ struct Actor {
     /// Messages the bot sent the user this turn (`send_message`); none: its last text is the reply.
     sent: Vec<String>,
     files: files::FileShares,
-    /// permission entry id -> JSON-RPC request id
-    perms: HashMap<String, Value>,
+    /// permission entry id -> JSON-RPC request ids (a repeat of the same ask joins its card and waits on it too)
+    perms: HashMap<String, Vec<Value>>,
     /// permission entry id -> the gate slot given up while the owner decides (an invited person's guest prompt)
     parked_prompts: HashMap<String, crate::agent::gate::Parked>,
     /// The command channel, held here so a turn's start phase (minutes on an install) can listen for Stop.

@@ -86,6 +86,7 @@ impl Actor {
         self.seg = Seg::None;
         self.parked_prompts.clear();
         for (id, _) in self.perms.drain().collect::<Vec<_>>() {
+            crate::cards::withdraw_entry(&self.hub, &id);
             if let Some(mut e) = self.hub.store.entry(&id) {
                 e.data["status"] = "expired".into();
                 self.hub.set_entry(&id, &e.data);

@@ -325,7 +325,7 @@ impl Core {
         fresh_backup: bool,
     ) -> Result<Attempt> {
         // A person's run (the env names one) gets a token of its own, revoked when this attempt ends.
-        let grant = crate::runauth::grant_for_env(&mut env, agent);
+        let grant = crate::runauth::grant_for_env(&mut env, agent, wk);
         if let Some(ended) = self.with(|i| i.busy.get(wk).and_then(|b| b.ended)) {
             return Ok(Attempt::Stopped(ended)); // stopped before the process existed
         }

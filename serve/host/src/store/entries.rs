@@ -309,12 +309,14 @@ impl Store {
     }
 
     /// Permission cards left `pending` (and sends left `queued`) by a crash or restart
-    /// can never be honored; returns how many were closed out.
+    /// can never be honored (unless the card store still holds the card open, parked); returns how many were closed out.
     pub fn expire_pending(&self) -> Result<usize> {
         let ids: Vec<String> = {
             let c = self.db.locked();
             let mut st = c.prepare(
-                "SELECT id FROM entries WHERE (kind = 'permission' AND json_extract(data, '$.status') = 'pending')
+                "SELECT id FROM entries WHERE (kind = 'permission' AND json_extract(data, '$.status') = 'pending'
+                      AND NOT EXISTS (SELECT 1 FROM cards WHERE cards.entry_id = entries.id
+                                      AND cards.state IN ('pending','live','parked')))
                   OR (kind = 'user' AND json_extract(data, '$.status') = 'queued')
                   OR (kind = 'notice' AND json_extract(data, '$.delegationId') IS NOT NULL
                       AND json_extract(data, '$.status') IN ('queued', 'sent'))",

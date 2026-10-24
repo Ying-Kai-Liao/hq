@@ -7,6 +7,7 @@
 
 mod botguests;
 mod bots;
+mod cards;
 mod devices;
 mod entries;
 mod memory;
@@ -15,6 +16,7 @@ mod people;
 mod schema;
 mod threads;
 
+pub use cards::{Answered, Card, CardState, NewCard, Opened};
 pub use botguests::{BotConversation, BotGuest, BotInvite, BotState};
 pub use devices::{Device, DeviceSource, Scope};
 #[cfg(test)]

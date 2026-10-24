@@ -62,6 +62,8 @@ fn build(specs: &[(usize, usize, usize)], bind: bool) -> (Arc<TokenTable>, Vec<L
                 agent: AGENTS[a].into(),
                 room: ROOMS[r].map(Into::into),
                 run_id: format!("r{i}"),
+                scope: TokenScope::Guest,
+                session: format!("run:s{i}"),
             };
             let grant = RunGrant::issue(&table, identity.clone()).unwrap();
             let pid = BASE + u32::try_from(i).unwrap() * SPACING;
@@ -420,7 +422,9 @@ pub fn prop_only_recall_is_authorized() -> Result<(), String> {
                         "RECALL",
                         "recal",
                         "exec",
-                        "send"
+                        "send",
+                        // The one other method: refused without a tool, and checked on its own in runauth.rs.
+                        "requestPermission"
                     ][..]
                 )
                 .prop_map(|m| json!(m)),

@@ -210,6 +210,23 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
         "respondPermission" | "react" | "editHandoff" | "keepConversation" => {
             let id = b["entryId"].as_str().unwrap_or_default();
             let entry = hub.store.entry(id).ok_or_else(|| denied("That chat isn't yours."))?;
+            // A `claude -p` run's card has no chat turn behind it: the card says whose run it was and who answers,
+            // asked of kith-auth now, so a revoke applies (A7). The bot's owner answers for their bot as below.
+            if method == "respondPermission"
+                && let Some(card) = hub.store.card_by_entry(id).filter(|c| c.source == "run")
+            {
+                let theirs = card.approver == "member" && card.person == person;
+                let their_bot = hub
+                    .store
+                    .bot_guest_of_person(&card.person)
+                    .is_some_and(|b| b.owner_person.as_deref() == Some(person));
+                return if entry.kind == "permission" && (theirs || their_bot) && approves_own(person, &card.agent).await
+                {
+                    Ok(())
+                } else {
+                    Err(denied("Only the owner can answer this agent's permission requests for you."))
+                };
+            }
             // The prompts of a bot of theirs come to them when they are a member of the agent (the owner answers too).
             if method == "respondPermission"
                 && let Some(agent) = owned_bot_chat_agent(hub, person, &entry.bot_id)

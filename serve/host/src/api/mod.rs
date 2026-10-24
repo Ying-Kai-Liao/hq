@@ -10,6 +10,7 @@ pub mod botguests;
 mod botguests_props;
 mod bots;
 mod calls;
+mod cards;
 pub mod devices;
 #[cfg(test)]
 mod error_tests;
@@ -219,6 +220,10 @@ async fn route(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Resul
         ControlFlow::Break(v) => return Ok(v),
         ControlFlow::Continue(b) => b,
     };
+    let b = match cards::call(hub, method, b).await? {
+        ControlFlow::Break(v) => return Ok(v),
+        ControlFlow::Continue(b) => b,
+    };
     let b = match bots::call(hub, method, b).await? {
         ControlFlow::Break(v) => return Ok(v),
         ControlFlow::Continue(b) => b,
@@ -253,7 +258,7 @@ async fn member_call(
     permitted: Result<(), Forbidden>,
 ) -> Result<Value> {
     // Who is asking, set here so a client can't claim to be someone else (see `threads::resolve_citation`).
-    if method == "resolveCitation" {
+    if matches!(method, "resolveCitation" | "respondPermission") {
         b["asPerson"] = person.into();
     }
     if let Some(o) = b.as_object_mut() {
