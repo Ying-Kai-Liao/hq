@@ -41,7 +41,7 @@ function BotMemory({ botId }: { botId: string }) {
   useEffect(() => { if (section === 'harness' && view && !harnessTab) setSection('bot') }, [section, view, harnessTab])
   const harness = host.backendName(bot?.backend ?? 'claude')
   const sections: { id: Section; label: string }[] = [
-    { id: 'yours', label: 'About you' }, { id: 'bot', label: 'This bot' }, { id: 'tidy', label: 'Tidy-ups' },
+    { id: 'yours', label: 'About you' }, { id: 'bot', label: 'This agent' }, { id: 'tidy', label: 'Tidy-ups' },
     ...(harnessTab ? [{ id: 'harness' as const, label: harness }] : []),
   ]
   const layer = section === 'yours' ? view?.yours : section === 'bot' ? view?.bot : undefined

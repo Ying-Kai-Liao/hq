@@ -228,7 +228,7 @@ function SidebarProfile({ accountOpen, onAccount }: { accountOpen: boolean; onAc
 export function RosterEmpty({ online }: { online: boolean }) {
   return (
     <div className="roster-empty">
-      <Text as="div" size="body" weight="medium">{online ? 'No bots yet' : 'Waiting for a computer'}</Text>
+      <Text as="div" size="body" weight="medium">{online ? 'No agents yet' : 'Waiting for a computer'}</Text>
       {online ? <Text as="div" size="callout" tone="secondary">Use the new chat button to start one.</Text> : null}
     </div>
   )

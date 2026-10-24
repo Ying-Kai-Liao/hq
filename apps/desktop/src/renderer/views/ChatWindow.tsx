@@ -358,10 +358,10 @@ function ChatSplitView() {
           <LiveBot face={{ kind: 'crew', name: 'coder' }} size={74} id="coder" mood="working" />
         </div>
         <p className="empty-detail-title">{connecting ? 'Connecting to your computers…' : 'Your coding agents, as teammates.'}</p>
-        <p className="empty-detail-message">{connecting ? 'Your bots will appear once connected. Manage computers to see connection progress.' : 'Pick someone on the left, or ask the crew below.'}</p>
+        <p className="empty-detail-message">{connecting ? 'Your crew will appear once connected. Manage computers to see connection progress.' : 'Pick someone on the left, or ask the crew below.'}</p>
         <button className="empty-detail-new" onClick={() => compose()} disabled={!onlineStores.length}>
           <Icon name="square.and.pencil" size={13} weight="medium" />
-          New bot
+          New agent
         </button>
       </div>
     )
@@ -434,7 +434,7 @@ function ChatSplitView() {
       />
       <Dialog
         open={confirmDelete !== null}
-        title={`Delete ${confirmDelete?.bot.name ?? 'bot'}?`}
+        title={`Delete ${confirmDelete?.bot.name ?? 'agent'}?`}
         message="Files it changed on your computer stay as they are."
         actions={confirmDelete ? [{ title: 'Delete bot and its conversation', destructive: true, action: () => confirmDelete.store.delete(confirmDelete.bot) }] : []}
         onClose={() => setConfirmDelete(null)}

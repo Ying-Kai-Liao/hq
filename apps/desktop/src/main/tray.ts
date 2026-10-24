@@ -110,7 +110,7 @@ export class Tray {
           items.push({ type: 'separator' })
         }
         if (!s || s.bots.length === 0) {
-          items.push({ label: 'No bots yet', enabled: false })
+          items.push({ label: 'No agents yet', enabled: false })
         } else {
           for (const bot of s.bots) {
             const submenu: Electron.MenuItemConstructorOptions[] = [
