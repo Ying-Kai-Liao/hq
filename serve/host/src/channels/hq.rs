@@ -161,8 +161,42 @@ pub async fn resolve(paths: &Paths, person: &str, agent: &str) -> Access {
     }
 }
 
+/// Tries per sender at `/link` per window, so a stranger can't loop it (each try takes the auth.json lock).
+pub(crate) struct Limiter {
+    tries: usize,
+    window: Duration,
+    seen: Mutex<BTreeMap<String, Vec<Instant>>>,
+}
+
+impl Limiter {
+    pub(crate) const fn new(tries: usize, window: Duration) -> Self {
+        Self { tries, window, seen: Mutex::new(BTreeMap::new()) }
+    }
+
+    /// Counts a try for `key`; false when it is over the limit (the refused try isn't counted).
+    pub(crate) fn allow(&self, key: &str) -> bool {
+        let mut seen = self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let now = Instant::now();
+        seen.retain(|_, v| v.last().is_some_and(|t| now.duration_since(*t) < self.window));
+        let mine = seen.entry(key.to_owned()).or_default();
+        mine.retain(|t| now.duration_since(*t) < self.window);
+        if mine.len() >= self.tries {
+            return false;
+        }
+        mine.push(now);
+        true
+    }
+}
+
+static LINK_TRIES: Limiter = Limiter::new(5, Duration::from_secs(10 * 60));
+
 /// `kith-auth link <platform> <uid> <code>` -> the person it linked, or the reason it refused.
 pub async fn link(paths: &Paths, platform: &str, uid: &str, code: &str) -> Result<String, String> {
+    if !LINK_TRIES.allow(&format!("{platform}:{uid}")) {
+        return Err("Too many tries. Wait a few minutes.".into());
+    }
+    // kith-auth rewrites auth.json whole: wait for any other writer, or a revoke could be undone.
+    let _w = crate::api::people::AUTH_WRITES.lock().await;
     match output(&paths.auth_bin, &["link", platform, uid, code]).await {
         Some(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).trim().to_owned()),
         Some(o) => Err(String::from_utf8_lossy(&o.stderr)
@@ -294,6 +328,24 @@ mod tests {
         let who = Who::parse(&serde_json::json!({"person": "kai", "was": ["old"], "owner": true}));
         assert!(who.is("kai") && who.is("old") && !who.is("other"));
         assert!(who.owner);
+    }
+}
+
+#[cfg(test)]
+mod limiter_tests {
+    use super::Limiter;
+    use std::time::Duration;
+
+    #[test]
+    fn a_sender_gets_a_few_link_tries_per_window() {
+        let l = Limiter::new(3, Duration::from_secs(60));
+        assert!((0..3).all(|_| l.allow("telegram:1")));
+        assert!(!l.allow("telegram:1"), "the fourth try is refused");
+        assert!(l.allow("telegram:2"), "another sender is not affected");
+        let short = Limiter::new(1, Duration::from_millis(20));
+        assert!(short.allow("a") && !short.allow("a"));
+        std::thread::sleep(Duration::from_millis(40));
+        assert!(short.allow("a"), "the window passes");
     }
 }
 
