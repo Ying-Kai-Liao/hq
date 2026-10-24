@@ -25,7 +25,7 @@ actor FakeRemote: RemoteTransport {
     private(set) var enqueued: [String] = []
     var cancelResult = MailboxCancel.cancelled
 
-    private var hello = #"{"hostId":"h1","name":"Mac","version":"3.0.0","os":"macos","backends":[],"rev":0}"#
+    private var hello = #"{"hostId":"h1","name":"Mac","version":"0.1.0","protocol":1,"minProtocol":1,"os":"macos","backends":[],"rev":0}"#
     /// What `hello` answers from now on (a host updated in place keeps its link).
     func setHello(_ json: String) { hello = json }
 
@@ -624,7 +624,7 @@ private func helloJSON(version: String, protocolLevel: Int? = nil, minProtocol: 
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.relay))
     await fake.setHello(helloJSON(version: "0.4.0", protocolLevel: 3, minProtocol: 2))
-    let store = BotStore(computer: randomComputer("Mac"), storage: storage, appVersion: "0.1.0") { fake }
+    let store = BotStore(computer: randomComputer("Mac"), storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { store.mismatch == .updateApp })
@@ -639,12 +639,11 @@ private func helloJSON(version: String, protocolLevel: Int? = nil, minProtocol: 
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.relay))
     await fake.setHello(helloJSON(version: "2.2.0"))
-    let store = BotStore(computer: randomComputer("Mac"), storage: storage, appVersion: "0.1.0") { fake }
+    let store = BotStore(computer: randomComputer("Mac"), storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
-    #expect(await until { store.mismatch == .updateHost(version: "2.2.0") })
-    // The host updates to Kith 0.1.0 and restarts: the link drops and comes back. 0.1.0 sorts
-    // below the legacy 2.x floor, but its protocol level is what counts.
+    #expect(await until { store.mismatch == .updateHost })
+    // The host updates to Kith 0.1.0 and restarts: the link drops and comes back at protocol level 1.
     await fake.setHello(helloJSON(version: "0.1.0", protocolLevel: 1, minProtocol: 1))
     await fake.set(.connecting)
     await fake.set(.ready(.relay))
@@ -653,16 +652,16 @@ private func helloJSON(version: String, protocolLevel: Int? = nil, minProtocol: 
     #expect(store.hostVersion == HostVersion(version: "0.1.0", protocolLevel: 1, minProtocol: 1))
 }
 
-@MainActor @Test func aLegacyHostsMinAppDoesNotBlockThisApp() async throws {
+@MainActor @Test func aHostWithoutAProtocolLevelNeedsAnUpdateWhateverItsMinApp() async throws {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.relay))
     await fake.setHello(#"{"hostId":"h1","name":"Mac","version":"2.20.0","minApp":"2.18.0","os":"macos","backends":[],"rev":0}"#)
-    let store = BotStore(computer: randomComputer("Mac"), storage: storage, appVersion: "0.1.0") { fake }
+    let store = BotStore(computer: randomComputer("Mac"), storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
-    #expect(await until { await fake.subscribed })
-    #expect(store.mismatch == nil)
+    #expect(await until { store.mismatch == .updateHost })
+    #expect(await !fake.subscribed)
 }
 
 @MainActor @Test func unreadableHelloStillSaysWhichSideToUpdate() async throws {
@@ -672,7 +671,7 @@ private func helloJSON(version: String, protocolLevel: Int? = nil, minProtocol: 
     for minProtocol in [2, 1] {
         let fake = FakeRemote(.ready(.relay))
         await fake.setHello(helloJSON(version: "0.2.0", protocolLevel: 2, minProtocol: minProtocol, backends: #""changed shape""#))
-        let store = BotStore(computer: randomComputer("Mac"), storage: storage, appVersion: "0.1.0") { fake }
+        let store = BotStore(computer: randomComputer("Mac"), storage: storage) { fake }
         store.setActive(true)
         #expect(await until { store.mismatch == .updateApp }, "minProtocol \(minProtocol)")
         #expect(store.hello == nil)
@@ -683,12 +682,12 @@ private func helloJSON(version: String, protocolLevel: Int? = nil, minProtocol: 
 @MainActor @Test func unreadableEventsAskForAnAppUpdateOnlyFromANewerHost() async throws {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-    // A legacy host's 2.x is no newer than this app: it's another version line.
-    let hosts: [(version: String, level: Int?, appIsBehind: Bool)] = [("0.2.0", 1, true), ("0.1.0", 1, false), ("2.20.0", nil, false)]
+    // Only a host on a newer protocol level than this app's is ahead of it.
+    let hosts: [(version: String, level: Int, appIsBehind: Bool)] = [("0.2.0", 2, true), ("0.1.0", 1, false)]
     for host in hosts {
         let fake = FakeRemote(.ready(.relay))
-        await fake.setHello(helloJSON(version: host.version, protocolLevel: host.level, minProtocol: host.level))
-        let store = BotStore(computer: randomComputer("Mac"), storage: storage, appVersion: "0.1.0") { fake }
+        await fake.setHello(helloJSON(version: host.version, protocolLevel: host.level, minProtocol: 1))
+        let store = BotStore(computer: randomComputer("Mac"), storage: storage) { fake }
         store.setActive(true)
         let broken = #"{"type":"bot","bot":{"id":"b1","name":7}}"#
         #expect(await until { await fake.eventSubscriptionCount == 1 })

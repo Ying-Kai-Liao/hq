@@ -152,8 +152,6 @@ public final class BotStore {
     var rewound = false
     /// Events stayed undecodable after the rewind.
     var unreadable = false
-    /// This app's marketing version, compared with a host's when the host sends data this app can't read.
-    private let appVersion: String
     /// While one side needs an update there's nothing to sync; `hello` is asked again this often.
     static let mismatchRecheck: Duration = .seconds(30)
 
@@ -177,9 +175,7 @@ public final class BotStore {
     }
 
     init(computer: Computer, storage: SharedStore.Context,
-         appVersion: String = AppVersion.current,
          transport: @escaping @MainActor () async throws -> any HostTransport) {
-        self.appVersion = appVersion
         self.computer = computer
         self.storage = storage
         makeTransport = transport
@@ -216,10 +212,9 @@ public final class BotStore {
     public var mismatch: VersionMismatch? {
         guard let hostVersion else { return nil }
         if let found = VersionMismatch.check(hostVersion) { return found }
-        // The host sends data this app can't read and is newer: this app is behind, whatever
-        // the host's `minProtocol` says. Only a host with a protocol level shares this app's
-        // version line; a legacy host's 2.x says nothing about this app.
-        if unreadable, hostVersion.protocolLevel != nil, AppVersion.isBelow(appVersion, hostVersion.version) {
+        // The host sends data this app can't read and speaks a newer protocol: this app is
+        // behind, whatever the host's `minProtocol` says.
+        if unreadable, (hostVersion.protocolLevel ?? 0) > VersionMismatch.protocolLevel {
             return .updateApp
         }
         return nil
