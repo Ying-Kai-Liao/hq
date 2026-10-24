@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""kith-permit — the permission prompt tool of every `claude -p` run kith starts (claude --permission-prompt-tool).
+
+  kith-permit                          stdio MCP server with one tool, approve(tool_name, input, tool_use_id)
+  kith-permit issue AGENT SESSION PID  ask the host for an owner ask token bound to PID; prints export lines for sh
+
+When Claude Code reaches a permission prompt in a run nobody is watching (an "ask" rule, a tool the mode doesn't allow),
+it calls approve instead of refusing. The tool sends the host one line over the run socket,
+  {"token", "method": "requestPermission", "tool", "input"}
+and takes one line back, {"ok", "behavior": "allow"|"deny", "message"}. The host turns the ask into an approval card
+for whoever may answer it, waits its live window, and says no with "waiting on <approver>, end your turn" when nobody
+answered, so the agent ends its turn instead of hanging. Anything that is not a clear allow is a deny: no socket, no
+token, a reply that doesn't parse. On allow, updatedInput is the input exactly as asked: the grant is what the card showed.
+
+Which token: a guest run has KITH_RUN_TOKEN and KITH_RUN_SOCKET (the host gave them); an owner run has KITH_ASK_TOKEN
+and KITH_ASK_SOCKET (the host gave them, or `issue` got them for a run kith started itself). Secrets and logins are
+never carded: the host denies them at once. See kernel/PROTOCOL.md.
+"""
+import json, os, socket, subprocess, sys
+
+SERVER, TOOL = 'kithpermit', 'approve'
+# The host waits its live window (default 90 s, at most 600) before it answers; a little longer than that.
+WAIT_S = 660
+
+
+def credentials(env=os.environ):
+    """(token, socket path) of this run, the guest's pair first; (None, None) when it has none."""
+    for t, s in (('KITH_RUN_TOKEN', 'KITH_RUN_SOCKET'), ('KITH_ASK_TOKEN', 'KITH_ASK_SOCKET')):
+        if env.get(t) and env.get(s):
+            return env[t], env[s]
+    return None, None
+
+
+def deny(message):
+    return {'behavior': 'deny', 'message': message}
+
+
+def decide(tool, tool_input, env=os.environ):
+    """The permission decision for one ask: the dict Claude Code reads (behavior allow|deny)."""
+    token, path = credentials(env)
+    if not token:
+        return deny('No approval channel for this run: the action was refused. Say so and carry on without it.')
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(WAIT_S)
+            s.connect(path)
+            s.sendall(json.dumps({'token': token, 'method': 'requestPermission', 'tool': tool, 'input': tool_input}).encode() + b'\n')
+            buf = b''
+            while not buf.endswith(b'\n'):
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+        reply = json.loads(buf.decode())
+    except (OSError, ValueError, UnicodeDecodeError):
+        return deny('Could not reach the approval service, so the action was refused. End your turn and say what you needed.')
+    if not isinstance(reply, dict):
+        return deny('The approval service gave no clear answer; the action was refused.')
+    message = reply.get('message')
+    message = message if isinstance(message, str) and message else None
+    if reply.get('ok') is True and reply.get('behavior') == 'allow':
+        return {'behavior': 'allow', 'updatedInput': tool_input}
+    if reply.get('ok') is True and reply.get('behavior') == 'deny':
+        return deny(message or 'Not approved.')
+    err = reply.get('error')
+    return deny(message or (err if isinstance(err, str) and err else 'The approval service refused the request.'))
+
+
+def tool_def():
+    return {'name': TOOL, 'description': 'Ask for approval of a tool call that needs a permission prompt.',
+            'inputSchema': {'type': 'object', 'properties': {'tool_name': {'type': 'string'}, 'input': {'type': 'object'},
+                                                             'tool_use_id': {'type': 'string'}},
+                            'required': ['tool_name', 'input']}}
+
+
+def handle(msg, env=os.environ):
+    """One JSON-RPC message in, the reply out (None for a notification)."""
+    method, mid = msg.get('method'), msg.get('id')
+    if mid is None:
+        return None
+    if method == 'initialize':
+        ver = (msg.get('params') or {}).get('protocolVersion') or '2024-11-05'
+        result = {'protocolVersion': ver, 'capabilities': {'tools': {}}, 'serverInfo': {'name': SERVER, 'version': '1'}}
+    elif method == 'tools/list':
+        result = {'tools': [tool_def()]}
+    elif method == 'ping':
+        result = {}
+    elif method == 'tools/call':
+        p = msg.get('params') or {}
+        a = p.get('arguments') or {}
+        if p.get('name') != TOOL or not isinstance(a.get('tool_name'), str) or not isinstance(a.get('input'), dict):
+            d = deny('Malformed permission request.')
+        else:
+            d = decide(a['tool_name'], a['input'], env)
+        result = {'content': [{'type': 'text', 'text': json.dumps(d)}]}
+    else:
+        return {'jsonrpc': '2.0', 'id': mid, 'error': {'code': -32601, 'message': 'method not found'}}
+    return {'jsonrpc': '2.0', 'id': mid, 'result': result}
+
+
+def serve():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+            out = handle(msg) if isinstance(msg, dict) else None
+        except ValueError:
+            out = {'jsonrpc': '2.0', 'id': None, 'error': {'code': -32700, 'message': 'parse error'}}
+        if out is not None:
+            sys.stdout.write(json.dumps(out) + '\n')
+            sys.stdout.flush()
+    return 0
+
+
+def host_call(method, body, timeout=8):
+    """The host's local API over loopback with the serve token (as kith-recall does). None when it can't be reached."""
+    import urllib.request
+    from pathlib import Path
+    try:
+        data, port = os.environ.get('KITH_SERVE_DIR'), os.environ.get('KITH_SERVE_PORT')
+        if not (data and port):
+            d, p = subprocess.run([os.path.join(os.path.dirname(os.path.realpath(__file__)), 'kith-serve'), 'endpoint'],
+                                  capture_output=True, text=True, timeout=4, check=True).stdout.split()
+            data, port = data or d, port or p
+        token = (Path(data) / 'token').read_text().strip()
+        req = urllib.request.Request('http://127.0.0.1:%s/api/%s' % (port, method), json.dumps(body).encode(),
+                                     {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.load(r)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def issue(agent, session, pid):
+    """export lines for sh, or exit 1 with one stderr line. Never raises: an owner run goes on without a prompt tool."""
+    import shlex
+    r = host_call('issueAskToken', {'agent': agent, 'session': session, 'pid': int(pid)})
+    env = r.get('env') if isinstance(r, dict) else None
+    if not (isinstance(env, dict) and env.get('KITH_ASK_TOKEN') and env.get('KITH_ASK_SOCKET')):
+        print('kith: no approval cards for this run (the Kith host gave no ask token); asks are refused', file=sys.stderr)
+        return 1
+    for k in ('KITH_ASK_TOKEN', 'KITH_ASK_SOCKET'):
+        print('export %s=%s' % (k, shlex.quote(str(env[k]))))
+    return 0
+
+
+if __name__ == '__main__':
+    if len(sys.argv) == 5 and sys.argv[1] == 'issue':
+        sys.exit(issue(*sys.argv[2:]))
+    sys.exit(serve())
