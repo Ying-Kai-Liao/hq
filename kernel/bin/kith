@@ -337,18 +337,19 @@ fi
 # A program reads stdout as the JSON alone: whatever a helper prints on the way goes to stderr; fd 3 is the real stdout.
 [[ $print -eq 1 ]] && launch=0
 [[ $launch -eq 1 ]] && exec 3>&1 1>&2
+# Launch-time lookups are the kernel's own, whoever the run is for: a guest token in the environment would narrow them.
 if [[ -n $project ]]; then
-  "$KITH/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | grep -qx -- "$project" \
-    || { echo "kith: unknown project '$project'. Known: $("$KITH/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | tr '\n' ' ')" >&2
+  env -u KITH_RUN_TOKEN "$KITH/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | grep -qx -- "$project" \
+    || { echo "kith: unknown project '$project'. Known: $(env -u KITH_RUN_TOKEN "$KITH/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | tr '\n' ' ')" >&2
          echo "    register one with: $KITH/bin/project-id --register $project [dir]" >&2; exit 1; }
 else
-  project=$("$KITH/bin/project-id" || true)
+  project=$(env -u KITH_RUN_TOKEN "$KITH/bin/project-id" || true)
 fi
 
 # The project's parents (closest first) and the home folders along the chain (bin/project-id --info).
-info=$([[ -n $project ]] && "$KITH/bin/project-id" --info "$project" || true)
+info=$([[ -n $project ]] && env -u KITH_RUN_TOKEN "$KITH/bin/project-id" --info "$project" || true)
 parents=$(printf '%s\n' "$info" | tail -n +2 | cut -f1 | paste -sd' ' -)
-held=$([[ -n $project ]] && "$KITH/bin/project-id" --children "$project" --all || true)
+held=$([[ -n $project ]] && env -u KITH_RUN_TOKEN "$KITH/bin/project-id" --children "$project" --all || true)
 
 # Body without frontmatter, then long-term memory: the load filter of docs/memory-context.md (lib/kith_facets.py, the
 # same one the host's runs get through KITH_ROOM). The owner's run: about them, the agent's memory, then the shared part
