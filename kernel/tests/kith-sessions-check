@@ -353,4 +353,29 @@ PY
 )
 is "release_claims: own claim removed, foreign claim kept, under the lock" "$rel" "False True True"
 
+# --- one-shot resumes take the writer claim (KITH_RESUME is how kith ask -c and the bridge name the session) ----------------
+rm -rf "$REG"; : > "$T/oneshot.go"; rm -f "$T/oneshot.go"
+(cd "$T/work/a" && KITH_RESUME=os1 STUB_SID=os1 STUB_WAIT=$T/oneshot.go STUB_OUT=$T/os-a.out KITH_CLAIM_WAIT=1 "$KERNEL/bin/kith" designer "first" >/dev/null 2>&1) &
+for _ in $(seq 100); do [[ -e $REG/os1.claim ]] && break; sleep 0.1; done
+is "one-shot resume: claim kind" "$(field $REG/os1.claim kind)" oneshot
+claimant=$(field $REG/os1.claim pid)
+for _ in $(seq 100); do [[ -f $CLAUDE_CONFIG_DIR/sessions/$claimant.json ]] && break; sleep 0.1; done
+is "one-shot resume: claim names claude's own pid" "$([[ -f $CLAUDE_CONFIG_DIR/sessions/$claimant.json ]] && echo yes)" yes
+# two resumes at once: exactly one runs; the other waits KITH_CLAIM_WAIT, then says who holds it
+out=$(cd "$T/work/a" && KITH_RESUME=os1 STUB_OUT=$T/os-b.out KITH_CLAIM_WAIT=1 "$KERNEL/bin/kith" designer "second" 2>&1); rc=$?
+is "one-shot resume: second is refused" "$rc" 1
+[[ $out == *"held by oneshot (pid $claimant)"* ]] && ok "one-shot resume: says who holds it" || bad "held-by message" "$out"
+[[ ! -e $T/os-b.out ]] && ok "one-shot resume: second never started claude" || bad "second started claude"
+# a different session is not blocked; a fresh run (no resume) needs no claim
+(cd "$T/work/a" && KITH_RESUME=os2 STUB_SID=os2 STUB_OUT=$T/os-c.out "$KERNEL/bin/kith" designer "other" >/dev/null 2>&1); is "one-shot resume: other session runs" "$?" 0
+# the first ends: its claim is stale, a new resume takes it over
+touch "$T/oneshot.go"; wait
+(cd "$T/work/a" && KITH_RESUME=os1 STUB_SID=os1 STUB_OUT=$T/os-d.out "$KERNEL/bin/kith" designer "third" >/dev/null 2>&1); is "one-shot resume: stale claim replaced" "$?" 0
+# another writer's live claim (the host's app turn, a terminal) holds the session: refused, never written over
+sleep 30 & holder=$!
+printf '{"pid":%s,"procStart":"%s","at":"x","kind":"app"}' "$holder" "$(LC_ALL=C ps -o lstart= -p $holder | xargs)" > "$REG/os3.claim"
+out=$(cd "$T/work/a" && KITH_RESUME=os3 STUB_OUT=$T/os-e.out KITH_CLAIM_WAIT=0 "$KERNEL/bin/kith" designer "x" 2>&1); is "one-shot resume: host's claim holds" "$?" 1
+[[ $out == *"held by app (pid $holder)"* ]] && ok "one-shot resume: names the host's claim" || bad "host claim message" "$out"
+kill $holder 2>/dev/null; wait $holder 2>/dev/null
+
 exit $fail
