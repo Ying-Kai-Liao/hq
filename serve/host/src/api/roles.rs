@@ -194,6 +194,28 @@ pub async fn approves_own(person: &str, agent: &str, tool: &str, kind: &str) -> 
         .is_some_and(|v| v["allowed"].as_bool() == Some(true) && v["preset"].as_str() == Some("member"))
 }
 
+/// Whether every file a file tool names lies inside `roots` (real paths, links followed, `..` applied). A path that can't be
+/// resolved, or a relative one, is outside. A tool that names no file (Grep with no path searches the working directory)
+/// is inside: the sandbox already holds it to the run's folders.
+pub fn within(roots: &[std::path::PathBuf], tool: &str, input: &Value) -> bool {
+    crate::cards::resource::named_paths(tool, input).into_iter().all(|raw| {
+        crate::cards::resource::resolve(raw).is_some_and(|real| roots.iter().any(|root| real.starts_with(root)))
+    })
+}
+
+/// What a run for someone but the owner holds grants to, as real paths: its person's memory and files folders for
+/// `agent` and the agent's shared memory (F11 step 2a: the kernel's sandbox profile lets Bash and the file tools write in
+/// the same folders). A file card for anything else is the owner's to answer, a member's own run included.
+pub fn grant_roots(person: &str, agent: &str) -> Vec<std::path::PathBuf> {
+    let home = crate::kernel::home_dir(&dirs::home_dir().unwrap_or_default());
+    let agents = crate::kernel::var("AGENTS").map(std::path::PathBuf::from).unwrap_or_else(|| home.join("agents"));
+    let base = agents.join(agent);
+    [base.join("memory/people").join(person), base.join("files/people").join(person), base.join("memory/shared")]
+        .iter()
+        .filter_map(|p| crate::cards::resource::resolve(&p.to_string_lossy()))
+        .collect()
+}
+
 fn kind_of(entry: &crate::store::Entry) -> &str {
     entry.data["toolKind"].as_str().unwrap_or_default()
 }
