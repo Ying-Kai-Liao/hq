@@ -184,7 +184,7 @@ struct MemoryFileView: View {
     private func who(_ version: MemoryFileVersion) -> String {
         let by = switch version.author {
         case "user": "You"
-        case "bot": host.bots[version.authorBot ?? ""]?.name ?? "A bot"
+        case "bot": host.bots[version.authorBot ?? ""]?.name ?? "An agent"
         case "tidy", "dream": "Tidying up"
         default: "This computer"
         }

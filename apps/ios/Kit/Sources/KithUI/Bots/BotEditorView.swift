@@ -29,7 +29,7 @@ public struct BotEditorView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            ModalHeader(isNew ? "New bot" : "Settings") {
+            ModalHeader(isNew ? "New agent" : "Settings") {
                 if saving {
                     Spinner()
                 } else {

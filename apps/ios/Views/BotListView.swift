@@ -261,7 +261,7 @@ struct BotListView: View {
             CrewBoardSwitch(selection: $tab, boardCount: waiting)
             Spacer(minLength: 8)
             TopGlassMenu("New chat") {
-                Button("New bot", systemImage: "plus.square", action: newBot)
+                Button("New agent", systemImage: "plus.square", action: newBot)
                     .disabled(!allStores.contains { $0.mismatch == nil })
                 Button("Invite a person", systemImage: "person.badge.plus") {
                     if let store = onlineStores.first { inviting = ChatTarget(store: store) }
@@ -685,11 +685,11 @@ private struct HomeSheets: ViewModifier {
             .fullScreenCover(item: $calling) { target in
                 HomeCallCover(store: target.store, botId: target.botId) { calling = nil }
             }
-            .kithDialog("Delete \(confirmDelete?.bot.name ?? "bot")?",
+            .kithDialog("Delete \(confirmDelete?.bot.name ?? "agent")?",
                           isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                           message: confirmDelete?.bot.isGroup == true ? "Its bots and their own chats stay." : "Files it changed on your computer stay as they are.") {
                 let item = confirmDelete
-                return [DialogAction(item?.bot.isGroup == true ? "Delete group chat" : "Delete bot and its conversation", destructive: true) {
+                return [DialogAction(item?.bot.isGroup == true ? "Delete group chat" : "Delete agent and its conversation", destructive: true) {
                     if let item { accounts.store(for: item.ref.computerId)?.delete(item.bot) }
                 }]
             }
@@ -769,15 +769,15 @@ private struct EmptyRoster: View {
     var body: some View {
         VStack(spacing: 14) {
             CharacterAvatar(portrait: "spare-cloud", size: 72)
-            Text("No bots yet").kithText(.agentName).foregroundStyle(Palette.ink)
+            Text("No agents yet").kithText(.agentName).foregroundStyle(Palette.ink)
             Text(hasComputer
-                 ? "Create a bot for each kind of work — a reviewer, a fixer, a docs writer — and point it at a project."
+                 ? "Make an agent for each kind of work: a reviewer, a fixer, a docs writer. Point it at a project."
                  : "Ask one of your account's computers for access, or pair one with its code.")
                 .kithText(.body)
                 .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
             if canCreate {
-                Button("Create your first bot", action: create)
+                Button("Make your first agent", action: create)
                     .buttonStyle(.primary)
             } else if !hasComputer {
                 Button("Computers", action: showComputers)

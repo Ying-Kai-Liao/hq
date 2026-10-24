@@ -102,7 +102,7 @@ struct SettingsView: View {
             }
 
             if !hiddenBots.isEmpty {
-                CardSection("Hidden bots") {
+                CardSection("Hidden agents") {
                     ForEach(hiddenBots) { item in
                         let store = item.store, bot = item.bot
                         HStack {
@@ -373,7 +373,7 @@ struct LinkChatSection: View {
 
     var body: some View {
         if !unsupported {
-            CardSection("Link Telegram or Discord", footer: error ?? "Chat with your bots from your own Telegram or Discord account.") {
+            CardSection("Link Telegram or Discord", footer: error ?? "Chat with your agents from your own Telegram or Discord account.") {
                 if let code {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(code.code)
