@@ -257,6 +257,16 @@ impl Core {
                 Some(cancel) => self.admit(ad, wk, &cancel, invitee).await,
                 None => None,
             };
+            // Access can end while the turn waited for the gate: look again right before the batch is taken, so a
+            // sweep that found nothing stoppable (or ran before this turn existed) can't be outrun. The owner's own
+            // runs are never refused here.
+            let revoked = invitee && !hq::resolve(&self.paths, &person, agent).await.allowed;
+            if revoked {
+                self.with(|i| {
+                    i.st.inbox.insert(wk.to_owned(), Vec::new());
+                    i.save();
+                });
+            }
             let taken = self.with(|i| {
                 let b = i.busy.get_mut(wk)?;
                 b.waiting = false;
@@ -313,13 +323,18 @@ impl Core {
     /// no longer use. Their queued messages go too, so nothing starts the run again. -> how many runs it ended.
     pub async fn stop_person(&self, person: &str, only_denied: bool) -> usize {
         let mine: Vec<String> = self.with(|i| {
+            // The inbox is persisted: a batch left from before a restart waits there without a `Busy` and would start at
+            // the next resume, so it is swept too.
             i.busy
                 .keys()
+                .chain(i.st.inbox.keys())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
                 .filter(|wk| {
                     let key = wk.rsplit_once('#').map_or(wk.as_str(), |(k, _)| k);
                     i.st.threads.get(key).and_then(|t| t.get("person")).and_then(Value::as_str) == Some(person)
                 })
-                .cloned()
+                .map(|wk| (*wk).clone())
                 .collect()
         });
         let mut stopped = 0;
