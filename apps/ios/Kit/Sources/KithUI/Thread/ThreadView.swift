@@ -23,7 +23,6 @@ public struct ThreadView: View {
     @State var following = true
     @State var loadingEarlier = false
     /// Tasks the user opened or folded on this device; the rest follow their state.
-    @State var taskChoices: [String: Bool] = [:]
     @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     var bot: Bot? { model.bots[botId] }
@@ -120,7 +119,7 @@ public struct ThreadView: View {
         case .task(let root):
             if let bot {
                 TaskRow(root: root, bot: bot, newest: root.id == Tasks.current(in: model.chat(botId))?.id,
-                        choice: Binding(get: { taskChoices[root.id] }, set: { taskChoices[root.id] = $0 })) {
+                        choice: Binding(get: { model.taskChoices[root.id] }, set: { model.taskChoices[root.id] = $0 })) {
                     showTrace = true
                 } openThread: {
                     withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { openThread = ThreadTarget(id: root.id) }

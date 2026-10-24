@@ -41,7 +41,11 @@ struct Composer: View {
     /// In a bot's chat a message goes on with the current task: Stop and "working" are that task's.
     private var place: String? { thread ?? (tasks ? Tasks.current(in: model.chat(botId))?.id : nil) }
     /// The next message starts a task of its own: asked for, or the reader just left a thread (see `BotStore.leftThread`).
-    private var startsNew: Bool { model.startsNewTask(botId, thread: thread, requested: newTask) }
+    private var startsNew: Bool {
+        model.startsNewTask(botId, thread: thread, requested: newTask, currentOpen: tasks ? model.isCurrentTaskOpen(botId) : nil)
+    }
+    /// The chip is for a task asked for or one reached by leaving a thread; a folded task just changes the placeholder.
+    private var showsNewTaskChip: Bool { startsNew && (newTask || model.leftThread.contains(botId)) }
     private var working: Bool { !startsNew && bot?.isWorking(in: botId, thread: place) == true }
 
     private var isEmpty: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty }
@@ -58,8 +62,9 @@ struct Composer: View {
         let name = bot?.name ?? ""
         if thread != nil { return "Reply…" }
         if bot?.isGroup == true { return "Message everyone · @ to ask one bot" }
-        if startsNew { return "New task for \(name)" }
-        return working ? "Queue a message for \(name)" : "Tell \(name)…"
+        if startsNew { return "Tell \(name)…" }
+        if working { return "Queue a message for \(name)" }
+        return tasks && place != nil ? "Reply in task…" : "Tell \(name)…"
     }
 
     /// The `@partial` being typed at the end, if any.
@@ -188,7 +193,7 @@ struct Composer: View {
     /// Above the field, inside the dock: the new-task chip, the files going out, and Stop / Interrupt / Stop dictating.
     private var accessory: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if startsNew {
+            if showsNewTaskChip {
                 newTaskChip.transition(.move(edge: .bottom).combined(with: .opacity))
             }
             if !files.isEmpty {
@@ -244,7 +249,13 @@ struct Composer: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Starting folder: \(startFolderName)")
-            IconButton("Go on with the current task", systemImage: "xmark") { newTask = false; model.leftThread.remove(botId); startFolder = nil }
+            IconButton("Go on with the current task", systemImage: "xmark") {
+                newTask = false
+                model.leftThread.remove(botId)
+                startFolder = nil
+                // Going on means the current task, even if it was folded: open it again.
+                if let root = Tasks.current(in: model.chat(botId)) { model.taskChoices[root.id] = true }
+            }
         }
         .kithSheet(isPresented: $pickingFolder) {
             PlaceFolderPicker(current: nil, offersDefault: startFolder != nil) { startFolder = $0 }
