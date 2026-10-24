@@ -110,6 +110,7 @@ const map: Record<string, IconNode> = {
   link: L.Link,
   'list.bullet': L.List,
   'list.bullet.rectangle': L.ScrollText,
+  'lock.fill': L.Lock,
   'lock.display': L.MonitorDot,
   'lock.shield': L.ShieldCheck,
   'lock.slash': L.LockOpen,
