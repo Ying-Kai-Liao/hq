@@ -242,6 +242,7 @@ pub fn start() {
             oldest_blocking = ?oldest_in_flight(8),
             "runtime stopped answering; exiting so launchd restarts the host"
         );
+        crate::service::mark_exiting();
         // `exit` runs no destructors of ours; the OS drops host.lock with the process.
         std::process::exit(EXIT_CODE);
     });

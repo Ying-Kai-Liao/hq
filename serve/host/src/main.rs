@@ -584,6 +584,7 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
         result = &mut server => result?,
         () = shutdown_signal() => {},
     }
+    service::mark_exiting();
     hub.shutdown().await;
     agent::acp::stopped().await;
     analytics::flush_before_exit(&hub).await;

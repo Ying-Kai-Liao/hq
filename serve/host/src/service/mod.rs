@@ -112,14 +112,41 @@ pub fn lock_host() -> Result<std::fs::File> {
 /// How long a starting host waits for an exiting predecessor to release `host.lock` (launchd restarts it at once).
 pub const LOCK_WAIT: Duration = Duration::from_secs(10);
 
-/// Like `lock_host`, but retries every 100 ms for up to `wait`. A live second host still never gets in: it
-/// only gets the lock when the holder lets go (an exited process drops it at once, so a stale file is free).
+/// A marker older than this is not a host that is leaving now (it crashed or the exit stalled).
+const EXITING_FRESH: Duration = Duration::from_secs(30);
+
+fn exiting_marker() -> PathBuf {
+    data_dir().join("host.exiting")
+}
+
+/// Called by a host right before it exits (watchdog or shutdown): tells a starting host that the lock is about
+/// to be freed, so it should wait instead of refusing. Best effort; the OS drops the lock with the process.
+pub fn mark_exiting() {
+    let _ = std::fs::write(exiting_marker(), std::process::id().to_string());
+}
+
+fn predecessor_is_exiting() -> bool {
+    let marker = exiting_marker();
+    let Ok(pid) = std::fs::read_to_string(&marker) else { return false };
+    pid.trim().parse::<u32>().is_ok_and(|pid| pid != std::process::id())
+        && std::fs::metadata(&marker)
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t.elapsed().is_ok_and(|age| age < EXITING_FRESH))
+}
+
+/// Like `lock_host`, but while the holder is marked as exiting (see `mark_exiting`) it retries every 100 ms for
+/// up to `wait`. A live holder (no fresh marker, or a marker from an older build) fails at once, and no host
+/// ever shares the lock. A stale marker is harmless: its process is gone so the lock is free, and taking the
+/// lock clears it.
 pub fn lock_host_within(wait: Duration) -> Result<std::fs::File> {
     let deadline = Instant::now() + wait;
     loop {
         match lock_host() {
-            Ok(lock) => return Ok(lock),
-            Err(error) if Instant::now() >= deadline => return Err(error),
+            Ok(lock) => {
+                let _ = std::fs::remove_file(exiting_marker());
+                return Ok(lock);
+            }
+            Err(error) if Instant::now() >= deadline || !predecessor_is_exiting() => return Err(error),
             Err(_) => std::thread::sleep(Duration::from_millis(100)),
         }
     }
@@ -409,20 +436,25 @@ fn legacy(bin: &str) -> bool {
 mod tests {
     use super::*;
 
+    // One test: both cases use the process-wide host.lock, so they cannot run in parallel.
     #[test]
-    fn a_start_waits_for_an_exiting_host_but_never_shares_the_lock() {
+    fn a_live_holder_fails_a_start_at_once_but_an_exiting_one_is_waited_for() {
         let held = lock_host().unwrap();
-        // A live holder: the wait runs out and the second host is refused.
         let started = Instant::now();
-        assert!(lock_host_within(Duration::from_millis(300)).is_err());
-        assert!(started.elapsed() >= Duration::from_millis(300));
-        // A predecessor that lets go mid-wait: the start gets the lock.
+        assert!(lock_host_within(Duration::from_secs(5)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        // The marker names another process, as a real predecessor's would.
+        std::fs::write(exiting_marker(), (std::process::id() + 1).to_string()).unwrap();
         let releaser = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(300));
+            std::thread::sleep(Duration::from_millis(400));
             drop(held);
         });
-        assert!(lock_host_within(Duration::from_secs(5)).is_ok());
+        let started = Instant::now();
+        let lock = lock_host_within(Duration::from_secs(5)).unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(300));
+        assert!(!exiting_marker().exists());
         releaser.join().unwrap();
+        drop(lock);
     }
 
     fn temp_settings(contents: &str) -> PathBuf {
