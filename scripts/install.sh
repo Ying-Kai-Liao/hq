@@ -148,8 +148,22 @@ for fd in fds:                                      # 4. let go
     fd.close()
 QUIESCE
 export SRC PREFIX
-AUTH_LOCK=${KITH_AUTH:-$PREFIX/secrets/auth.json}.lock
-SETTINGS_LOCK=${KITH_SETTINGS_LOCK:-$PREFIX/settings.json.lock}   # next to settings.json, where kith_settings locks
+# Where this Mac keeps auth.json and settings.json is the installed kernel's own kith_paths to say (a Mac whose
+# ~/.kith is not its folder keeps both under ~/.config/kith); a first install has no kernel yet: the defaults.
+lock_paths() {
+  AUTH_LOCK=$PREFIX/secrets/auth.json.lock SETTINGS_LOCK=$PREFIX/settings.json.lock
+  lib=$PREFIX/share/kith/kernel/lib
+  if have python3 && [ -f "$lib/kith_paths.py" ]; then
+    found=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from kith_paths import paths; p = paths(); print(p["KITH_SECRETS"] / "auth.json"); print(p["KITH_MACHINE"] / "settings.json")' "$lib" 2>/dev/null) || found=
+    if [ -n "$found" ]; then
+      AUTH_LOCK=$(printf '%s\n' "$found" | sed -n 1p).lock
+      SETTINGS_LOCK=$(printf '%s\n' "$found" | sed -n 2p).lock
+    fi
+  fi
+  [ -z "${KITH_AUTH:-}" ] || AUTH_LOCK=$KITH_AUTH.lock
+  [ -z "${KITH_SETTINGS_LOCK:-}" ] || SETTINGS_LOCK=$KITH_SETTINGS_LOCK
+}
+lock_paths
 if have python3 && [ -d "$(dirname "$AUTH_LOCK")" ]; then
   python3 "$WORK/quiesce.py" "$AUTH_LOCK" "$SETTINGS_LOCK" "${KITH_INSTALL_DRAIN_S:-30}" sh "$WORK/swap.sh" || die "could not install kith to $PREFIX"
 else

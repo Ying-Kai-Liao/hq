@@ -105,4 +105,17 @@ wait "$drain"
 check "a new settings write waited for the drain to end" "[ \$(cat '$T/written') -ge \$(cat '$T/drained') ]"
 check "the old settings writer was waited for" "! kill -0 $oldset"
 check "the write landed" "python3 -c \"import json; assert 'late' in json.load(open('$S'))['agents']\""
+
+# the installer finds the lock files through the installed kernel's own kith_paths: a Mac whose ~/.kith is not its
+# folder keeps auth.json and settings.json under ~/.config/kith
+awk '/^lock_paths\(\) \{/{on=1} on{print} /^}/{on=0}' "$ROOT/scripts/install.sh" > "$T/lock_paths.sh"
+lp() {   # lp PREFIX HOME: the two lock paths the installer would take
+  env -u KITH_AUTH -u KITH_HOME -u KITH_STATE HOME="$2" sh -c 'have() { command -v "$1" >/dev/null 2>&1; }; PREFIX=$1; . "$2"; lock_paths; echo "$AUTH_LOCK"; echo "$SETTINGS_LOCK"' sh "$1" "$T/lock_paths.sh"
+}
+mkdir -p "$T/home2/.config/kith" "$T/prefix/share/kith"
+check "no installed kernel: the defaults" "[ \"\$(lp '$T/none' '$T/home2' | sed -n 1p)\" = '$T/none/secrets/auth.json.lock' ]"
+cp -R "$KERNEL" "$T/prefix/share/kith/kernel"
+lp "$T/prefix" "$T/home2" > "$T/got"
+check "~/.config/kith layout: auth lock beside the real auth.json" "[ \"\$(sed -n 1p '$T/got')\" = '$T/home2/.config/kith/auth.json.lock' ]"
+check "~/.config/kith layout: settings lock beside the real settings.json" "[ \"\$(sed -n 2p '$T/got')\" = '$T/home2/.config/kith/settings.json.lock' ]"
 exit $fail
