@@ -9,6 +9,7 @@ use super::devices::{Caller, NotAllowed, Principal, principal};
 use super::{roles, str_arg};
 use crate::LockExt;
 use crate::agent::bot::Cmd;
+use crate::environment::Environment;
 use crate::hub::Hub;
 use crate::remote::{account, cloud, crypto};
 use crate::store::{Invite, PersonRow, now_ms};

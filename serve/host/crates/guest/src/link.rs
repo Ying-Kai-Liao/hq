@@ -127,6 +127,12 @@ mod tests {
     }
 
     #[test]
+    fn kith_dev_form() {
+        let link = format!("kith-dev://bot?c={}&i=bi_abc123&t=tok&k={}&r=https%3A%2F%2Fcloud.example.com", cid(), b64(&KEY));
+        assert_eq!(parse(&link).unwrap().token, "tok");
+    }
+
+    #[test]
     fn computer_id_must_hash_the_key() {
         let e = parse(&https("AAAAAAAAAAAAAAAAAAAAAA")).unwrap_err();
         assert_eq!(e.exit, crate::exit::Exit::Invite);

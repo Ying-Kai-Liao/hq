@@ -104,6 +104,15 @@ mod tests {
     use super::Environment::{Dev, Main};
 
     #[test]
+    fn web_origin_is_dev_only_unless_overridden() {
+        // The override is process-wide, so only assert the defaults when it is unset.
+        if std::env::var_os("KITH_WEB_ORIGIN").is_none() {
+            assert_eq!(Main.web_origin(), None);
+            assert!(Dev.web_origin().unwrap().starts_with("https://"));
+        }
+    }
+
+    #[test]
     fn development_cannot_replace_production_resources() {
         assert_eq!(Main.port(), 19225);
         assert_eq!(Main.data_folder(), ".kith/serve-main");

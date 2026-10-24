@@ -11,6 +11,7 @@ use super::people::{AUTH_WRITES, auth_bin, chat_with, hex};
 use super::{roles, str_arg};
 use crate::LockExt;
 use crate::agent::bot::Cmd;
+use crate::environment::Environment;
 use crate::hub::Hub;
 use crate::remote::{account, botsync, cloud, crypto};
 use crate::store::{BotConversation, BotGuest, BotInvite, BotState, Entry, EntryKind, Lane, now_ms};
