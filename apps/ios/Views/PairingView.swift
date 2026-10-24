@@ -3,17 +3,17 @@ import KithUI
 import SwiftUI
 import VisionKit
 
-/// Pair with a computer running Kith, one thing per page: install it, then scan its code.
+/// Add a computer running Kith: scan its code first, with install one row away.
 struct PairingView<Leading: View>: View {
     /// Adding another computer from the computers sheet: has a close button; closes once paired.
     var inModal = false
     /// Finish onboarding without pairing; modal pairing simply closes when skipped.
     var onSkip: (() -> Void)? = nil
-    /// Top-left on the first page (back to the welcome, the account switcher).
+    /// Top-left on the scan page (back to the welcome, the account switcher).
     @ViewBuilder var leading: Leading
 
     private enum Step { case install, scan }
-    @State private var step = Step.install
+    @State private var step = PairingView.firstStep
     @State private var os = ComputerOS.mac
     @Environment(\.dismissModal) private var dismissModal
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -21,14 +21,12 @@ struct PairingView<Leading: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             ScreenHeader {
-                if step == .scan { BackButton { go(.install) } } else { leading }
+                if step == .install { BackButton { go(.scan) } } else { leading }
             } title: {
-                HStack(spacing: 6) {
-                    Capsule().fill(Palette.text).frame(width: 18, height: 4)
-                    Capsule().fill(step == .scan ? Palette.text : Palette.accentDim).frame(width: 18, height: 4)
-                }
-                .accessibilityElement()
-                .accessibilityLabel(step == .install ? "Step 1 of 2" : "Step 2 of 2")
+                Text(step == .install ? "Install Kith" : "Add a Mac")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Palette.text)
+                    .accessibilityAddTraits(.isHeader)
             } trailing: {
                 if inModal { IconButton("Close", systemImage: "xmark") { dismissModal() } }
             }
@@ -37,25 +35,23 @@ struct PairingView<Leading: View>: View {
                 switch step {
                 case .install:
                     InstallPage(os: $os) { go(.scan) }
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                case .scan:
-                    ScanPage(os: os) { if inModal { dismissModal() } }
                         .transition(.move(edge: .trailing).combined(with: .opacity))
+                case .scan:
+                    ScanPage(os: os, inModal: inModal, install: { go(.install) }) { if inModal { dismissModal() } }
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                 }
             }
             .frame(maxHeight: .infinity)
             .clipped()
 
-            if step == .scan {
+            if step == .scan && !inModal {
                 Button {
-                    withAnimation(Motion.reduced(Motion.layout, reduceMotion)) {
-                        if inModal { dismissModal() } else { onSkip?() }
-                    }
+                    withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { onSkip?() }
                 } label: {
-                    Text("Skip").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
+                    Text("Skip for now").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
                 }
-                .buttonStyle(.secondary)
-                .accessibilityHint("Pair a computer later from Computers & settings.")
+                .buttonStyle(.line)
+                .accessibilityHint("Add a Mac later from Settings, Account.")
                 .padding(.horizontal, 24)
                 .padding(.bottom, 12)
                 .transition(.opacity)
@@ -67,6 +63,14 @@ struct PairingView<Leading: View>: View {
     private func go(_ next: Step) {
         withAnimation(Motion.reduced(.spring(duration: 0.45, bounce: 0), reduceMotion)) { step = next }
     }
+
+    /// `-kithDemoScreens pairing-install` (CI screenshots) opens on the install page.
+    private static var firstStep: Step {
+        #if DEBUG
+        if DemoScreens.name == "pairing-install" { return .install }
+        #endif
+        return .scan
+    }
 }
 
 extension PairingView where Leading == EmptyView {
@@ -75,80 +79,113 @@ extension PairingView where Leading == EmptyView {
 
 private enum ComputerOS: Hashable { case mac, linux }
 
+/// A tappable card row: icon, two lines, chevron.
+private struct CardRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: systemImage).font(.title3).foregroundStyle(Palette.text).frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.body).foregroundStyle(Palette.text)
+                    Text(detail).font(.subheadline).foregroundStyle(Palette.secondary)
+                }
+                .multilineTextAlignment(.leading)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Palette.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressScale())
+    }
+}
+
 // MARK: - Install
 
 private struct InstallPage: View {
     @Binding var os: ComputerOS
     let next: () -> Void
+    @Environment(\.openURL) private var openURL
+
+    /// The README's release install: one binary that carries `kith serve`.
+    private let installCommand = "curl -fsSL https://raw.githubusercontent.com/Ying-Kai-Liao/kith/main/scripts/install.sh | sh"
+    private let guide = URL(string: "https://github.com/Ying-Kai-Liao/kith#readme")!
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    // A bot on the computer's screen: that's where it lives.
-                    ZStack {
-                        Image(systemName: "laptopcomputer")
-                            .font(.system(size: 150, weight: .ultraLight))
-                            .foregroundStyle(Palette.tertiary)
-                        CharacterAvatar(portrait: "crew-builder", size: 52, mood: .working)
-                            .offset(y: -12)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 8)
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Install Kith\non your computer")
-                            .font(.system(size: 30, weight: .semibold))
-                            .tracking(-0.5)
-                            .foregroundStyle(Palette.text)
-                        Text("Your bots run there. This iPhone is how you talk to them.")
-                            .font(.body)
-                            .foregroundStyle(Palette.secondary)
-                    }
-
+                VStack(alignment: .leading, spacing: 16) {
                     SegmentedChoice(selection: $os, options: [(.mac, "Mac"), (.linux, "Linux")])
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        // Copied here, pasted on the computer (Universal Clipboard or a message to yourself).
-                        // The same hq host on both systems; `os` only changes what the note says.
-                        Hint("Install hq")
-                        CommandBlock("https://github.com/Ying-Kai-Liao/kith")
-                        Hint("then start the host")
-                        CommandBlock("kith serve start")
-                        Hint("then show its pairing code")
-                        CommandBlock("~/.kith/serve/bin/kith-serve pair")
-                        Text(os == .mac
-                             ? "The host keeps running in the background through launchd."
-                             : "The host runs as a systemd user service. Run loginctl enable-linger $USER to keep it running after logout.")
-                            .font(.subheadline)
-                            .foregroundStyle(Palette.secondary)
-                            .contentTransition(.opacity)
+                    VStack(alignment: .leading, spacing: 22) {
+                        InstallStep(number: 1, title: "Install Kith", note: "In Terminal on your computer.", command: installCommand)
+                        InstallStep(number: 2, title: "Start the host",
+                                    note: os == .mac
+                                        ? "It keeps running in the background through launchd."
+                                        : "It runs as a systemd user service. Run loginctl enable-linger $USER to keep it running after logout.",
+                                    command: "kith serve start")
+                        InstallStep(number: 3, title: "Show the pairing code",
+                                    note: os == .mac ? "Or click Kith in the menu bar, then Pair iPhone." : nil,
+                                    command: "~/.kith/serve/bin/kith-serve pair")
                     }
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .animation(Motion.layout, value: os)
 
-                    DemoButton()
+                    // Copied here, pasted on the computer (Universal Clipboard or a message to yourself).
+                    Text("Copy here, paste on the computer: Universal Clipboard, or send it to yourself.")
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.secondary)
+                        .padding(.horizontal, 4)
+
+                    CardRow(title: "Setup guide", detail: "github.com/Ying-Kai-Liao/kith", systemImage: "book.closed") {
+                        openURL(guide)
+                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 16)
             }
 
             Button(action: next) {
-                Text("Continue").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
+                Text("Scan the code").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
             }
-            .buttonStyle(.primary)
+            .buttonStyle(.ink)
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
         }
     }
 }
 
-/// A small label above a `CommandBlock`.
-private struct Hint: View {
-    let text: String
-    init(_ text: String) { self.text = text }
+private struct InstallStep: View {
+    let number: Int
+    let title: String
+    let note: String?
+    let command: String
 
     var body: some View {
-        Text(text).font(.footnote).foregroundStyle(Palette.secondary).transition(.opacity)
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Palette.background)
+                .frame(width: 22, height: 22)
+                .background(Palette.text, in: Circle())
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.body.weight(.semibold)).foregroundStyle(Palette.text)
+                if let note { Text(note).font(.subheadline).foregroundStyle(Palette.secondary) }
+                CommandBlock(command).padding(.top, 2)
+            }
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -165,6 +202,7 @@ private struct CommandBlock: View {
                 .font(.footnote.monospaced())
                 .foregroundStyle(Palette.text)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 6)
                 .contentTransition(.opacity)
@@ -181,15 +219,24 @@ private struct CommandBlock: View {
         .padding(.leading, 14)
         .padding(.trailing, 4)
         .padding(.vertical, 4)
-        .background(Palette.codeBackground, in: RoundedRectangle(cornerRadius: 12))
+        .background(Palette.background, in: RoundedRectangle(cornerRadius: 12))
         .animation(Motion.fade, value: command)
     }
 }
 
 // MARK: - Scan
 
+/// Who was just paired, for the success cover.
+private struct PairedSummary {
+    let name: String
+    let agents: Int
+    let portraits: [String]
+}
+
 private struct ScanPage: View {
     let os: ComputerOS
+    let inModal: Bool
+    let install: () -> Void
     let paired: () -> Void
     @Environment(AppStore.self) private var app
     @Environment(AccountSession.self) private var account
@@ -199,27 +246,43 @@ private struct ScanPage: View {
     @State private var pairing = false
     @State private var pasted = ""
     @State private var error: String?
+    @State private var done: PairedSummary?
     /// Bumped after a failed pair so the scanner starts looking again.
     @State private var attempt = 0
     @State private var tailscaleOn = Tailscale.isConnected
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Scan the pairing code")
-                        .font(.system(size: 30, weight: .semibold))
-                        .tracking(-0.5)
-                        .foregroundStyle(Palette.text)
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(spacing: 10) {
                     Text(os == .mac
                          ? "On your Mac, click Kith in the menu bar, then Pair iPhone."
                          : "On your computer, run this in a terminal:")
-                        .font(.body)
+                        .font(.subheadline)
                         .foregroundStyle(Palette.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                     if os == .linux { CommandBlock("~/.kith/serve/bin/kith-serve pair") }
                 }
 
                 viewfinder
+
+                if let error {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle").foregroundStyle(Palette.danger)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(error).font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.danger)
+                            // The usual cause: the phone has no road to the computer yet.
+                            Text("Check that this iPhone and the computer are on the same Wi-Fi or both on Tailscale, or that “Reach from anywhere” is on in Kith on the computer.")
+                                .font(.footnote)
+                                .foregroundStyle(Palette.secondary)
+                        }
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .transition(.opacity)
+                }
 
                 HStack {
                     TextField("Or paste a \(AppEnvironment.current.urlScheme)://pair link", text: $pasted)
@@ -235,20 +298,19 @@ private struct ScanPage: View {
                 .padding(.vertical, 4)
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
 
-                if let error {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(error).font(.footnote).foregroundStyle(Palette.danger)
-                        // The usual cause: the phone has no road to the computer yet.
-                        Label("Check that this iPhone and the computer are on the same Wi-Fi or both on Tailscale, or that “Reach from anywhere” is on in Kith on the computer.",
-                              systemImage: "wifi.exclamationmark")
+                CardRow(title: "Kith isn't on your computer yet", detail: "Install it on a Mac or Linux, then come back",
+                        systemImage: "laptopcomputer.and.arrow.down", action: install)
+
+                // Signed in, account computers show up and ask for access themselves.
+                if !inModal && account.isConfigured && !account.isSignedIn {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Or sign in").font(.footnote.weight(.semibold)).foregroundStyle(Palette.secondary).textCase(.uppercase)
+                        SignInButtons()
+                        Text("Signed in, the Macs on your account show up without a code.")
                             .font(.footnote)
                             .foregroundStyle(Palette.secondary)
                     }
-                    .transition(.opacity)
                 }
-
-                // Signed in, account computers show up and ask for access themselves.
-                if account.isConfigured && !account.isSignedIn { SignInButtons() }
 
                 // How it connects is never a choice here: every paired computer gets every route.
                 VStack(alignment: .leading, spacing: 8) {
@@ -272,6 +334,18 @@ private struct ScanPage: View {
         .scrollDismissesKeyboard(.interactively)
         // Coming back from the Tailscale app: show whether it's connected now.
         .onChange(of: scenePhase) { _, phase in if phase == .active { tailscaleOn = Tailscale.isConnected } }
+        #if DEBUG
+        .task {
+            // CI shots: `-kithDemoScreens pairing-success` / `pairing-error`.
+            switch DemoScreens.name {
+            case "pairing-success":
+                done = PairedSummary(name: "Studio Mac", agents: 3, portraits: ["crew-builder", "crew-designer", "crew-lab"])
+            case "pairing-error":
+                error = "That pairing code has expired or was already used."
+            default: break
+            }
+        }
+        #endif
     }
 
     /// The camera, right on the page: no extra sheet between the instruction and the scan.
@@ -289,10 +363,12 @@ private struct ScanPage: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Palette.surface)
             }
+            CornerBrackets().padding(48).allowsHitTesting(false)
             if pairing {
                 Palette.background.opacity(0.7)
                 Spinner(size: 28)
             }
+            if let done { PairedCover(summary: done, reduceMotion: reduceMotion) }
         }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -300,6 +376,8 @@ private struct ScanPage: View {
     }
 
     private func pair(_ text: String) {
+        // The scanner fires once per code; this also covers a paste or a second code while one is in flight.
+        guard !pairing, done == nil else { return }
         let p: Pairing
         do {
             p = try Pairing.parse(text.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -312,8 +390,14 @@ private struct ScanPage: View {
         Task {
             defer { pairing = false }
             do {
-                _ = try await app.pair(p)
+                let computer = try await app.pair(p)
                 pasted = ""
+                let bots = app.accounts.store(for: computer.id)?.bots.values.sorted { $0.id < $1.id } ?? []
+                withAnimation(Motion.reduced(Motion.layout, reduceMotion)) {
+                    done = PairedSummary(name: computer.name, agents: bots.count,
+                                         portraits: bots.prefix(4).compactMap { CrewAvatar.asset(for: $0) })
+                }
+                try? await Task.sleep(for: .seconds(reduceMotion ? 0.6 : 1.2))
                 paired()
             } catch {
                 show(error)
@@ -324,6 +408,54 @@ private struct ScanPage: View {
     private func show(_ error: Error) {
         attempt += 1
         withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { self.error = error.localizedDescription }
+    }
+}
+
+/// Four white corner brackets over the camera.
+private struct CornerBrackets: View {
+    var body: some View {
+        GeometryReader { proxy in
+            let arm: CGFloat = 34
+            Path { p in
+                let w = proxy.size.width, h = proxy.size.height
+                for (x, y, dx, dy) in [(0, 0, 1, 1), (w, 0, -1, 1), (0, h, 1, -1), (w, h, -1, -1)] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
+                    p.move(to: CGPoint(x: x + dx * arm, y: y))
+                    p.addLine(to: CGPoint(x: x, y: y))
+                    p.addLine(to: CGPoint(x: x, y: y + dy * arm))
+                }
+            }
+            .stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+        }
+    }
+}
+
+/// Over the viewfinder once paired.
+private struct PairedCover: View {
+    let summary: PairedSummary
+    let reduceMotion: Bool
+    @State private var shown = false
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            Color(hex: 0x14161B).opacity(0.55)
+            VStack(spacing: 10) {
+                Image(systemName: "checkmark.circle").font(.system(size: 46, weight: .light))
+                Text("Paired with \(summary.name)").font(.system(size: 17, weight: .semibold)).multilineTextAlignment(.center)
+                if summary.agents > 0 {
+                    Text(summary.agents == 1 ? "1 agent is ready" : "\(summary.agents) agents are ready").font(.subheadline).opacity(0.8)
+                    HStack(spacing: -6) {
+                        ForEach(summary.portraits, id: \.self) { CharacterAvatar(portrait: $0, size: 30) }
+                    }
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(24)
+            .scaleEffect(shown || reduceMotion ? 1 : 0.92)
+            .opacity(shown ? 1 : 0)
+        }
+        .accessibilityElement(children: .combine)
+        .onAppear { withAnimation(Motion.reduced(.spring(duration: 0.4, bounce: 0.15), reduceMotion)) { shown = true } }
     }
 }
 

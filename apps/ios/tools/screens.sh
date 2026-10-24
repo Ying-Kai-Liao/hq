@@ -52,6 +52,11 @@ modes=(
   "demo-agent-settings|-kithDemoScreens agent-settings"
   "demo-call|-kithDemoScreens call"
   "demo-incoming-call|-kithDemoScreens incoming-call"
+  "pairing-welcome|-kithDemoScreens pairing-welcome"
+  "pairing-scan|-kithDemoScreens pairing-scan"
+  "pairing-install|-kithDemoScreens pairing-install"
+  "pairing-success|-kithDemoScreens pairing-success"
+  "pairing-error|-kithDemoScreens pairing-error"
 )
 
 for appearance in light dark; do

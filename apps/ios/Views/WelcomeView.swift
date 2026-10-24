@@ -2,12 +2,12 @@ import KithKit
 import KithUI
 import SwiftUI
 
-/// First launch, before any setup: who the bots are, a glimpse of talking to one, one way forward.
+/// First launch, before any setup: who the bots are, one way forward.
 struct WelcomeView: View {
     let start: () -> Void
     @Environment(AccountSession.self) private var account
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// 0 = nothing yet … 4 = everything shown. Each beat enters in turn.
+    /// 0 = nothing yet … 3 = everything shown. Each beat enters in turn.
     @State private var beat = 0
 
     var body: some View {
@@ -18,10 +18,10 @@ struct WelcomeView: View {
             }
             .scrollBounceBehavior(.basedOnSize)
         }
-        .background(Palette.background)
+        .background { SkyBackground(.home) }
         .task {
-            if reduceMotion { beat = 4; return }
-            for next in 1...4 {
+            if reduceMotion { beat = 3; return }
+            for next in 1...3 {
                 try? await Task.sleep(for: .milliseconds(next == 1 ? 150 : 280))
                 withAnimation(.spring(duration: 0.6, bounce: 0.25)) { beat = next }
             }
@@ -29,37 +29,33 @@ struct WelcomeView: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Spacer(minLength: 24)
+        VStack(spacing: 0) {
+            Spacer(minLength: 48)
 
             Crew(shown: beat >= 1)
                 .frame(maxWidth: .infinity)
 
-            Spacer(minLength: 24)
-
-            ChatGlimpse(shown: beat >= 2)
-                .padding(.bottom, 24)
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Your coding agents,\nas teammates.")
-                    .font(.system(size: 34, weight: .semibold))
-                    .tracking(-0.6)
-                    .foregroundStyle(Palette.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Give each one a name and a project. They work on your computer while you're away.")
-                    .font(.body)
-                    .foregroundStyle(Palette.secondary)
-                DemoButton().padding(.top, 4)
-            }
-            .rise(beat >= 3)
-
             Spacer(minLength: 32)
+
+            VStack(spacing: 10) {
+                Text("Your coding agents, as teammates.")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Palette.text)
+                    .multilineTextAlignment(.center)
+                Text("Give each one a name and a project. They work on your computer while you're away.")
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .rise(beat >= 2)
+
+            Spacer(minLength: 48)
 
             VStack(spacing: 10) {
                 Button(action: start) {
                     Text("Get started").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
                 }
-                .buttonStyle(.primary)
+                .buttonStyle(.ink)
                 // Signed in, the computers on the account show up without scanning a code.
                 if account.isConfigured { SignInButtons() }
                 if let message = account.errorMessage {
@@ -67,7 +63,7 @@ struct WelcomeView: View {
                         .transition(.opacity)
                 }
             }
-            .rise(beat >= 4)
+            .rise(beat >= 3)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
@@ -102,56 +98,6 @@ private struct Crew: View {
             }
         }
         .frame(height: 170)
-    }
-}
-
-/// One exchange, played once: you ask, a bot works, a bot answers.
-private struct ChatGlimpse: View {
-    let shown: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var replied = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Fix the flaky login test")
-                .bubble(Palette.bubbleUser)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .rise(shown)
-
-            HStack(alignment: .bottom, spacing: 8) {
-                CharacterAvatar(portrait: "crew-builder", size: 28, mood: replied ? .idle : .working)
-                if replied {
-                    Text("Done. It raced the session refresh; tests pass on fix/login.")
-                        .bubble(Palette.bubbleAgent)
-                        .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottomLeading)))
-                } else {
-                    Text("Working…")
-                        .font(.subheadline)
-                        .foregroundStyle(Palette.tertiary)
-                        .transition(.opacity)
-                }
-            }
-            .rise(shown)
-        }
-        .accessibilityElement(children: .combine)
-        .onChange(of: shown) { _, shown in
-            guard shown else { return }
-            Task {
-                try? await Task.sleep(for: .seconds(reduceMotion ? 0 : 1.6))
-                withAnimation(Motion.reduced(.spring(duration: 0.45, bounce: 0.2), reduceMotion)) { replied = true }
-            }
-        }
-    }
-}
-
-/// Opens a short recording of the app in use on YouTube, for anyone who can't pair a computer yet.
-struct DemoButton: View {
-    var body: some View {
-        Link(destination: URL(string: "https://youtube.com/shorts/xtZ5WeyOewU")!) {
-            Label("Watch the demo", systemImage: "play.circle.fill")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Palette.text)
-        }
     }
 }
 
