@@ -41,7 +41,7 @@ struct Composer: View {
     /// In a bot's chat a message goes on with the current task: Stop and "working" are that task's.
     private var place: String? { thread ?? (tasks ? Tasks.current(in: model.chat(botId))?.id : nil) }
     /// The next message starts a task of its own: asked for, or the reader just left a thread (see `BotStore.leftThread`).
-    private var startsNew: Bool { newTask || (thread == nil && model.leftThread.contains(botId)) }
+    private var startsNew: Bool { model.startsNewTask(botId, thread: thread, requested: newTask) }
     private var working: Bool { !startsNew && bot?.isWorking(in: botId, thread: place) == true }
 
     private var isEmpty: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty }

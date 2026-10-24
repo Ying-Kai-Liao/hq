@@ -84,6 +84,10 @@ public final class BotStore {
     /// Bots whose thread the reader just left: the next message in their main chat starts a new task instead of
     /// going on with the current one (which would put it back in that thread).
     var leftThread: Set<String> = []
+    /// Whether a send from the composer starts a new task: asked for, or (main chat only) the reader just left a thread.
+    func startsNewTask(_ botId: String, thread: String?, requested: Bool) -> Bool {
+        requested || (thread == nil && leftThread.contains(botId))
+    }
     /// The open conversation (navigation path).
     public var selection: String?
     /// The remote screen viewer (iPhone); `kith://screen` opens it.

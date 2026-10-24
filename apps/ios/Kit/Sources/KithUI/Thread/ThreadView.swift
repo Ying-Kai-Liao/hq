@@ -414,6 +414,7 @@ extension ThreadView {
                                 }
                         }
                         .clipped()
+                        .ignoresSafeArea(edges: .top)
                         .overlay(alignment: .bottom) {
                             LinearGradient(colors: [Palette.background, Palette.background.opacity(0)], startPoint: .top, endPoint: .bottom)
                                 .frame(height: 12).offset(y: 12).allowsHitTesting(false)
