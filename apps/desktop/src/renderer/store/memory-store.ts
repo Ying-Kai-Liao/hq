@@ -100,7 +100,7 @@ export class MemoryStore extends Observable {
     const request = ++this.request
     try {
       const view = await (await this.client()).call<MemoryView & { dreams?: TidyRun[] }>('memory', { botId: this.botId })
-      // A host before 2.18.0 answers with its old memory listing, which has no layers or tidy-ups; one from before
+      // An older host answers with its old memory listing, which has no layers or tidy-ups; one from before
       // the rename calls them `dreams`.
       const tidyUps = Array.isArray(view.tidyUps) ? view.tidyUps : view.dreams
       if (!Array.isArray(tidyUps)) throw new Error(OLDER_HOST)

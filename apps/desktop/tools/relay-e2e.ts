@@ -96,7 +96,7 @@ class FakeMac {
   async register() {
     return cloud('POST', '/v1/host/register', {
       signer: this.sign,
-      body: { boxKey: b64url(this.box.pub), name: 'Test Mac', platform: 'macos', device: 'e2e', version: '2.2.0' },
+      body: { boxKey: b64url(this.box.pub), name: 'Test Mac', platform: 'macos', device: 'e2e', version: '0.1.0' },
     })
   }
 
@@ -202,7 +202,7 @@ async function main() {
   const claimInput = ['kith/claim/v1', claim.body.claimId, claim.body.nonce, 'user_desktop_owner', mac.computerId, boxKeyB64].join('\n')
   const done = await cloud('POST', `/v1/claims/${claim.body.claimId}/complete`, {
     token: owner,
-    body: { computerId: mac.computerId, signKey: b64url(mac.sign.publicKey), boxKey: boxKeyB64, name: 'Test Mac', platform: 'macos', device: 'e2e', version: '2.2.0', sig: b64url(mac.sign.sign(Buffer.from(claimInput))) },
+    body: { computerId: mac.computerId, signKey: b64url(mac.sign.publicKey), boxKey: boxKeyB64, name: 'Test Mac', platform: 'macos', device: 'e2e', version: '0.1.0', sig: b64url(mac.sign.sign(Buffer.from(claimInput))) },
   })
   check(done.status === 200, 'the owner account claimed the Mac')
 

@@ -25,7 +25,7 @@ async function claim(user: User, host: TestHost) {
   const sig = ref.b64url(ref.sign(host.sign, ref.enc.encode(ref.claimCanonical(c.body.claimId, c.body.nonce, user.userId, host.cid, boxKey))));
   const r = await call("POST", `/v1/claims/${c.body.claimId}/complete`, {
     token: user.token,
-    body: { computerId: host.cid, signKey: ref.b64url(host.sign.pub), boxKey, name: "Studio", platform: "macos", device: "mac", version: "2.2.0", sig },
+    body: { computerId: host.cid, signKey: ref.b64url(host.sign.pub), boxKey, name: "Studio", platform: "macos", device: "mac", version: "0.1.0", sig },
   });
   expect(r.status).toBe(200);
 }

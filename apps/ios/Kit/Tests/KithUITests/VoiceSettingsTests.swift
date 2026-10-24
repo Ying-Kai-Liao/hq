@@ -27,7 +27,7 @@ import Testing
     VoiceSettings.remember(VoiceDefaults(realtime: "a", transcribe: "gemini-10-flash", speech: "b"), for: p)
     #expect(VoiceSettings.transcribeModel(p) == "gemini-1-flash")
 
-    // A host from before 2.6.3 sends no defaults: the last known ones stay.
+    // An older host sends no defaults: the last known ones stay.
     let old = try JSONDecoder().decode(VoiceStatus.self, from: Data(#"{"providers":[{"provider":"gemini","configured":true}]}"#.utf8))
     VoiceSettings.remember(old)
     #expect(VoiceSettings.defaults(p).transcribe == "gemini-10-flash")

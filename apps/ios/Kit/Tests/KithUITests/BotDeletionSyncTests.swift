@@ -20,7 +20,7 @@ import Testing
     store.setComposerDraft("draft", for: bot.id)
     store.setComposerDraft("thread draft", for: bot.id, thread: "root")
     store.rev = 9
-    store.hostVersion = HostVersion(version: "2.11.1")
+    store.hostVersion = HostVersion(version: "0.1.0")
     let task = Task { await store.runEvents(HostClient(transport: fake)) }
     defer { task.cancel() }
     for _ in 0..<200 {

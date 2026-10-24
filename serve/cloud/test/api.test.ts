@@ -51,7 +51,7 @@ function claimBody(c: Json, userId: string, host: TestHost, family?: ref.Family)
     name: "Studio",
     platform: "macos",
     device: "macmini",
-    version: "2.2.0",
+    version: "0.1.0",
     sig: ref.b64url(ref.sign(host.sign, ref.enc.encode(canonical))),
   };
 }
@@ -144,7 +144,7 @@ describe("Kith-Sig over HTTP", () => {
     call("POST", "/v1/host/register", {
       key,
       ...o,
-      body: { boxKey: ref.b64url(ref.boxKey().pub), name: "Mac", platform: "macos", version: "2.2.0" },
+      body: { boxKey: ref.b64url(ref.boxKey().pub), name: "Mac", platform: "macos", version: "0.1.0" },
     });
 
   it("rejects a replayed nonce", async () => {
@@ -160,7 +160,7 @@ describe("Kith-Sig over HTTP", () => {
     const as = (platform: string) =>
       call("POST", "/v1/host/register", {
         key: ref.signKey(),
-        body: { boxKey: ref.b64url(ref.boxKey().pub), name: "PC", platform, version: "2.9.0" },
+        body: { boxKey: ref.b64url(ref.boxKey().pub), name: "PC", platform, version: "0.1.0" },
       });
     expect((await as("windows")).status).toBe(200);
     expect((await as("beos")).status).toBe(400);
@@ -181,7 +181,7 @@ describe("Kith-Sig over HTTP", () => {
       const r = await call("POST", "/v1/host/register", {
         key: ref.signKey(),
         headers: ip,
-        body: { boxKey: ref.b64url(ref.boxKey().pub), name: "Mac", platform: "macos", version: "2.2.0" },
+        body: { boxKey: ref.b64url(ref.boxKey().pub), name: "Mac", platform: "macos", version: "0.1.0" },
       });
       statuses.push(r.status);
     }
@@ -191,7 +191,7 @@ describe("Kith-Sig over HTTP", () => {
 
   it("binds the body", async () => {
     const key = ref.signKey();
-    const body = ref.enc.encode(JSON.stringify({ boxKey: ref.b64url(ref.boxKey().pub), name: "Mac", platform: "macos", version: "2.2.0" }));
+    const body = ref.enc.encode(JSON.stringify({ boxKey: ref.b64url(ref.boxKey().pub), name: "Mac", platform: "macos", version: "0.1.0" }));
     const sig = ref.signRequest(key, { method: "POST", authority: AUTHORITY, pathAndQuery: "/v1/host/register", body });
     const res = await worker.fetch(
       new Request(`https://${AUTHORITY}/v1/host/register`, {
