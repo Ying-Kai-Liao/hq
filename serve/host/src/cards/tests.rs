@@ -273,14 +273,26 @@ async fn a_members_own_card_for_code_goes_to_the_owner() {
     let sam = joined(&r, "member").await;
     dispatch(&r.hub, &sam, "startChat", json!({"agent": "house"})).await.unwrap();
     window(&r.hub, 20);
-    let cases: [(&'static str, Value, &str); 6] = [
+    let own = roles::grant_roots("sam", "house");
+    assert_eq!(own.len(), 3, "memory, files and shared memory of house for sam");
+    let mine = format!("{}/f11-x", own[1].display());
+    let cases: [(&'static str, Value, &str); 8] = [
         ("Bash", ls(), "owner"),
         ("mcp__x__y", json!({"a": 1}), "owner"),
         ("BashOutput", json!({"bash_id": "1"}), "member"),
         ("KillShell", json!({"shell_id": "1"}), "member"),
         ("WebFetch", json!({"url": "https://example.com"}), "member"),
-        ("Edit", json!({"file_path": "/tmp/f11-x", "old_string": "a", "new_string": "b"}), "member"),
+        ("Edit", json!({"file_path": mine, "old_string": "a", "new_string": "b"}), "member"),
+        // Outside the run's grants (F11 step 2a): the owner's, though Edit is not code.
+        ("Edit", json!({"file_path": "/tmp/f11-x", "old_string": "a", "new_string": "b"}), "owner"),
+        ("Read", json!({"file_path": format!("{}/../../../other/x", own[1].display())}), "owner"),
     ];
+    let inside = |tool: &str, input: Value| roles::within(&own, tool, &input);
+    assert!(inside("Edit", json!({"file_path": mine})));
+    assert!(inside("Grep", json!({"pattern": "x"})), "no path named: the working directory, which the sandbox holds");
+    assert!(!inside("Edit", json!({"file_path": format!("{}/../x", own[1].display())})), "dotdot is applied");
+    assert!(!inside("Read", json!({"file_path": "relative/x"})));
+    assert!(!inside("Glob", json!({"pattern": "/etc/**/*.conf"})), "a pattern is bound by the folder it starts in");
     for (tool, input, approver) in cases {
         let call = ask(&r.hub, guest_run("sam", "1:1:house:sam"), tool, input);
         let card = shown(&r.hub).await;
